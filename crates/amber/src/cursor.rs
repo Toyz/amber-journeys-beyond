@@ -64,14 +64,27 @@ pub const YUGO_CURSORS: [(&str, i32); 22] = [
 
 /// The cast members an id names: the image, then its mask.
 ///
-/// From `castCursor`, which is four lines and the whole of the mapping.
+/// From `castCursor`, and the ordering is the part to get right:
+///
+/// ```text
+/// whichCursor = cursorID - 6000
+/// cMask = 2500 + whichCursor * 2
+/// cursor( [cMask - 1, cMask] )
+/// ```
+///
+/// The **mask** sits at the computed offset and the image is one *below* it.
+/// Reading it the other way round -- image at the offset, mask above -- draws
+/// each cursor's mask as its picture and the next cursor's picture as its
+/// mask, which is wrong in a way that still looks like a cursor: a mask is a
+/// filled silhouette of the right shape, so the arrow is arrow-shaped and only
+/// the shading is nonsense.
 pub fn casts_for(id: i32) -> Option<(u32, u32)> {
     if id < 6000 {
         // A system cursor, with no art on the disc.
         return None;
     }
-    let image = 2500 + (id - 6000) * 2;
-    Some((image as u32, image as u32 + 1))
+    let mask = 2500 + (id - 6000) * 2;
+    Some((mask as u32 - 1, mask as u32))
 }
 
 /// The cursor a verb asks for, by name in the table above.
@@ -236,10 +249,12 @@ mod cursor_tests {
     /// `2500 + (id - 6000) * 2` for the image and one past it for the mask.
     #[test]
     fn an_id_names_a_pair_of_casts() {
-        assert_eq!(casts_for(6000), Some((2500, 2501)));
-        assert_eq!(casts_for(6001), Some((2502, 2503))); // forward
-        assert_eq!(casts_for(6018), Some((2536, 2537))); // browse
-        assert_eq!(casts_for(6024), Some((2548, 2549))); // examine
+        // `cursor( [cMask - 1, cMask] )`: the mask is at the offset and the
+        // image is the cast below it.
+        assert_eq!(casts_for(6000), Some((2499, 2500)));
+        assert_eq!(casts_for(6001), Some((2501, 2502))); // forward
+        assert_eq!(casts_for(6018), Some((2535, 2536))); // browse
+        assert_eq!(casts_for(6024), Some((2547, 2548))); // examine
     }
 
     /// Two entries in the table are system cursors with no art behind them:

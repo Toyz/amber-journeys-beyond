@@ -4821,3 +4821,48 @@ written to catch a class of bug is worth nothing until it has caught one, and
 the cheapest way to find out is to make the bug on purpose.
 
 250 tests.
+
+## 115. Off by one cast
+
+helba, twice: the cursor on the portal is wrong. It was, and by exactly one
+cast member.
+
+I had read `castCursor` from a fragment and written down
+
+```text
+image = 2500 + (id - 6000) * 2
+mask  = image + 1
+```
+
+The handler in full says otherwise:
+
+```text
+whichCursor = cursorID - 6000
+cMask = 2500 + whichCursor * 2
+cursor( [cMask - 1, cMask] )
+```
+
+The **mask** is at the computed offset and the image is the cast *below* it. So
+every cursor was drawing its own mask as its picture, and the next cursor's
+picture as its mask.
+
+Which looked fine, and that is the point worth keeping. A mask is a filled
+silhouette of the right shape, so an arrow still looked like an arrow and a box
+still looked like a box; only the shading was nonsense and the symbol inside
+came from the wrong cursor. helba saw an X where the examine cursor has a
+question mark -- 2549 rather than 2547 -- and I had checked my work by looking
+at the composite, which is precisely the view that hides the error.
+
+Printing the members raw and separately settles it in a second:
+
+```text
+2547  box outline with a ?      detail  -> an image
+2548  solid filled box          silhouette -> a mask
+2549  box outline with an X     detail  -> an image
+```
+
+Images at odd casts, masks at even, pairs of `(mask - 1, mask)`. Once you see
+one image next to one mask the ordering is not arguable, and I had never looked
+at them apart.
+
+250 tests.
