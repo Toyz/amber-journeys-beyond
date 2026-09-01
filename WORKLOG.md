@@ -2669,3 +2669,38 @@ extraction is complete -- 280 `.MOV` names in the image against 278 files, the
 two extras being fragments my scan caught mid-string. Margaret's own directory
 holds thirty-six films and no intro among them. Entry 69 steps past that room
 for exactly this reason, and there is nothing further to recover.
+
+## 75. Looking for a film that is not there
+
+helba asked the right question about entry 74: what if Margaret's opening is
+not *in* Margaret? A file can live anywhere on a disc, and I had only searched
+by name.
+
+Four checks, and they all say the same thing.
+
+The movie index is not chapter-scoped: it walks the whole tree once and keys
+case-insensitively, so a film in any folder is already found from any chapter.
+That was the version of the question worth taking seriously, and it was already
+answered by the code.
+
+No room in any other chapter goes to a Margaret room -- I resolved every
+`goTo` destination in `BRICE`, `EDWIN` and `ROXY` against Margaret's own
+location table and got nothing. There is a `transitToEdwin` and no equivalent
+for her.
+
+Her folder has no opening in it. Sorted by duration, the longest film she owns
+is `MARGEND.MOV` at thirty-one seconds -- her *ending* -- and everything else
+is five seconds or less, which is the length of a door swinging.
+
+And no film anywhere else is a candidate. The three forties-named films in
+Roxy's folder run 3.6, 1.7 and 0.2 seconds: a frame, a plan and a scanner
+graphic. The long films on the disc are the game's opening, the credits, the
+camera log and Edwin's endings.
+
+So the answer stands, but it is worth saying what changed: I had asserted it
+from one search of the image for one name, which is thin, and helba was right
+to push. It is now four independent measurements that agree, which is a
+different kind of claim. The room that asks for `40sINTRO.mov` is scaffolding
+by every other measure too -- a seventeen by three palette holder, exits to a
+word rather than a place -- so the most likely reading is that the film was cut
+and the record that called for it was left behind.
