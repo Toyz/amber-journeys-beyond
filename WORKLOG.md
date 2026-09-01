@@ -4454,3 +4454,49 @@ argument meaning "certain" is the opposite of what I would have assumed, and
 the test walks forty seeds to say so.
 
 Verbs down from 11 to 8. 239 tests.
+
+## 107. The car and its tracks
+
+`chooseTrack`, which is Edwin's car, and which works two different ways
+depending on where the car already is.
+
+**At a hub** the three directions each lead somewhere and the film is a third
+of `waffle.mov`. The main hub gets 0-223, 225-448 and 450-675; the three
+lettered hubs share a shorter set at 0-178, 180-358 and 360-540. Six stretches
+of one film, which is the same trick the music boxes use in entry 70 and the
+weather vane in entry 84. This game does that constantly.
+
+**Already on a track** it is a lookup instead, and the two tables are each
+other backwards:
+
+```text
+right  [#c: #B, #B: #A, #AL: #AM, #AM: #AR, #BL: #BM, #BM: #BR, #CL: #CM, #CM: #CR]
+left   [#B: #c, #A: #B, #AM: #AL, #AR: #AM, #BM: #BL, #BR: #BM, #CM: #CL, #CR: #CM]
+```
+
+A direction with no entry for the track you are on does **nothing at all** --
+no film, no sound, no refusal. That is how the dead ends are expressed: not
+"you cannot go that way" but an absence. Worth a test of its own, because an
+engine that reported the refusal would be adding something the game does not
+have.
+
+### 898
+
+I wrote the left-hand film stretches as the right-hand ones with 450 and 360
+added, because that is what they look like:
+
+```text
+right   #B: [0, 448]     #BM, #AM, #CM: [0, 358]
+left    #B: [450, 900]   #BM, #AM, #CM: [360, 720]
+```
+
+450 + 448 is 898. Everything else in that table shifts exactly and `#B` does
+not, so the derivation is wrong for one entry in four and right for the rest --
+which is the worst kind of wrong, because it works when you spot-check it.
+
+This is the second time in this port I have written a rule where a table
+belongs; the first was the weather vane in entry 84, where I caught it by
+reading. This time the test caught it, which is better. Both tables are now
+written out.
+
+Verbs down from 8 to 7. 243 tests.

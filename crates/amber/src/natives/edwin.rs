@@ -162,6 +162,168 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on chooseTrack whichDirection
+        //   cursorOff
+        //   currentLocation = getState( #carLocation )
+        //   if currentLocation <> #enRoute then
+        //     setLoop( #trackLoop, 120 )
+        //     if #left   then hub_main -> #c, pushQT(0, 223)   else <hub>L, pushQT(0, 178)
+        //     if #middle then hub_main -> #B, pushQT(225, 448) else <hub>M, pushQT(180, 358)
+        //     if #right  then hub_main -> #A, pushQT(450, 675) else <hub>R, pushQT(360, 540)
+        //     wait #videoStop : setLoop( #trackLoop, 0 )
+        //     setState( #currentTrack, newTrack )
+        //     setState( #carLocation, #enRoute )
+        //     setState( #showMontage, 0 )
+        //   else
+        //     currentTrack = getState( #currentTrack )
+        //     destinations = [#c: #B, #B: #A, #AL: #AM, #AM: #AR, ...]   -- for #right
+        //                    [#B: #c, #A: #B, #AM: #AL, #AR: #AM, ...]   -- for #left
+        //     myDestination = getaProp( destinations, currentTrack )
+        //     if voidp( myDestination ) then return
+        //     segments = [#B: [0, 448], #BM: [0, 358], ...]              -- for #right
+        //                [#B: [450, 900], #BM: [360, 720], ...]          -- for #left
+        //     ... play that stretch, or the whole film if it has no stretch ...
+        //     newTrack = myDestination
+        //
+        // Edwin's car and its tracks, which work two ways depending on where
+        // the car is.
+        //
+        // **At a hub** the three directions each lead somewhere and the film
+        // is a third of `waffle.mov` -- the main hub gets 0-223, 225-448 and
+        // 450-675, and the three lettered hubs share a shorter set at 0-178,
+        // 180-358 and 360-540. Six stretches of one film, which is the same
+        // trick the music boxes use in entry 70.
+        //
+        // **Already on a track** it is a lookup instead, and the two tables
+        // are each other backwards: right takes `#c` to `#B` and left takes
+        // `#B` to `#c`. A direction with no entry for the track you are on
+        // does nothing at all, which is how the dead ends are expressed --
+        // there is no "you cannot go that way", only an absence.
+        //
+        // The left film is the same stretches with 450 and 360 added, so the
+        // one film holds the journey both ways round and left is simply the
+        // back half.
+        "choosetrack" => {
+            const HUBS: [(&str, [&str; 3]); 4] = [
+                ("hub_main", ["c", "B", "A"]),
+                ("hub_A", ["AL", "AM", "AR"]),
+                ("hub_B", ["BL", "BM", "BR"]),
+                ("hub_C", ["CL", "CM", "CR"]),
+            ];
+            const MAIN_SEGMENTS: [(u32, u32); 3] = [(0, 223), (225, 448), (450, 675)];
+            const SPUR_SEGMENTS: [(u32, u32); 3] = [(0, 178), (180, 358), (360, 540)];
+            // Each other backwards, and read as (from, to) for a right turn.
+            const RIGHT: [(&str, &str); 8] = [
+                ("c", "B"),
+                ("B", "A"),
+                ("AL", "AM"),
+                ("AM", "AR"),
+                ("BL", "BM"),
+                ("BM", "BR"),
+                ("CL", "CM"),
+                ("CM", "CR"),
+            ];
+            // The stretch played on arriving at a track, when it has one.
+            // Both written out: the left set is *nearly* the right set with
+            // 450 and 360 added, and `#B` ends at 900 rather than the 898 that
+            // would give. Deriving one from the other is exactly the mistake
+            // the weather vane's table invited in entry 84, and this time the
+            // test caught it.
+            const RIGHT_SEGMENTS: [(&str, (u32, u32)); 4] = [
+                ("B", (0, 448)),
+                ("BM", (0, 358)),
+                ("AM", (0, 358)),
+                ("CM", (0, 358)),
+            ];
+            const LEFT_SEGMENTS: [(&str, (u32, u32)); 4] = [
+                ("B", (450, 900)),
+                ("BM", (360, 720)),
+                ("AM", (360, 720)),
+                ("CM", (360, 720)),
+            ];
+
+            let Some(way) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|d| d.trim_start_matches('#').to_ascii_lowercase())
+            else {
+                return true;
+            };
+            let Some(turn) = ["left", "middle", "right"]
+                .iter()
+                .position(|d| *d == way)
+            else {
+                return true;
+            };
+
+            out.effects.push(Effect::CursorOff);
+            let at = state.get("carLocation");
+
+            if !at.is_symbol("enRoute") {
+                let Some((hub, tracks)) = HUBS.iter().find(|(h, _)| at.is_symbol(h)) else {
+                    return true;
+                };
+                let (from, to) = if *hub == "hub_main" {
+                    MAIN_SEGMENTS[turn]
+                } else {
+                    SPUR_SEGMENTS[turn]
+                };
+                out.effects.push(Effect::StartLoop {
+                    name: "trackLoop".into(),
+                    volume: Some(120),
+                });
+                out.effects.push(Effect::PlayVideoSegment { from, to });
+                out.effects.push(Effect::WaitForVideo);
+                out.effects.push(Effect::StopLoop {
+                    name: "trackLoop".into(),
+                    fade: false,
+                });
+                state.set_all("currentTrack", vec![Value::Symbol(tracks[turn].into())]);
+                state.set_all("carLocation", vec![Value::Symbol("enRoute".into())]);
+                state.set("showMontage", Value::Int(0));
+                out.redraw = true;
+                return true;
+            }
+
+            // Already rolling. The middle is not a turn, so there is no table
+            // for it and nothing happens.
+            if turn == 1 {
+                return true;
+            }
+            let held = state.get("currentTrack");
+            let held = held.as_str().unwrap_or_default().trim_start_matches('#');
+            let going_right = turn == 2;
+            let moved = RIGHT.iter().find_map(|(a, b)| {
+                let (from, to) = if going_right { (a, b) } else { (b, a) };
+                from.eq_ignore_ascii_case(held).then_some(*to)
+            });
+            // No entry is how a dead end is written: nothing happens.
+            let Some(moved) = moved else { return true };
+
+            out.effects.push(Effect::StartLoop {
+                name: "trackLoop".into(),
+                volume: Some(120),
+            });
+            let table = if going_right { RIGHT_SEGMENTS } else { LEFT_SEGMENTS };
+            if let Some((_, (from, to))) =
+                table.iter().find(|(t, _)| t.eq_ignore_ascii_case(moved))
+            {
+                out.effects.push(Effect::PlayVideoSegment {
+                    from: *from,
+                    to: *to,
+                });
+            } else {
+                out.effects.push(Effect::PlayVideo(None));
+            }
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::StopLoop {
+                name: "trackLoop".into(),
+                fade: false,
+            });
+            state.set_all("currentTrack", vec![Value::Symbol(moved.into())]);
+            out.redraw = true;
+        }
+
         // on chippySpeaks howLikely
         //   if integerp( howLikely ) then
         //     highRoll = howLikely, clamped to 1..6
@@ -1094,5 +1256,88 @@ mod tests {
             .collect();
         // The front of the list, not a pick from it.
         assert_eq!(said, ["pullMyFinger"]);
+    }
+
+    // -- the car and its tracks ---------------------------------------------
+
+    fn car_at(where_: &str, track: &str) -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all("carLocation", vec![Value::Symbol(where_.into())]);
+        if !track.is_empty() {
+            s.set_all("currentTrack", vec![Value::Symbol(track.into())]);
+        }
+        s
+    }
+
+    fn steer(state: &mut State, way: &str) -> Outcome {
+        let mut out = Outcome::default();
+        assert!(call(
+            "choosetrack",
+            &[Value::Symbol(way.into())],
+            state,
+            &mut out
+        ));
+        out
+    }
+
+    #[test]
+    fn leaving_a_hub_picks_a_track_and_a_stretch_of_film() {
+        // The main hub has the long stretches.
+        let mut s = car_at("hub_main", "");
+        let out = steer(&mut s, "middle");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("B".into()));
+        assert_eq!(s.get("carLocation"), Value::Symbol("enRoute".into()));
+        assert_eq!(segment(&out), Some((225, 448)));
+
+        // The lettered hubs share a shorter set.
+        let mut s = car_at("hub_C", "");
+        let out = steer(&mut s, "right");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("CR".into()));
+        assert_eq!(segment(&out), Some((360, 540)));
+    }
+
+    #[test]
+    fn the_two_turn_tables_are_each_other_backwards() {
+        let mut s = car_at("enRoute", "c");
+        steer(&mut s, "right");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("B".into()));
+        steer(&mut s, "left");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("c".into()));
+
+        let mut s = car_at("enRoute", "AL");
+        steer(&mut s, "right");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("AM".into()));
+        steer(&mut s, "right");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("AR".into()));
+    }
+
+    #[test]
+    fn a_dead_end_is_an_absence_rather_than_a_refusal() {
+        // #AR has no right turn, so nothing at all happens -- no film, no
+        // sound, and the car stays where it is.
+        let mut s = car_at("enRoute", "AR");
+        let out = steer(&mut s, "right");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("AR".into()));
+        assert!(!out
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::PlayVideoSegment { .. })));
+
+        // And the middle is not a turn at all once rolling.
+        let mut s = car_at("enRoute", "c");
+        steer(&mut s, "middle");
+        assert_eq!(s.get("currentTrack"), Value::Symbol("c".into()));
+    }
+
+    #[test]
+    fn left_is_the_back_half_of_the_same_film() {
+        let mut right = car_at("enRoute", "c");
+        let out = steer(&mut right, "right");
+        assert_eq!(segment(&out), Some((0, 448)));
+
+        let mut left = car_at("enRoute", "A");
+        let out = steer(&mut left, "left");
+        assert_eq!(segment(&out), Some((450, 900)));
     }
 }
