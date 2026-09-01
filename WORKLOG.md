@@ -3871,3 +3871,39 @@ correctly. They just do not contain the same pictures.
 Whether Roxy's chapter is *supposed* to be that dark I cannot yet say. The
 obvious reference was helba's Macintosh longplay capture, and I deleted it --
 see the next entry.
+
+## 95. What the purge took with it
+
+`git filter-repo` resets the working tree to the rewritten history. I knew it
+rewrote commits and told helba so; I did not think about what that does to
+files the rewrite removes. It deletes them.
+
+Gone from the working directory:
+
+| file | recoverable |
+|---|---|
+| `AMBER-Journeys-Beyond_Mac_EN.zip` | yes -- already unpacked to `mac_iso/` and `mac_game/` |
+| `AMBER-Journeys-Beyond_Win_EN_CD.zip` | yes -- the ISO it holds was never tracked and is untouched |
+| `playthrough/…Longplay - Macintosh….mp4` | **no** -- 932 MB, has to be downloaded again |
+
+The two zips cost nothing: everything in them is already extracted and verified
+against its catalogue. The longplay is a real loss. It is helba's Macintosh
+capture, it is the reference I have used repeatedly to check what the game is
+supposed to do, and it is the exact thing I wanted ten minutes later to settle
+whether Roxy's chapter is meant to render as dark as the Macintosh disc draws
+it.
+
+Three things I should have done and did not:
+
+1. Listed what the rewrite would remove before running it. I knew the paths --
+   I had just printed them, sorted by size -- and I put them in the script
+   without saying "and these files will disappear from your disk".
+2. Noticed that `playthrough/` was in `.gitignore` *and* tracked. That
+   combination is what a file added by mistake looks like, and it was in the
+   list I read out.
+3. Copied the three files somewhere outside the repository first. I did take a
+   backup, and then deleted it after the rewrite succeeded -- having checked
+   that the *commits* were intact and not that the *files* were.
+
+The `.gitignore` now covers all of it, so nothing new gets swept in. That does
+not help with what is already gone.
