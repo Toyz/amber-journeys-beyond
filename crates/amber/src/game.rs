@@ -102,8 +102,24 @@ impl Game {
     /// that the other three are reached from.
     const FIRST_CHAPTER: &'static str = "ROXY";
 
+    /// A game over an empty world, for tests that exercise the parts of
+    /// `apply` that do not depend on there being rooms to move between.
+    #[cfg(test)]
+    fn for_test() -> Game {
+        // One empty room, so `node()` has something to return. These tests
+        // are about what a move arms, not about where it goes.
+        let world = World {
+            nodes: vec![crate::world::Node::default()],
+            ..World::default()
+        };
+        Game::over(world, Path::new("."))
+    }
+
     pub fn new(root: &Path) -> std::io::Result<Game> {
-        let world = World::load(root)?;
+        Ok(Game::over(World::load(root)?, root))
+    }
+
+    fn over(world: World, root: &Path) -> Game {
         let mut game = Game {
             world,
             state: State::new(),
@@ -147,7 +163,7 @@ impl Game {
         }
         game.enter_chapter(Self::FIRST_CHAPTER);
         game.start_room_video();
-        Ok(game)
+        game
     }
 
     /// Seeds state from a chapter's declared schema and moves to the room that
@@ -744,18 +760,13 @@ impl Game {
         report
     }
 
-    /// Takes an armed transition, as the fraction to advance it each frame.
+    /// Takes an armed transition, ready to run.
     ///
     /// A transition is armed once and spent on the next change of the stage,
     /// which is what `setTransition` means: it does not persist.
-    pub fn take_transition(&mut self) -> Option<f32> {
+    pub fn take_transition(&mut self) -> Option<Transition> {
         let kind = self.transition.take()?;
-        Some(match kind.to_ascii_lowercase().as_str() {
-            // The two the game asks for. `#slowMontage` is used twice and is
-            // what its name says.
-            "slowmontage" => 1.0 / 45.0,
-            _ => 1.0 / 14.0,
-        })
+        Some(transition_for(&kind))
     }
 
     /// Drops a wait in progress, for a tool with no clock to wait against.
@@ -1547,6 +1558,20 @@ impl Game {
                 ),
             }
         }
+        // `goTo destination, transition` hands its second argument straight
+        // to `setTransition` before it moves, so the flavour on a move is the
+        // transition for that move. Every one of the game's three thousand
+        // eight hundred moves names one and this engine dropped all of them,
+        // which made every turn of the head a hard cut.
+        //
+        // Armed here rather than through the effect queue because the original
+        // arms it inline, in the statement before `moveToLocation`: it has to
+        // be set before the stage changes, and the queue drains afterwards.
+        if outcome.destination.is_some() || outcome.go_back {
+            if let Some(kind) = &outcome.transition {
+                self.transition = Some(kind.clone());
+            }
+        }
         if outcome.go_back {
             if let Some(prev) = self.history.pop() {
                 self.move_to(prev);
@@ -1753,6 +1778,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_flavour_on_a_move_is_the_transition_for_that_move() {
+        // `goTo destination, transition` calls `setTransition( oPuppeteer,
+        // transition )` in the statement before `moveToLocation`, so the
+        // second argument of a move *is* its transition. Every real move in
+        // the game names one and this engine armed none of them.
+        for (flavour, want) in [
+            ("turnLeft", Wipe::Right),
+            ("turnRight", Wipe::Left),
+            ("lookUp", Wipe::Down),
+            ("lookDown", Wipe::Up),
+            ("forward", Wipe::Dissolve),
+        ] {
+            let outcome = Outcome {
+                destination: Some("anywhere".into()),
+                transition: Some(flavour.to_string()),
+                ..Outcome::default()
+            };
+            let mut game = Game::for_test();
+            game.apply(&outcome);
+            let armed = game.take_transition().expect("{flavour} armed nothing");
+            assert_eq!(armed.kind, want, "{flavour}");
+        }
+    }
+
+    #[test]
+    fn standing_still_arms_nothing() {
+        // A transition is spent on a change of the stage. An outcome that
+        // only redraws must not leave one armed, or the next move would use
+        // a transition that belongs to something else.
+        let outcome = Outcome {
+            redraw: true,
+            transition: Some("turnLeft".into()),
+            ..Outcome::default()
+        };
+        let mut game = Game::for_test();
+        game.apply(&outcome);
+        assert!(game.take_transition().is_none());
+    }
+
+    #[test]
+    fn a_turn_is_a_quarter_of_a_second_and_a_dissolve_is_longer() {
+        // The times come from the puppeteer's table, in quarter-seconds, at
+        // the sixty frames a second this loop runs at.
+        assert!((transition_for("turnLeft").step - 1.0 / 15.0).abs() < 1e-6);
+        assert!((transition_for("forward").step - 1.0 / 30.0).abs() < 1e-6);
+        assert!((transition_for("slowMontage").step - 1.0 / 45.0).abs() < 1e-6);
+        // And a wipe is chunky where a dissolve is not.
+        assert_eq!(transition_for("turnLeft").chunk, 16);
+        assert_eq!(transition_for("forward").chunk, 0);
+    }
+
+    #[test]
     fn exactly_the_three_wait_effects_hold_the_queue() {
         assert!(wait_for(&Effect::WaitTicks(120)).is_some());
         assert!(wait_for(&Effect::WaitForVideo).is_some());
@@ -1782,5 +1859,73 @@ mod tests {
         ] {
             assert!(wait_for(&effect).is_none(), "{effect:?} should not hold");
         }
+    }
+}
+
+/// One of Director's stage transitions, as the game's puppeteer names them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Wipe {
+    /// Director's code 26, and by far the commonest: a plain crossfade.
+    Dissolve,
+    /// Code 1. A hard edge travelling right, so the new view enters at the
+    /// left. This is a turn to the left: the world swings the other way.
+    Right,
+    /// Code 2. The same edge travelling left -- a turn to the right.
+    Left,
+    /// Code 3, looking up.
+    Down,
+    /// Code 4, looking down.
+    Up,
+}
+
+/// An armed transition: how to make the change, and how fast.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Transition {
+    pub kind: Wipe,
+    /// Fraction of the change to advance each frame.
+    pub step: f32,
+    /// Director's chunk size, in pixels. A wipe advances in steps this wide
+    /// rather than a pixel at a time, which is visible and is meant to be.
+    pub chunk: u32,
+}
+
+/// The puppeteer's transition table, verbatim.
+///
+/// `birth` builds it as a property list of `puppetTransition` argument
+/// strings -- `whichTransition, time in quarter-seconds, chunkSize,
+/// changeArea` -- and `setTransition` looks a flavour up in it:
+///
+/// ```text
+/// #turnRight   02,1,16,TRUE      #lookUp      03,1,16,TRUE
+/// #turnLeft    01,1,16,TRUE      #lookDown    04,1,16,TRUE
+/// #forward     26,2,0,TRUE       #fadeIn      26,2,0,TRUE
+/// #lookAt      26,2,0,TRUE       #slowMontage 26,3,0,TRUE
+/// #backOff     26,2,0,TRUE       #nextPage    2,2,16,TRUE
+///                                #prevPage    1,2,16,TRUE
+/// ```
+///
+/// Worth reading twice: turning is a chunky quarter-second wipe, not a
+/// dissolve. Only moving forward, looking at something and backing off
+/// dissolve. Rendering the turns as crossfades -- which is what this engine
+/// did, because it kept the speed and threw the code away -- loses the one
+/// cue that tells the player they have turned rather than teleported.
+fn transition_for(name: &str) -> Transition {
+    // Director's time is in quarter-seconds and the loop runs at 60.
+    let at = |kind: Wipe, quarters: f32, chunk: u32| Transition {
+        kind,
+        step: 1.0 / (quarters * 15.0),
+        chunk,
+    };
+    match name.to_ascii_lowercase().as_str() {
+        "turnright" => at(Wipe::Left, 1.0, 16),
+        "turnleft" => at(Wipe::Right, 1.0, 16),
+        "lookup" => at(Wipe::Down, 1.0, 16),
+        "lookdown" => at(Wipe::Up, 1.0, 16),
+        "nextpage" => at(Wipe::Left, 2.0, 16),
+        "prevpage" => at(Wipe::Right, 2.0, 16),
+        "slowmontage" => at(Wipe::Dissolve, 3.0, 0),
+        // `#forward`, `#lookAt`, `#backOff`, `#fadeIn`, and anything the
+        // table does not name.
+        _ => at(Wipe::Dissolve, 2.0, 0),
     }
 }

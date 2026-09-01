@@ -124,7 +124,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     // The stage as it looked before the change a transition is covering, and
     // how far through that transition we are.
     let mut outgoing: Vec<u32> = vec![0; STAGE_W * STAGE_H];
-    let mut dissolve: Option<(f32, f32)> = None;
+    let mut dissolve: Option<(f32, crate::game::Transition)> = None;
     while window.is_open() && !window.is_key_down(Key::Escape) {
         frames += 1;
         crate::trace::frame(frames);
@@ -259,9 +259,9 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             // A transition covers the change from what is on the stage now to
             // what is about to be, so the outgoing image has to be kept before
             // the new one is composed over it.
-            if let Some(step) = game.take_transition() {
+            if let Some(t) = game.take_transition() {
                 outgoing.copy_from_slice(&frame);
-                dissolve = Some((0.0, step));
+                dissolve = Some((0.0, t));
             }
             game.draw(&mut frame, STAGE_W as u32, STAGE_H as u32);
             game.draw_inventory(&mut frame, STAGE_W as u32, STAGE_H as u32);
@@ -271,12 +271,12 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         // Director's `#fadeIn` is a dissolve, not a cut. The game asks for one
         // a hundred and six times -- every door, every close-up, every step of
         // a montage -- and without it each of those is a hard jump.
-        if let Some((progress, step)) = dissolve {
-            let progress = progress + step;
+        if let Some((progress, t)) = dissolve {
+            let progress = progress + t.step;
             if progress >= 1.0 {
                 dissolve = None;
             } else {
-                dissolve = Some((progress, step));
+                dissolve = Some((progress, t));
             }
         }
         // Tab shows where the live hotspots actually are, which is the quickest
@@ -391,7 +391,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         was_down = down;
 
         match dissolve {
-            Some((progress, _)) => blend(&mut out, &outgoing, &frame, progress),
+            Some((progress, t)) => blend(&mut out, &outgoing, &frame, progress, t),
             None => out.copy_from_slice(&frame),
         }
         if show_hotspots {
@@ -436,15 +436,42 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
 /// waits for it to end, and only then restores. Draining the whole queue in
 /// the frame the click arrived ran all of that in one instant.
 /// Mixes two composed stages, `progress` of the way from `from` to `to`.
-fn blend(out: &mut [u32], from: &[u32], to: &[u32], progress: f32) {
-    let t = progress.clamp(0.0, 1.0);
-    for ((o, a), b) in out.iter_mut().zip(from).zip(to) {
-        let mix = |shift: u32| {
-            let a = ((a >> shift) & 0xff) as f32;
-            let b = ((b >> shift) & 0xff) as f32;
-            ((a + (b - a) * t) as u32) & 0xff
-        };
-        *o = 0xff00_0000 | (mix(16) << 16) | (mix(8) << 8) | mix(0);
+fn blend(out: &mut [u32], from: &[u32], to: &[u32], progress: f32, t: crate::game::Transition) {
+    use crate::game::Wipe;
+    let p = progress.clamp(0.0, 1.0);
+    if t.kind == Wipe::Dissolve {
+        for ((o, a), b) in out.iter_mut().zip(from).zip(to) {
+            let mix = |shift: u32| {
+                let a = ((a >> shift) & 0xff) as f32;
+                let b = ((b >> shift) & 0xff) as f32;
+                ((a + (b - a) * p) as u32) & 0xff
+            };
+            *o = 0xff00_0000 | (mix(16) << 16) | (mix(8) << 8) | mix(0);
+        }
+        return;
+    }
+    // A wipe has no blending in it at all: a hard edge crosses the stage and
+    // the new image is simply on one side of it. Director advances that edge
+    // in chunks rather than a pixel at a time, which is why a turn in this
+    // game has a texture to it instead of looking smooth.
+    let span = match t.kind {
+        Wipe::Right | Wipe::Left => STAGE_W,
+        _ => STAGE_H,
+    };
+    let chunk = t.chunk.max(1) as usize;
+    let edge = ((p * span as f32) as usize / chunk) * chunk;
+    for y in 0..STAGE_H {
+        for x in 0..STAGE_W {
+            let i = y * STAGE_W + x;
+            let new = match t.kind {
+                Wipe::Right => x < edge,
+                Wipe::Left => x >= STAGE_W - edge,
+                Wipe::Down => y < edge,
+                Wipe::Up => y >= STAGE_H - edge,
+                Wipe::Dissolve => unreachable!(),
+            };
+            out[i] = if new { to[i] } else { from[i] };
+        }
     }
 }
 
@@ -602,16 +629,19 @@ pub fn update_ambience(game: &mut Game, audio: Option<&Audio>) {
 
 #[cfg(test)]
 mod tests {
-    use super::blend;
+    use super::{blend, STAGE_H, STAGE_W};
+    use crate::game::{Transition, Wipe};
+
+    const FADE: Transition = Transition { kind: Wipe::Dissolve, step: 1.0 / 30.0, chunk: 0 };
 
     #[test]
     fn a_dissolve_starts_on_the_old_stage_and_ends_on_the_new() {
         let from = vec![0xff00_0000u32; 4];
         let to = vec![0xffff_ffffu32; 4];
         let mut out = vec![0u32; 4];
-        blend(&mut out, &from, &to, 0.0);
+        blend(&mut out, &from, &to, 0.0, FADE);
         assert_eq!(out[0], 0xff00_0000);
-        blend(&mut out, &from, &to, 1.0);
+        blend(&mut out, &from, &to, 1.0, FADE);
         assert_eq!(out[0], 0xffff_ffff);
     }
 
@@ -620,7 +650,7 @@ mod tests {
         let from = vec![0xff00_0000u32];
         let to = vec![0xffff_ffffu32];
         let mut out = vec![0u32; 1];
-        blend(&mut out, &from, &to, 0.5);
+        blend(&mut out, &from, &to, 0.5, FADE);
         for shift in [0, 8, 16] {
             let v = (out[0] >> shift) & 0xff;
             assert!((126..=128).contains(&v), "channel {shift} was {v}");
@@ -635,10 +665,60 @@ mod tests {
         let to = vec![0xffff_ffffu32];
         let mut out = vec![0u32; 1];
         for p in [-1.0, 1.5, 99.0] {
-            blend(&mut out, &from, &to, p);
+            blend(&mut out, &from, &to, p, FADE);
             let v = out[0] & 0xff;
             assert!(v == 0 || v == 255, "clamped to {v} at {p}");
         }
+    }
+
+    #[test]
+    fn a_turn_wipes_rather_than_fading() {
+        // `#turnLeft` is Director's code 1, a hard edge travelling right, so
+        // the new view enters at the left. Nothing is ever blended: every
+        // pixel is one image or the other. Fading these instead -- which this
+        // engine did for every one of the game's three thousand eight hundred
+        // moves -- loses the cue that says the camera turned.
+        let from = vec![0xff00_0000u32; STAGE_W * STAGE_H];
+        let to = vec![0xffff_ffffu32; STAGE_W * STAGE_H];
+        let mut out = vec![0u32; STAGE_W * STAGE_H];
+        let turn = Transition { kind: Wipe::Right, step: 1.0 / 15.0, chunk: 16 };
+        blend(&mut out, &from, &to, 0.5, turn);
+
+        assert!(out.iter().all(|&p| p == 0xff00_0000 || p == 0xffff_ffff));
+        assert_eq!(out[0], 0xffff_ffff, "the left of the stage has changed");
+        assert_eq!(out[STAGE_W - 1], 0xff00_0000, "the right has not yet");
+        // And the edge sits on a chunk boundary, which is what makes a
+        // Director wipe look like one.
+        let row = &out[..STAGE_W];
+        let edge = row.iter().position(|&p| p == 0xff00_0000).unwrap();
+        assert_eq!(edge % 16, 0, "edge at {edge} is not on a 16 pixel chunk");
+    }
+
+    #[test]
+    fn turning_the_other_way_wipes_the_other_way() {
+        let from = vec![0xff00_0000u32; STAGE_W * STAGE_H];
+        let to = vec![0xffff_ffffu32; STAGE_W * STAGE_H];
+        let mut out = vec![0u32; STAGE_W * STAGE_H];
+        let turn = Transition { kind: Wipe::Left, step: 1.0 / 15.0, chunk: 16 };
+        blend(&mut out, &from, &to, 0.5, turn);
+        assert_eq!(out[0], 0xff00_0000);
+        assert_eq!(out[STAGE_W - 1], 0xffff_ffff);
+    }
+
+    #[test]
+    fn looking_up_and_down_wipe_vertically() {
+        let from = vec![0xff00_0000u32; STAGE_W * STAGE_H];
+        let to = vec![0xffff_ffffu32; STAGE_W * STAGE_H];
+        let mut out = vec![0u32; STAGE_W * STAGE_H];
+        let up = Transition { kind: Wipe::Down, step: 1.0 / 15.0, chunk: 16 };
+        blend(&mut out, &from, &to, 0.5, up);
+        assert_eq!(out[0], 0xffff_ffff, "the top has changed");
+        assert_eq!(out[(STAGE_H - 1) * STAGE_W], 0xff00_0000, "the bottom has not");
+
+        let down = Transition { kind: Wipe::Up, step: 1.0 / 15.0, chunk: 16 };
+        blend(&mut out, &from, &to, 0.5, down);
+        assert_eq!(out[0], 0xff00_0000);
+        assert_eq!(out[(STAGE_H - 1) * STAGE_W], 0xffff_ffff);
     }
 }
 

@@ -4916,3 +4916,85 @@ turning on new lints, not a regression, but the gate I have been quoting as
 "zero warnings" is no longer true and I would rather say so than let it drift.
 
 252 tests. Two verbs left.
+
+## 117. Three thousand eight hundred hard cuts
+
+helba said the transitions between rooms were never hooked up. My first reading
+of the code said otherwise: `Effect::SetTransition` is applied, the outgoing
+frame is kept, a dissolve is stepped each frame and blended into the presented
+buffer. All of that is real and all of it works. It is also reached from 103
+places out of 3809.
+
+The other 3706 go through `goTo`, and this is what `goTo` does:
+
+```
+on goTo destination, transition
+  ... cursorOff ...
+  if destination = #destination and transition = #transition then return
+  ... previousLocation = currentLocation, currentLocation = destination ...
+  killVideo
+  moveMovies( oPuppeteer )
+  setTransition( oPuppeteer, transition )
+  moveToLocation( oPuppeteer )
+```
+
+The second argument of a move is handed straight to the same `setTransition`
+I already implement, in the statement before the move happens. So the flavour
+on a move *is* the transition for that move. Every real move in the game names
+one -- `#forward` 984 times, `#turnRight` 940, `#turnLeft` 933, `#lookAt` 539,
+`#backOff` 228, `#lookUp` 84, `#lookDown` 82, `#fadeIn` 18 -- and this engine
+parsed all of them into `Outcome::transition`, merged that field carefully
+across combined outcomes, and never read it. Written in seven places, read in
+zero. The sixth effect in this codebase to be produced and dropped.
+
+I want to be accurate about who was right. helba's report was that transitions
+between screens were not hooked up, and mine was that they were. Both
+statements described the same code; the difference is that I had checked
+whether the machinery existed and they had checked whether the game did it.
+The second question is the one worth asking, and it is the one my coverage
+tests keep failing to ask -- five previous entries in this log say so.
+
+What the flavours mean turns out to matter more than wiring them up at all.
+`setTransition` looks the flavour up in a property list on the puppeteer and
+stores a `puppetTransition` argument string. `birth` builds that list:
+
+```text
+#turnRight   02,1,16,TRUE      #lookUp      03,1,16,TRUE
+#turnLeft    01,1,16,TRUE      #lookDown    04,1,16,TRUE
+#forward     26,2,0,TRUE       #fadeIn      26,2,0,TRUE
+#lookAt      26,2,0,TRUE       #slowMontage 26,3,0,TRUE
+#backOff     26,2,0,TRUE       #nextPage    2,2,16,TRUE
+                               #prevPage    1,2,16,TRUE
+```
+
+`whichTransition, time in quarter-seconds, chunkSize, changeArea`. Director's
+codes 1 to 4 are wipe right, wipe left, wipe down, wipe up; 26 is a dissolve.
+
+So **turning is not a dissolve**. It is a quarter-second wipe advancing in
+sixteen-pixel chunks, and the direction is the opposite of the turn: turning
+left is a wipe travelling right, because the new view enters from the left as
+the world swings away. Looking up wipes down, looking down wipes up. Only
+moving forward, looking at something, and backing off are dissolves, and those
+take twice as long.
+
+That distinction is the whole point of the feature. A crossfade between two
+views says the picture changed. A hard edge sweeping across says *you turned*.
+Nearly two thousand of the game's moves are turns, and rendering them as
+crossfades -- which is what this engine would have done if I had wired the
+field up without reading the table -- would have been the more insidious bug,
+because it would have looked like it worked.
+
+The old code kept the timings and threw the codes away: 1/14 and 1/45 of a
+change per frame, which are one and three quarter-seconds at sixty frames a
+second. Right numbers, no idea why. They now come from the table.
+
+Verified by deleting the arming and watching
+`the_flavour_on_a_move_is_the_transition_for_that_move` fail, which is the
+standard I set in entry 84 after the coverage test that could not fail.
+
+Also noting, because the gate I keep quoting is no longer true: clippy has gone
+from zero warnings to forty-eight across twenty-one files, none of them touched
+in this entry or the last. A newer toolchain turning on new lints, not a
+regression, and a sweep for another sitting.
+
+258 tests.

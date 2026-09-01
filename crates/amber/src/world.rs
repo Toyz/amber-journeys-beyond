@@ -228,7 +228,7 @@ pub struct Sprite {
 }
 
 /// One navigable room.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Node {
     /// Index within its `.DAT` file, which is how the game addresses it.
     pub index: usize,
@@ -411,6 +411,7 @@ impl Node {
 }
 
 /// Every room in the game, grouped by the chapter it belongs to.
+#[derive(Default)]
 pub struct World {
     pub nodes: Vec<Node>,
     /// Chapter name -> the range of `nodes` it owns.
