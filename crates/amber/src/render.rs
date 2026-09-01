@@ -1,7 +1,6 @@
 //! Window, input and the main loop.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions};
 
@@ -330,9 +329,9 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         // chapter change and cannot walk out of it half way. Letting a click
         // through moved the room while the film was still playing, which left
         // the film running over the room it had moved to.
-        if game.effects_busy() {
-            was_down = down;
-        } else if was_down && !down {
+        // (`was_down` is carried at the foot of the loop, so the busy
+        // branch only has to decline the click.)
+        if !game.effects_busy() && was_down && !down {
             if let Some((x, y)) = pos {
                 // The bar sits over the stage, so it gets first refusal on a
                 // click; otherwise picking an item would also walk the player
@@ -501,6 +500,24 @@ fn apply_effect(
             game.player = None;
             *playing_soundtrack = false;
         }
+        // Declared, emitted in three places, and applied in none of them
+        // until now -- the fourth time this has happened, after PlayVideo,
+        // new_domain and FadeToMontage. The catch-all arm below is what makes
+        // it silent, so this one is worth stating plainly: the radio dial and
+        // the weather vane are both movies scrubbed by hand, and without this
+        // they moved their state and showed nothing.
+        //
+        // A zero-length segment parks on a frame rather than playing, which
+        // is what entering a room with the vane already turned needs.
+        Effect::PlayVideoSegment { from, to } => {
+            if game.player.is_none() {
+                game.start_room_video();
+            }
+            if let Some(player) = &mut game.player {
+                player.play_segment(from, to);
+            }
+            *dirty = true;
+        }
         _ => {}
     }
 }
@@ -598,3 +615,66 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod effect_coverage {
+    /// Every `Effect` variant must be acted on somewhere.
+    ///
+    /// Four variants have now been declared, emitted by handlers, carried
+    /// through the queue and then dropped on the floor: `PlayVideo`,
+    /// `FadeToMontage`, `PlayVideoSegment`, and `Outcome::new_domain` before
+    /// them. Each one looked like working code from the handler's side and
+    /// each was found by reading rather than by playing, because a catch-all
+    /// match arm cannot fail.
+    ///
+    /// This reads the sources as text rather than reflecting, which is crude,
+    /// but it fails the moment somebody adds a fifth variant without an arm --
+    /// and that is the whole job.
+    #[test]
+    fn every_effect_variant_is_applied_somewhere() {
+        const SCRIPT: &str = include_str!("script.rs");
+        const APPLIERS: [&str; 3] = [
+            include_str!("render.rs"),
+            include_str!("game.rs"),
+            include_str!("audio.rs"),
+        ];
+
+        let body = SCRIPT
+            .split_once("pub enum Effect {")
+            .expect("Effect enum moved")
+            .1;
+        let body = body.split_once("\n}").expect("Effect enum unterminated").0;
+
+        let variants: Vec<&str> = body
+            .lines()
+            .map(str::trim)
+            .filter(|line| {
+                line.starts_with(|c: char| c.is_ascii_uppercase()) && !line.starts_with("///")
+            })
+            .filter_map(|line| line.split(['(', '{', ',', ' ']).next())
+            .filter(|name| !name.is_empty())
+            .collect();
+        assert!(variants.len() > 15, "only found {variants:?}");
+
+        // `Native` is the one variant that is deliberately never applied.
+        // `natives::call` runs first and only pushes it when no handler took
+        // the verb, so it is a record that something is unported -- read by
+        // `verify` and nothing else. If it ever does get applied, that is the
+        // bug.
+        let missing: Vec<&str> = variants
+            .iter()
+            .copied()
+            .filter(|v| *v != "Native")
+            .filter(|v| {
+                let used = format!("Effect::{v}");
+                !APPLIERS.iter().any(|src| {
+                    // The declaration site does not count, only a use in a
+                    // file that acts on effects.
+                    src.matches(&used).count() > 0
+                })
+            })
+            .collect();
+        assert!(missing.is_empty(), "Effect variants never applied: {missing:?}");
+    }
+}
+

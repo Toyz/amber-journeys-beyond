@@ -149,6 +149,17 @@ def disasm(path, want):
                     txt = "return"
                 elif op in (0x41, 0x81):
                     txt = f"push int {arg}"
+                # 0x03 pushes the integer zero. Three contexts force it and no
+                # other reading survives any of them:
+                #   #bedroomWarm: [<0x03>, 4, 8]  against  #bedroomCool: [12, 16, 20]
+                #   set the visible of sprite 44 = <0x03>   (initWhirligig hides it)
+                #   set the visible of sprite 44 = 1        (radioDial shows it)
+                #   #startTimes = [#n: 128, #E: <0x03>, #S: 256, #W: 384]
+                # and its successor profile over 1802 sites matches the other
+                # pushes -- followed by a push, an arglist or a store, never
+                # standing where an operator has to stand.
+                elif op == 0x03:
+                    txt = "push int 0"
                 elif arg is not None:
                     txt = f"op{op:02x} {arg}"
                 else:

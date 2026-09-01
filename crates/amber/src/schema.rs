@@ -13,7 +13,6 @@
 //! This is effectively the save-file format, declared in the data rather than in
 //! code, and it is also the only place the chapter's starting room is recorded.
 
-use std::collections::HashSet;
 
 use lingo::{parse_value, Value};
 

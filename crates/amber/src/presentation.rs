@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use lingo::{parse_value, Value};
+use lingo::parse_value;
 
 #[derive(Default)]
 pub struct Presentation {

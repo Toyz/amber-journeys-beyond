@@ -207,7 +207,7 @@ fn cmd_info(dir: &Path) -> Res {
 
     // Sound coverage: every symbol the scripts fire, and whether it resolves.
     {
-        let mut game = game::Game::new(dir)?;
+        let game = game::Game::new(dir)?;
         let mut wanted: BTreeMap<String, usize> = BTreeMap::new();
         for i in 0..game.world.nodes.len() {
             for h in &game.world.nodes[i].hotspots {
@@ -1048,7 +1048,7 @@ fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> std::io::Result<()> {
         out
     }
 
-    let mut chunk = |tag: &[u8; 4], data: &[u8]| {
+    let chunk = |tag: &[u8; 4], data: &[u8]| {
         let mut c = Vec::with_capacity(data.len() + 12);
         c.extend_from_slice(&(data.len() as u32).to_be_bytes());
         c.extend_from_slice(tag);

@@ -3183,3 +3183,60 @@ bytecode:
 Unported is now **24 verbs across 44 call sites**, down from 27 and 55.
 
 159 tests, clippy clean.
+
+## 84. The weather vane, and a test I should have written months ago
+
+Edwin's weather vane, ported: `setWeatherVane` and `initWeatherVane`.
+
+It turns `#n` to `#E` to `#S` to `#W` and back, or the other way, and each of
+the eight turns plays its own 60-tick segment of a 512-tick movie. The wind
+only follows once it is already blowing -- turning the vane in still air moves
+the vane and nothing else -- and the squeaks rotate through a list so the same
+one is never heard twice running.
+
+I nearly got the segment table wrong by being clever. The first four entries
+support an obvious rule -- clockwise turn on the direction's resting frame,
+counter-clockwise 64 ticks later -- and the rule is false. What actually
+decides it is the *destination*: a turn ending at `#n` or `#E` sits on the
+resting frame, one ending at `#S` or `#W` sits 64 later. So the movie is laid
+out E, n, S, W with two turns each, and its frame zero is East, which is why
+`initWeatherVane` rests East at 0 and North at 128. Eight table entries are
+cheaper than a rule that has to be believed, so the table is written out.
+
+### The fourth time
+
+While wiring the vane I found `Effect::PlayVideoSegment` **declared, emitted in
+three places, and applied nowhere.** That is the fourth: `Effect::PlayVideo` in
+entry 59, `Outcome::new_domain` in entry 76, `Effect::FadeToMontage` in entry
+80, and now this. All four looked like working code from the handler's side.
+All four were found by reading.
+
+The mechanism is one line:
+
+```rust
+_ => {}
+```
+
+A catch-all arm cannot fail. Every one of these was a handler doing its job,
+pushing a well-formed effect into a queue that quietly swallowed it.
+
+So there is now a test that reads `script.rs` for the `Effect` variants and
+every file that acts on effects, and fails if a variant is never mentioned in
+any of them. Parsing Rust as text is crude and I do not much like it, but it
+fails the moment somebody adds a fifth variant without an arm, which is the
+entire job. It found one variant on its first run -- `Native` -- which turned
+out to be the one deliberate exception: `natives::call` runs first and only
+pushes `Effect::Native` when no handler took the verb, so it is a record that
+something is unported rather than an instruction. That is exempted by name,
+with the reason, rather than by widening the search until it passes.
+
+Writing this in entry 84 rather than entry 59 is the actual mistake. I had the
+diagnosis after the first one and treated it as an incident three more times.
+
+Also cleared the build warnings, all of them this time. One was a redundant
+`was_down = down` in a branch whose only job was to decline the click; the
+foot of the loop already carries it. Entry 81's dead `resetBoxPuzzle` arm had
+been sitting behind that same wall of noise for two commits.
+
+Unported is now **22 verbs across 39 call sites**. 167 tests, clippy clean, no
+warnings.
