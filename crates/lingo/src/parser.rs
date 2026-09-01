@@ -252,6 +252,14 @@ impl<'a> Parser<'a> {
                     self.call(&name)
                 } else if name.eq_ignore_ascii_case("void") || name.eq_ignore_ascii_case("empty") {
                     Ok(Value::Void)
+                } else if name.eq_ignore_ascii_case("true") {
+                    // Lingo's booleans are the integers the guards compare
+                    // against: a door set TRUE has to satisfy `= 1`. Left as a
+                    // symbol it satisfies neither `= 1` nor `= 0`, and the
+                    // thing it controls becomes permanently unreachable.
+                    Ok(Value::Int(1))
+                } else if name.eq_ignore_ascii_case("false") {
+                    Ok(Value::Int(0))
                 } else {
                     // A bare word in this data is always a symbol in practice.
                     Ok(Value::Symbol(name))
