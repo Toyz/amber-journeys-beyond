@@ -390,6 +390,14 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         // -- state -----------------------------------------------------------
         // `setState` takes the object, the key and the value; the object is
         // always `oStoryteller`, so only the trailing pair matters.
+        // `addState( #list, #item )` adds to a set rather than replacing the
+        // flag, the counterpart of trimState.
+        "addstate" if args.len() >= 2 => {
+            let key = args[args.len() - 2].as_str().unwrap_or_default().to_string();
+            if !key.is_empty() {
+                state.add_item(&key, args[args.len() - 1].clone());
+            }
+        }
         "setstate" | "addstate" | "setprop" => {
             if args.len() >= 2 {
                 let key = args[args.len() - 2].as_str().unwrap_or_default().to_string();

@@ -106,6 +106,66 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on panelButton whichButton
+        //   if inState(#panelGuess, whichButton) then
+        //     trimState #panelGuess, whichButton : cue #CPbuttonUp
+        //   else
+        //     addState #panelGuess, whichButton : cue #CPbuttonDn
+        //   updateDisplay
+        //   repeat over [#A1, #A2, #B2, #B3]
+        //     if not inState(#panelGuess, i) then exit
+        //   repeat over [#A3, #B1]
+        //     if inState(#panelGuess, j) then exit
+        //   setState(oStoryteller, #controlPanel, #closed)
+        //   updateDisplay
+        //   goTo #basement_doorGadgets, #backOff
+        //
+        // Each press toggles a button in or out of the set. The panel opens
+        // only when all four of the first list are down and neither of the
+        // second is: pressing a wrong button does not reset anything, it just
+        // keeps the check from passing until it is pressed again.
+        "panelbutton" => {
+            const REQUIRED: [&str; 4] = ["A1", "A2", "B2", "B3"];
+            const FORBIDDEN: [&str; 2] = ["A3", "B1"];
+
+            let Some(button) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|b| b.trim_start_matches('#').to_string())
+            else {
+                return true;
+            };
+            let down = |st: &State, b: &str| match st.get("panelGuess") {
+                Value::List(items) => items
+                    .iter()
+                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(b))),
+                _ => false,
+            };
+
+            if down(state, &button) {
+                state.trim_item("panelGuess", &Value::Symbol(button.clone()));
+                out.effects.push(Effect::PlaySound {
+                    name: "CPbuttonUp".into(),
+                    loudness: None,
+                });
+            } else {
+                state.add_item("panelGuess", Value::Symbol(button.clone()));
+                out.effects.push(Effect::PlaySound {
+                    name: "CPbuttonDn".into(),
+                    loudness: None,
+                });
+            }
+            out.redraw = true;
+
+            let solved = REQUIRED.iter().all(|b| down(state, b))
+                && !FORBIDDEN.iter().any(|b| down(state, b));
+            if solved {
+                state.set("controlPanel", Value::Symbol("closed".into()));
+                out.destination = Some("basement_doorGadgets".into());
+                out.transition = Some("backOff".into());
+            }
+        }
+
         _ => return false,
     }
     true

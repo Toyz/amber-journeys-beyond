@@ -1438,3 +1438,34 @@ arbitrary, and paired with the sprite it is obviously a partition.
 The trim is queued rather than written, for the reason entry 47 established -
 the movie is gated on the haunt still being in the pool, so consuming it as
 the handler runs hides the film it belongs to.
+
+## 50. The control panel, and addState
+
+`panelButton` toggles a button in or out of `#panelGuess` and checks the set
+after every press: all of A1, A2, B2 and B3 down, and neither A3 nor B1. A
+wrong button resets nothing, it simply keeps the check from passing until it
+is pressed again.
+
+Porting it turned up a fault of the same shape as `trimState` in entry 46.
+`addState( #panelGuess, #A1 )` adds to a set, and the interpreter was routing
+it to a plain write, so the set held only whichever button was pressed last
+and four-of-four could never be true. The panel would have looked like a
+puzzle with no solution, which is exactly the failure that reads as the
+player's problem rather than the engine's.
+
+Both halves of the pair are now list operations. Worth noting the two were
+written at different times and neither was checked against the other; a set
+you can add to but not remove from, or the reverse, should have looked wrong
+on its face.
+
+Also mapped what is left, by the capability each handler needs rather than by
+size:
+
+  movie on a puppet channel     9 handlers, 24 sites
+  puppet channel, bitmap only   2 handlers,  3 sites
+  no channel work              23 handlers, 59 sites
+
+Two thirds of the remainder needs nothing that does not already exist. The
+blocked quarter is one capability again - a puppet channel that can hold a
+digital video member rather than a bitmap - and it covers the whirligig, the
+radio dial and the car.

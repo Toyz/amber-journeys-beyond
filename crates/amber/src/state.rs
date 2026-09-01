@@ -85,6 +85,26 @@ impl State {
         self.props.remove(&key.to_ascii_lowercase());
     }
 
+    /// Adds an entry to the list a flag holds, if it is not already there.
+    ///
+    /// The counterpart of [`trim_item`](Self::trim_item). The control panel
+    /// collects pressed buttons this way, so treating it as a plain write
+    /// leaves the set holding only whichever button was pressed last and the
+    /// puzzle can never be satisfied.
+    pub fn add_item(&mut self, key: &str, item: Value) {
+        let key = key.to_ascii_lowercase();
+        match self.props.get_mut(&key) {
+            Some(Value::List(items)) => {
+                if !items.iter().any(|i| i.loosely_eq(&item)) {
+                    items.push(item);
+                }
+            }
+            _ => {
+                self.props.insert(key, Value::List(vec![item]));
+            }
+        }
+    }
+
     /// Removes one entry from the list a flag holds.
     ///
     /// This is what `trimState` does. Every call in the game passes a list and
