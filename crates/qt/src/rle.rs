@@ -72,13 +72,24 @@ impl Rle {
             (0, self.height)
         };
 
+        // QuickTime writes a greyscale track's depth as 32 plus its bit
+        // count, so 8-bit grey is 40 and not 8. Two of the disc's films say
+        // 40, one of them `40sFRAME.mov` -- the white frame the portal into
+        // Margaret's chapter flashes up -- and reading 40 as a colour depth
+        // made a unit one pixel instead of four and each pixel four bytes
+        // instead of one. The frame came out a quarter of its width with the
+        // channels sheared, which is what a squeezed picture with coloured
+        // edges looks like.
+        let grey = depth > 32;
+        let bits = if grey { depth - 32 } else { depth };
+
         // How many pixels one count step covers. Below eight bits a unit is
         // wider still, but nothing on the disc uses those depths.
-        let unit: usize = match depth {
+        let unit: usize = match bits {
             0..=8 => 4,
             _ => 1,
         };
-        let bytes_per_pixel: usize = match depth {
+        let bytes_per_pixel: usize = match bits {
             0..=8 => 1,
             16 => 2,
             24 => 3,
@@ -118,7 +129,7 @@ impl Rle {
                     };
                     p += width_bytes;
                     for _ in 0..times {
-                        self.put(row, &mut x, src, depth, bytes_per_pixel);
+                        self.put(row, &mut x, src, bits, grey, bytes_per_pixel);
                     }
                 } else {
                     // A literal run of `code` units.
@@ -127,7 +138,7 @@ impl Rle {
                         return Ok(());
                     };
                     p += width_bytes;
-                    self.put(row, &mut x, src, depth, bytes_per_pixel);
+                    self.put(row, &mut x, src, bits, grey, bytes_per_pixel);
                 }
             }
             row += 1;
@@ -136,13 +147,19 @@ impl Rle {
     }
 
     /// Writes decoded source bytes at `x` on `row`, advancing `x`.
-    fn put(&mut self, row: usize, x: &mut usize, src: &[u8], depth: u16, bpp: usize) {
+    fn put(&mut self, row: usize, x: &mut usize, src: &[u8], bits: u16, grey: bool, bpp: usize) {
         for chunk in src.chunks_exact(bpp) {
             if *x >= self.width || row >= self.height {
                 *x += 1;
                 continue;
             }
-            let [r, g, b] = match depth {
+            let [r, g, b] = match bits {
+                // A greyscale track has no colour table of its own; the index
+                // is the shade, and QuickTime counts down from white.
+                0..=8 if grey => {
+                    let v = 255 - chunk[0];
+                    [v, v, v]
+                }
                 0..=8 => self.palette[chunk[0] as usize],
                 16 => {
                     // 5-5-5 with the high bit unused, widened by replicating
@@ -276,3 +293,46 @@ mod tests {
         assert!(r.decode(&frame(0, 4, &[1]), 8).is_ok());
     }
 }
+
+#[cfg(test)]
+mod grey_tests {
+    use super::*;
+
+    /// QuickTime writes a greyscale track's depth as 32 plus its bit count, so
+    /// 8-bit grey is 40. Reading 40 as a colour depth makes a unit one pixel
+    /// instead of four and each pixel four bytes instead of one, so a line
+    /// fills a quarter of its width with the channels sheared.
+    ///
+    /// One film on the disc says 40: `40sFRAME.mov`, the white frame the
+    /// portal into Margaret's chapter flashes up, which is why that was the
+    /// one room that looked wrong for weeks.
+    #[test]
+    fn eight_bit_grey_is_depth_forty() {
+        let mut rle = Rle::new(8, 1, [[0, 0, 0]; 256]);
+        // One line: skip nothing, one literal unit of four pixels, then end.
+        // At eight bits that unit is four bytes, one index each.
+        let frame = [
+            0, 0, 0, 20, // chunk size
+            0, 0, // header: no line range, so the whole frame
+            1,  // skip byte, one-based: start at column zero
+            1,  // one literal unit
+            0x00, 0x40, 0x80, 0xff, // four indices
+            0xff, // -1: end of line
+            0xff, // -1: end of frame
+        ];
+        rle.decode(&frame, 40).expect("a greyscale frame");
+
+        let px = |i: usize| {
+            let o = i * 4;
+            [rle.pixels[o], rle.pixels[o + 1], rle.pixels[o + 2]]
+        };
+        // Four pixels written, not one, and QuickTime counts down from white.
+        assert_eq!(px(0), [255, 255, 255]);
+        assert_eq!(px(1), [191, 191, 191]);
+        assert_eq!(px(2), [127, 127, 127]);
+        assert_eq!(px(3), [0, 0, 0]);
+        // And the fifth is untouched, so exactly one unit was consumed.
+        assert_eq!(rle.pixels[4 * 4 + 3], 0);
+    }
+}
+

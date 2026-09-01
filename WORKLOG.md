@@ -4656,3 +4656,50 @@ been reading a screenshot and inferring state for three rounds now, and I got
 one of those rounds wrong badly enough to "fix" working code. That is enough.
 The recorder has existed since entry 64 and I have never once asked for a
 recording.
+
+## 112. Depth forty
+
+helba: "it's the frame, it's still squished, it happens during the transition".
+
+That was enough. `40sFRAME.mov` is the white frame the portal flashes up on its
+way into Margaret's chapter, and it is **not Cinepak** -- it is Apple Animation,
+which is why the decoder trace I had just added showed nothing for it.
+
+QuickTime writes a greyscale track's depth as **32 plus its bit count**. So
+8-bit grey is 40, not 8. My decoder read the depth straight:
+
+```rust
+let unit: usize = match depth { 0..=8 => 4, _ => 1 };
+let bytes_per_pixel: usize = match depth { 0..=8 => 1, 16 => 2, 24 => 3, _ => 4 };
+```
+
+Forty falls off the end of both. So a unit became one pixel instead of four and
+a pixel four bytes instead of one, and each line filled a quarter of its width
+with the channels sheared -- a squeezed picture with a red edge down one side
+and a blue one down the other. Which is exactly what helba has been
+photographing for me.
+
+The file's own comment, written when I ported this codec, says:
+
+> At eight bits a "unit" is four pixels, not one: the counts are in groups of
+> four and the skip byte steps four at a time. Reading them as single pixels
+> decodes a quarter of each line and smears it across the rest.
+
+I had the failure mode written down, in this file, above the code that has it.
+What I did not have was any reason to think a film could say 8 bits in a way
+that does not read as 8.
+
+**One film on the disc says 40**, out of 127 Apple Animation films. One. And it
+is the one in the transition that helba has been reporting since the very first
+screenshot of this project.
+
+### The part that is mine to own
+
+I rendered this exact frame -- `showMontage=2`, the same command, the same
+data -- three rounds ago, wrote the PNG, and never opened it. The bug was
+sitting in a file on disk while I told helba I could not reproduce it and asked
+them to send a recording. Then I asked twice more.
+
+Producing the evidence is not the same as looking at it. I have a headless
+renderer specifically so I can see what the player sees, and I used it to
+generate an image and then reasoned about what the image probably contained.
