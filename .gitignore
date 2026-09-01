@@ -1,11 +1,19 @@
 # Build output
 /target
 
-# Game data. The disc image and its contents are not redistributable and
+# Game data. The disc images and their contents are not redistributable and
 # must be supplied by whoever runs this; see README.md.
+#
+# The Macintosh release is two HFS volumes inside StuffIt archives, unpacked
+# to mac_iso/ and then merged into mac_game/ by tools/hfs.py.
 /extract
+/mac_iso
+/mac_game
+/mac_extract
 *.iso
 *.ISO
+*.sit
+*.zip
 
 # Scratch
 /tools/__pycache__

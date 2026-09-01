@@ -449,7 +449,8 @@ fn verify_movie_loops(dir: &Path) -> Res {
     let mut looping = 0usize;
     let mut once = 0usize;
     for chapter in ["BRICE", "EDWIN", "MARGARET", "ROXY"] {
-        let path = dir.join(chapter).join(format!("{chapter}.DXR"));
+        let path = crate::world::find_ci(&dir.join(chapter), &format!("{chapter}.DXR"))
+            .unwrap_or_else(|| dir.join(chapter).join(format!("{chapter}.DXR")));
         let Ok(movie) = director::Movie::open(&path) else { continue };
         for m in movie.members() {
             if m.kind != director::CastKind::DigitalVideo || m.resource == 0 {

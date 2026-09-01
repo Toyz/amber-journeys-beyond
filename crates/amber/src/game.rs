@@ -366,7 +366,8 @@ impl Game {
 
     fn chapter(&mut self, domain: &str) -> Option<&mut Chapter> {
         if !self.chapters.contains_key(domain) {
-            let path = self.root.join(domain).join(format!("{domain}.DXR"));
+            let path =
+                crate::world::find_ci(&self.root.join(domain), &format!("{domain}.DXR"))?;
             let movie = Movie::open(path).ok()?;
             let palettes = movie.palettes();
             let texts = movie.texts();

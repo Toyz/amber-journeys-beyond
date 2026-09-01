@@ -3443,3 +3443,100 @@ the player accumulate progress across visits would make the sequence
 irrelevant.
 
 191 tests. Unported is **14 verbs across 18 call sites**.
+
+## 89. The Macintosh release
+
+helba bought the Mac disc and sent it over: `AMBER-Journeys-Beyond_Mac_EN.zip`,
+two StuffIt archives holding two bare HFS volumes. Entry 79 established that
+the disc I had been working from was the PC release and that the Macintosh
+release was a different disc. It is, and it is a **two-disc** release --
+`AMBER_A` at 374 MB and `AMBER_B` at 625 MB against the PC's single 602 MB.
+
+Nothing on this machine could read a bare HFS volume: no partition map, no
+ISO9660, and 7-Zip declines it. So `tools/hfs.py` reads the master directory
+block, walks the catalogue B-tree and pulls a file's data fork out through its
+extents, with the extents-overflow file for anything fragmented past three.
+That is the whole of it -- HFS is a small format and this needs about a page.
+
+**879 files extracted, every one matching its catalogue size exactly.**
+
+The two discs share 322 paths and exactly ten differ. Three are Finder
+bookkeeping. The other seven are Roxy's endgame films -- `endanim`, `electro`,
+`psimerge`, `fragdlog`, `warn`, `algodone`, `RoxyHG` -- which are real on disc
+A and **468-byte stubs on disc B**. That is the disc-swap: B ships placeholders
+so the projector can still find them by name. The merge takes the larger copy.
+
+### What the PC release is missing
+
+This is the part that matters, and it answers three of helba's complaints at
+once. Pointing the engine at each release:
+
+```text
+PC    movies: 278 on disc, 196 referenced, 5 unresolved
+Mac   movies: 283 on disc, 196 referenced, 1 unresolved
+```
+
+The five the PC disc references and does not ship:
+
+| file | what it is |
+|---|---|
+| `40sINTRO.mov` | Margaret's opening |
+| `MEewall.mov` | Roxy's east wall |
+| `ST-CPU-LED` | the scan unit's indicator |
+| `UH-BATHKNOBSCAN-ON1` | the scan unit fitted to the bathroom knob |
+| `UH-MARGKNOBSCAN-ON1` | the scan unit fitted to Margaret's knob |
+
+helba asked, weeks apart: why the scanner cannot be used on door knobs, and
+whether its button is supposed to light up. Both were the same answer and
+neither was a bug in this engine. The films are not on the disc.
+
+The Mac's single gap is `tuner_bg.mov`, which only the PC ships -- one file
+each way out of 196.
+
+### `bedrm_fadeIn`
+
+And the question open since entry 78. `40sINTRO.mov` is five seconds of Cinepak
+dated February 1996: a black-and-white close-up of a woman's eyes in a soft
+1940s vignette. **Not a room.** Which is why entry 78's search -- render all 154
+rooms, correlate against the film -- could not have worked. I was matching a
+room against a face.
+
+The room that plays it has been in the world data the whole time:
+
+```text
+MARGARET   41  bedrm_fadeIn   palette-holder   -> (none)
+```
+
+A palette holder and a film on the video channel, every exit going to
+`#destination`. It is in `MARG_2.DAT` on **both** releases -- the PC build kept
+the room and dropped the film. Its cast entry still points at
+`C:\AMBER building\AJBDISC1\MARGARET\movies_M`, which is the two-disc layout
+showing through in the single-disc build.
+
+Entry 78 listed what I had ruled out and called the landing room a guess. The
+guess was wrong and the method was wrong: I searched for a room with art among
+rooms with art, and this room has none. The name says what it is. I could have
+read the list.
+
+### Two bytes and a filename
+
+Two things stopped the engine reading the Mac data at all, and both are the
+same kind of mistake.
+
+The `.DAT` files are byte-for-byte the same shape -- `MARG_2` has 37 records on
+both discs -- but the PC separates records with `0xBC` and the Mac with
+`0xC5`. Reading only `0xBC` turned every Macintosh chapter into a single room:
+44 rooms across the game instead of 1320.
+
+And filenames. The PC pressing shouts -- `MARGARET.DXR`, `MOVIES_M` -- and the
+Mac does not: `MARGARET.dxr`, `movies_M`. HFS is case-insensitive so these were
+the same name to the original. On a case-sensitive filesystem they are not, and
+looking for the shouted form found nothing, which is why every room came back
+unnamed.
+
+Both now handled, and the PC release still parses to its same 1325 rooms.
+
+The Mac is not simply better. It carries 183 sound files to the PC's 325 and 71
+of its sound symbols name a file that is not on the disc, because the Mac keeps
+most of its audio inside the movie resources. For films the Mac is the complete
+release; for sounds the PC is.

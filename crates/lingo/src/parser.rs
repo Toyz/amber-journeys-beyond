@@ -311,10 +311,17 @@ pub fn parse_value(src: &str) -> Result<Value, ParseError> {
 /// line to ordinary text tools. Records come back in file order, which is the
 /// order the game indexes rooms by.
 pub fn parse_dat(bytes: &[u8]) -> Result<Vec<Value>, ParseError> {
-    /// Bytes that end a record. Director wrote 0xBC; a NUL is accepted too so
-    /// files from other pressings of the disc still load.
+    /// Bytes that end a record.
+    ///
+    /// The PC pressing writes 0xBC and the Macintosh pressing writes 0xC5 --
+    /// the same `.DAT` files, the same 37 records in `MARG_2`, a different
+    /// delimiter byte. Reading only 0xBC turned every Macintosh chapter into a
+    /// single room. A NUL is accepted as well, from an earlier pressing.
+    ///
+    /// None of the three can appear inside a record: a record is a Lingo
+    /// property list and these are all outside its grammar.
     fn is_separator(c: u8) -> bool {
-        c == 0xBC || c == 0x00
+        c == 0xBC || c == 0xC5 || c == 0x00
     }
 
     // Skip the banner by finding the closing `*` of the leading comment.

@@ -402,6 +402,26 @@ pub struct World {
     pub by_name: HashMap<String, Vec<usize>>,
 }
 
+/// Finds a file in `dir` whose name matches `name` ignoring case.
+///
+/// The PC pressing shouts its filenames -- `MARGARET.DXR`, `MOVIES_M` -- and
+/// the Macintosh pressing does not: `MARGARET.dxr`, `movies_M`. HFS is
+/// case-insensitive so both were the same name to the original; on a
+/// case-sensitive filesystem they are not, and looking for the shouted form
+/// found nothing at all on the Macintosh disc.
+pub fn find_ci(dir: &Path, name: &str) -> Option<std::path::PathBuf> {
+    let exact = dir.join(name);
+    if exact.exists() {
+        return Some(exact);
+    }
+    std::fs::read_dir(dir).ok()?.filter_map(|e| e.ok()).find_map(|e| {
+        e.file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(name)
+            .then(|| e.path())
+    })
+}
+
 impl World {
     /// Resolves a `goTo` destination to a room.
     ///
@@ -468,7 +488,8 @@ impl World {
             // cast number is the same in all three places a room is referenced.
             let mut seen: HashMap<u32, usize> = HashMap::new();
 
-            let movie = director::Movie::open(path.join(format!("{dir}.DXR"))).ok();
+            let movie = find_ci(&path, &format!("{dir}.DXR"))
+                .and_then(|p| director::Movie::open(p).ok());
             if let Some(movie) = &movie {
                 for (number, member_name) in movie.members_named_with(".DATA") {
                     let Some(text) = movie.text(number) else { continue };
