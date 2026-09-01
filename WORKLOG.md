@@ -2576,3 +2576,53 @@ been merely wasteful into a fault that silenced the thing the player had just
 clicked. A limit does not create the bug it exposes, but it does decide which
 symptom you get, and "no sound from the boxes" is a much worse clue than "the
 radio is playing four times".
+
+## 73. The boxes say nothing, and entry 57 was measured wrong
+
+Two questions from helba, and the answers went opposite ways.
+
+**Do the boxes say something when the puzzle first loads?** No. Entering runs
+`initBoxPuzzle`, and that handler is
+
+```text
+on initBoxPuzzle
+     0  return
+```
+
+an empty stub the authors left in. `BOXPLAY.MOV` has no sound track at all --
+the tunes are the `snd1box` to `snd5box` sounds, played on click. So the room
+opens on a clock, a radio and a silent film of five closed boxes, and that is
+correct.
+
+**Is the house hum right?** No, and helba spotted it from a trace where I had
+not:
+
+```text
+[  1] bed [houseHum 21%] total 0.21
+[ 85] bed [BRclock 2%, BRradio 20%, houseHum 11%] total 0.33
+```
+
+All four bedroom rooms declare `#houseHum: 224`. The hum played at 21% in one
+and 11% in the next, because entry 57 scaled the whole bed down when it summed
+past a ceiling, and a room with more sources therefore got each one quieter.
+
+Entry 57 was measured wrong. I summed the levels a room asks for -- 101 rooms
+above full scale, the worst at 2.82 -- and never applied the game's own
+`soundVolTweaks` trim, which is a per-sound multiplier the mixer applies right
+after. With it, **28 rooms** sum above full scale and the worst is **1.83**,
+which the saturator handles as gentle compression. I had corrected for a
+problem three times larger than the real one, using numbers that never reach
+the mixer.
+
+The correction was also worse than the fault. Clipping on a peak is momentary;
+a hum that changes level whenever a clock comes into earshot is continuous, and
+the hum is the one sound in this game that has to be steady as the player walks
+through the house. Removed. Each source now plays at the level its room asks
+for, and the three things standing between that and a bad mix -- the four
+channel cap, the duck, and the saturator -- are all things the game or the
+hardware actually does.
+
+Recorded plainly because it is the same mistake as the palette and the `snd `
+peak: a number that agreed with what I expected got no second look. Entry 57
+even says "measured rather than guessed", and the measurement was of the wrong
+quantity.

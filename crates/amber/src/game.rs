@@ -1111,26 +1111,22 @@ impl Game {
             }
         }
 
-        // `#earShot` is a balance, not a set of absolute levels: it says how
-        // prominent each source is from where the player is standing. The
-        // living room asks for a clock at 47%, a radio at 47%, a fire at 100%
-        // and the house hum at 88%, and those sources are real recordings --
-        // the hum alone peaks at 96% of full scale. Summed as written that is
-        // nearly three times full scale, and a hundred and one rooms ask for
-        // more than one. Everything below the ceiling is left exactly as the
-        // room asked for it; only a bed that would not fit is scaled, which
-        // keeps the balance and removes the clipping.
+        // Each source plays at the level its room asks for and nothing else.
         //
-        // The ceiling sits below unity because speech and sound effects play
-        // over this, and they are what the player is meant to be listening to.
-        const BED_CEILING: f32 = 0.7;
-        let total: f32 = out.iter().map(|(_, g)| *g).sum();
-        if total > BED_CEILING {
-            let scale = BED_CEILING / total;
-            for (_, gain) in out.iter_mut() {
-                *gain *= scale;
-            }
-        }
+        // Entry 57 scaled the whole bed down when it summed past a ceiling,
+        // which was measured before the game's own `soundVolTweaks` trim was
+        // applied and so was measuring numbers that never reach the mixer.
+        // With the trim, twenty-eight rooms sum above full scale rather than a
+        // hundred and one, and the most is 1.83 rather than 2.82 -- which the
+        // saturator handles as gentle compression.
+        //
+        // The scaling also had a fault worse than the clipping it prevented.
+        // It divided by how many sources a room had, so the house hum -- which
+        // every one of these rooms declares at 224 -- played at 21% in one
+        // room and 11% in the next. The hum is the one sound that has to be
+        // steady as the player walks through the house, and a bed that dips
+        // whenever a clock comes into earshot is more obviously wrong than a
+        // peak that compresses.
         out
     }
 

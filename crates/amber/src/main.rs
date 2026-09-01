@@ -483,12 +483,15 @@ fn verify_audio_mix(dir: &Path) -> Res {
         if mix.is_empty() {
             continue;
         }
-        sums.push((mix.iter().map(|(_, g)| *g).sum(), i));
+        // The level a room asks for, times the game's own per-sound trim,
+        // which is what actually reaches the mixer.
+        let total: f32 = mix.iter().map(|(n, g)| *g * game.sounds.gain(n)).sum();
+        sums.push((total, i));
     }
     sums.sort_by(|a, b| b.0.total_cmp(&a.0));
     let over = sums.iter().filter(|(s, _)| *s > 1.0).count();
     println!(
-        "ambient mix:         {} rooms, {over} sum above full scale",
+        "ambient mix:         {} rooms, {over} sum above full scale (the saturator\'s work)",
         sums.len()
     );
     for (sum, i) in sums.iter().take(4) {
