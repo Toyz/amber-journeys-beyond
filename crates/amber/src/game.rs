@@ -339,6 +339,28 @@ impl Game {
         self.visible().is_empty()
     }
 
+    /// Loads and starts a named movie, or the current room's own.
+    ///
+    /// `pushVideo` takes no argument in most of the scripts, meaning the movie
+    /// the room already places on its video channel: the montages play by
+    /// swapping which movie that is and asking for it again.
+    pub fn play_movie(&mut self, name: Option<&str>) {
+        match name {
+            Some(n) => {
+                let n = n.trim_start_matches('#').to_string();
+                self.player = None;
+                match self.movies.find(&n) {
+                    Some(path) => {
+                        trace!(crate::trace::Topic::Video, "push {n} -> {}", path.display());
+                        self.player = VideoPlayer::open(path);
+                    }
+                    None => trace!(crate::trace::Topic::Video, "no file for movie {n}"),
+                }
+            }
+            None => self.start_room_video(),
+        }
+    }
+
     /// Loads and starts the current room's movie, if it has one.
     pub fn start_room_video(&mut self) {
         self.player = None;
@@ -944,8 +966,15 @@ impl Game {
                 )),
                 _ => None,
             });
+            // Each action's own outcome is applied, not the running total.
+            // Applying the accumulation instead re-queued every effect the
+            // sequence had produced so far, once more per action, so a list of
+            // n effect-producing actions queued n(n+1)/2 effects: the same
+            // sound started several times over itself, and identical copies of
+            // one waveform sum coherently, which is far louder and harsher
+            // than the same number of unrelated sounds.
+            self.apply(&outcome);
             merge(&mut combined, outcome);
-            self.apply(&combined.clone());
             if let Some(w) = hold {
                 self.waiting = Some(w);
                 break;
@@ -991,6 +1020,14 @@ impl Game {
         // A move changes which movie is on screen, so reload it either way.
         if outcome.destination.is_some() || outcome.go_back {
             self.start_room_video();
+        }
+        if !outcome.effects.is_empty() {
+            trace!(
+                crate::trace::Topic::Script,
+                "queue {} effect(s), {} pending",
+                outcome.effects.len(),
+                self.pending.len() + outcome.effects.len()
+            );
         }
         self.pending.extend(outcome.effects.iter().cloned());
     }

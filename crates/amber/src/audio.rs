@@ -14,6 +14,10 @@ use cpal::{SampleFormat, Stream, StreamConfig};
 /// `endLoop #houseHum` can stop the right one; one-shots carry none.
 struct Voice {
     key: Option<String>,
+    /// What the scripts call this sound, when they name it. A programme's
+    /// takes and a movie's soundtrack are unnamed: they are distinct
+    /// recordings played in turn, and must never stand in for one another.
+    name: Option<String>,
     samples: Arc<Vec<i16>>,
     /// Source channel count, so mono sources feed both outputs.
     channels: u16,
@@ -38,6 +42,61 @@ struct Mixer {
 }
 
 impl Mixer {
+
+    /// Adds a voice, or folds the request into one already playing.
+    #[allow(clippy::too_many_arguments)]
+    fn start(
+        &mut self,
+        name: Option<&str>,
+        key: Option<String>,
+        samples: Arc<Vec<i16>>,
+        channels: u16,
+        step: f64,
+        gain: f32,
+        looping: bool,
+    ) {
+        if let Some(k) = &key {
+            if self.voices.iter().any(|v| v.key.as_deref() == Some(k.as_str())) {
+                trace!(crate::trace::Topic::Audio, "loop {k} already playing");
+                return;
+            }
+        } else if let Some(v) = self.voices.iter_mut().find(|v| {
+            !v.looping
+                && v.name
+                    .as_deref()
+                    .zip(name)
+                    .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+        }) {
+            // Director plays a sound on a channel, and asking that channel for
+            // the same sound again restarts it. Layering a second copy instead
+            // sums one waveform with itself, which is twice the amplitude of a
+            // single take rather than the modest rise two unrelated sounds
+            // give, and it is the harshest way a mix can go wrong.
+            trace!(crate::trace::Topic::Audio, "restart {}", name.unwrap_or(""));
+            v.position = 0.0;
+            v.gain = gain;
+            return;
+        }
+        trace!(
+            crate::trace::Topic::Audio,
+            "play {} gain {gain:.2} {}ch {} frames{}",
+            name.unwrap_or("(unnamed)"),
+            channels,
+            samples.len() / channels.max(1) as usize,
+            if looping { " looping" } else { "" }
+        );
+        self.voices.push(Voice {
+            key,
+            name: name.map(str::to_string),
+            samples,
+            channels: channels.max(1),
+            position: 0.0,
+            step,
+            gain,
+            looping,
+        });
+    }
+
     fn fill(&mut self, out: &mut [f32]) {
         out.fill(0.0);
         let out_channels = self.channels.max(1) as usize;
@@ -150,6 +209,7 @@ mod tests {
     fn voice(looping: bool, gain: f32) -> Voice {
         Voice {
             key: looping.then(|| "houseHum".to_string()),
+            name: Some("houseHum".to_string()),
             // A steady full-scale tone, long enough to outlast the ramp, so a
             // level change is easy to read off.
             samples: Arc::new(vec![32767i16; 1 << 16]),
@@ -226,6 +286,63 @@ mod tests {
             "duck moves too fast: {:?}",
             &steps[..4]
         );
+    }
+
+    fn pcm() -> Arc<Vec<i16>> {
+        Arc::new(vec![32767i16; 1 << 16])
+    }
+
+    #[test]
+    fn the_same_sound_asked_for_twice_restarts_rather_than_layering() {
+        // Director plays a sound on a channel; asking that channel for it
+        // again restarts it. Two copies of one waveform sum coherently, which
+        // is twice the amplitude, not the modest rise two unrelated sounds
+        // give -- the harshest way a mix can go wrong.
+        let mut m = mixer(vec![]);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
+        assert_eq!(m.voices.len(), 1);
+    }
+
+    #[test]
+    fn a_restart_returns_the_sound_to_its_beginning() {
+        let mut m = mixer(vec![]);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
+        m.voices[0].position = 500.0;
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 0.5, false);
+        assert_eq!(m.voices[0].position, 0.0);
+        assert_eq!(m.voices[0].gain, 0.5, "the new request sets the level");
+    }
+
+    #[test]
+    fn different_sounds_still_play_together() {
+        let mut m = mixer(vec![]);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
+        m.start(Some("breakerSwitch"), None, pcm(), 1, 1.0, 1.0, false);
+        assert_eq!(m.voices.len(), 2);
+    }
+
+    #[test]
+    fn unnamed_one_shots_never_stand_in_for_one_another() {
+        // A programme's takes and a movie's soundtrack are distinct
+        // recordings played in turn. Folding them together would drop all but
+        // the first.
+        let mut m = mixer(vec![]);
+        m.start(None, None, pcm(), 1, 1.0, 1.0, false);
+        m.start(None, None, pcm(), 1, 1.0, 1.0, false);
+        assert_eq!(m.voices.len(), 2);
+    }
+
+    #[test]
+    fn a_loop_already_running_is_left_where_it_is() {
+        // Re-entering a room must not restart its ambience, or the seam is
+        // audible on every move.
+        let mut m = mixer(vec![]);
+        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 1.0, true);
+        m.voices[0].position = 900.0;
+        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 0.2, true);
+        assert_eq!(m.voices.len(), 1);
+        assert_eq!(m.voices[0].position, 900.0);
     }
 
     use super::saturate;
@@ -328,6 +445,7 @@ impl Audio {
     /// re-entered does not stack a second copy of its ambience.
     pub fn play(
         &self,
+        name: Option<&str>,
         key: Option<String>,
         samples: Arc<Vec<i16>>,
         source_rate: u32,
@@ -341,30 +459,8 @@ impl Audio {
         let Ok(mut mixer) = self.mixer.lock() else {
             return;
         };
-        if let Some(k) = &key {
-            if mixer.voices.iter().any(|v| v.key.as_deref() == Some(k.as_str())) {
-                trace!(crate::trace::Topic::Audio, "loop {k} already playing");
-                return;
-            }
-        }
-        trace!(
-            crate::trace::Topic::Audio,
-            "play {} gain {gain:.2} {}Hz {}ch {} frames{}",
-            key.clone().unwrap_or_else(|| "(one-shot)".into()),
-            source_rate,
-            channels,
-            samples.len() / channels.max(1) as usize,
-            if looping { " looping" } else { "" }
-        );
-        mixer.voices.push(Voice {
-            key,
-            samples,
-            channels: channels.max(1),
-            position: 0.0,
-            step: source_rate.max(1) as f64 / self.rate as f64,
-            gain,
-            looping,
-        });
+        let step = source_rate.max(1) as f64 / self.rate as f64;
+        mixer.start(name, key, samples, channels, step, gain, looping);
     }
 
     /// Makes the set of playing loops match `wanted`, which is `(name, gain)`.

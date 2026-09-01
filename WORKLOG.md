@@ -1933,3 +1933,72 @@ Only the correct figure had reached the log; the bad one existed in a message.
 That is a thin margin, and the lesson is the same one as the palette: a number
 that agrees with what I expect gets no scrutiny, and those are exactly the ones
 that need it.
+
+## 59. The effects queue was quadratic
+
+helba said the audio was still crunchy and pasted the effect log, which is the
+whole finding:
+
+```text
+  effect: PlayVideo(None)
+  effect: WaitForVideo
+  effect: PlayVideo(None)
+  effect: PlayVideo(None)
+  effect: WaitForVideo
+  effect: PlaySound { name: "MCALL7", loudness: Some("high") }
+  effect: PlaySound { name: "MCALL7", loudness: Some("high") }
+```
+
+The same sound twice. The handler that produces it picks a call at random and
+pushes one effect, and two runs of it would roll different numbers, so this was
+not the handler running twice -- it was one effect list applied more than once.
+
+In `pump`:
+
+```rust
+merge(&mut combined, outcome);
+self.apply(&combined.clone());
+```
+
+`apply` queues `outcome.effects`, and it was being handed `combined`, the
+running accumulation, once per action. So a list of n effect-producing actions
+queued n(n+1)/2 effects. The log I built in entry 58 reported it directly:
+
+```text
+queue 1 effect(s), 1 pending
+queue 2 effect(s), 3 pending
+queue 3 effect(s), 6 pending
+queue 4 effect(s), 10 pending
+queue 5 effect(s), 15 pending
+```
+
+Triangular numbers, on the path into the bee grounds. After the fix, six
+actions queue six effects.
+
+This is worse for audio than the headroom problem in entry 57, and in a way
+worth stating precisely: two copies of the *same* recording started at the same
+moment are perfectly correlated, so they sum to twice the amplitude. Two
+unrelated sounds of the same level sum to about 1.4 times. Entry 57 fixed a bed
+that was too loud; this was one waveform on top of itself.
+
+Belt and braces, because the game can legitimately ask for a sound it is
+already playing: Director plays a sound on a channel, and asking that channel
+for it again restarts it rather than layering a second copy. One-shots now do
+that. I nearly broke a programme doing it -- a radio or clock programme's takes
+are distinct recordings played in turn, and my first pass named them all
+`(programme)`, which would have folded each take into the last and played only
+the first. Only named script sounds fold; a programme's takes and a movie's
+soundtrack are deliberately anonymous.
+
+The `PlayVideo(None)` in helba's paste turned out to be a second bug hiding in
+the first. `pushVideo` with no argument means the movie the room already places
+on its video channel, which is right -- but `Effect::PlayVideo` was emitted in
+five places and **handled in none**. It fell through the match and was
+discarded. Every montage that plays through `pushVideo` showed nothing, and the
+`wait #videoStop` after it resolved against whatever movie happened to be
+loaded, or immediately if there was none. It is wired up now.
+
+Both of these had been in the engine for as long as the queue has existed. The
+event log found them in one run, which is the whole argument for entry 58: the
+duplication was visible in the effect list all along, and I had been reading
+that list for weeks.

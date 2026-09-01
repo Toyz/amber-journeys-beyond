@@ -130,13 +130,13 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                         let single = game.sounds.group_items(&name).first().map(|s| s.to_string());
                         if let Some(item) = single {
                             if let Some((pcm, rate, ch)) = game.group_sound_public(&name, &item) {
-                                a.play(Some(name), pcm, rate, ch, gain, true);
+                                a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true);
                             }
                         }
                         continue;
                     }
                     if let Some((pcm, rate, channels)) = game.sound(&name) {
-                        a.play(Some(name), pcm, rate, channels, gain, true);
+                        a.play(Some(&name), Some(name.clone()), pcm, rate, channels, gain, true);
                     }
                 }
             }
@@ -181,7 +181,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                         };
                         let gain = game.sounds.gain(&name) * scale;
                         if let Some((pcm, rate, ch)) = game.sound(&name) {
-                            a.play(None, pcm, rate, ch, gain, false);
+                            a.play(Some(&name), None, pcm, rate, ch, gain, false);
                         }
                     }
                     Effect::StopVideo => {
@@ -197,7 +197,10 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         // one runs out.
         if let Some((pcm, rate, channels, gain)) = game.tick_program() {
             if let Some(a) = &audio {
-                a.play(None, pcm, rate, channels, gain, false);
+                // A programme's takes are distinct recordings played in turn,
+                // so each is its own one-shot rather than a restart of the
+                // last.
+                a.play(None, None, pcm, rate, channels, gain, false);
             }
         }
 
@@ -211,6 +214,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             if !playing_soundtrack {
                 if let Some(a) = &audio {
                     a.play(
+                        None,
                         None,
                         Arc::clone(&player.audio),
                         player.audio_rate,
@@ -282,7 +286,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 if let (Some(a), Effect::PlaySound { name, .. }) = (&audio, &effect) {
                     let gain = game.sounds.gain(name);
                     if let Some((pcm, rate, ch)) = game.sound(name) {
-                        a.play(None, pcm, rate, ch, gain, false);
+                        a.play(Some(&name), None, pcm, rate, ch, gain, false);
                     }
                 }
             }
@@ -340,15 +344,25 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                                 };
                                 let gain = game.sounds.gain(&name) * scale;
                                 if let Some((pcm, rate, ch)) = game.sound(&name) {
-                                    a.play(None, pcm, rate, ch, gain, false);
+                                    a.play(Some(&name), None, pcm, rate, ch, gain, false);
                                 }
                             }
                             Effect::StartLoop { name, volume } => {
                                 let level = volume.unwrap_or(255) as f32 / 255.0;
                                 let gain = level * game.sounds.gain(&name);
                                 if let Some((pcm, rate, ch)) = game.sound(&name) {
-                                    a.play(Some(name), pcm, rate, ch, gain, true);
+                                    a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true);
                                 }
+                            }
+                            // `pushVideo` was reaching here and being
+                            // discarded, so every montage that plays through it
+                            // showed nothing and the `wait #videoStop` after it
+                            // resolved against whatever movie happened to be
+                            // loaded.
+                            Effect::PlayVideo(ref which) => {
+                                game.play_movie(which.as_deref());
+                                playing_soundtrack = false;
+                                dirty = true;
                             }
                             Effect::StopLoop { name, .. } => {
                                 a.stop(&name);
