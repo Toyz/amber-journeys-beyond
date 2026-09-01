@@ -1,9 +1,11 @@
 //! Window, input and the main loop.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions};
 
+use crate::audio::Audio;
 use crate::game::Game;
 use crate::world::Verb;
 
@@ -38,23 +40,26 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         }
     }
 
-    // The game opens on its intro movie, and a room whose only element is a
-    // movie renders as black while playback is unimplemented. Say so and move
-    // to the first room that has art, rather than presenting a blank window.
-    if start.is_none() && game.draws_nothing() {
-        let room = game.node().name.clone().unwrap_or_default();
-        let movie = game.video().unwrap_or("a movie").to_string();
-        eprintln!("note: the game opens at {room}, which plays {movie} and draws nothing else.");
-        eprintln!("      Video playback is not implemented yet, so starting at the first room");
-        eprintln!("      with art instead. Pass a room name to override.");
-        if let Some(i) = game.first_playable() {
-            game.room = i;
-        }
+    if start.is_some() {
+        game.start_room_video();
     }
+
+    // A machine with no audio device is not an error; the game is playable
+    // silently and this is the normal case over a remote session.
+    let audio = Audio::open();
+    match &audio {
+        Some(a) => eprintln!("audio out at {} Hz", a.rate()),
+        None => eprintln!("no audio device; running silently"),
+    }
+    let mut playing_soundtrack = false;
     eprintln!(
-        "starting in {} / {}",
+        "starting in {} / {}{}",
         game.node().domain,
-        game.node().name.clone().unwrap_or_default()
+        game.node().name.clone().unwrap_or_default(),
+        match game.video() {
+            Some(m) => format!(" (playing {m})"),
+            None => String::new(),
+        }
     );
 
     let mut window = Window::new(
@@ -78,6 +83,28 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     let mut last_title = String::new();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        // A playing movie supplies its own redraws; a static room only needs
+        // one after a click.
+        if let Some(player) = &mut game.player {
+            if player.tick() {
+                dirty = true;
+            }
+            // Start the soundtrack once, when the movie is first shown.
+            if !playing_soundtrack {
+                if let Some(a) = &audio {
+                    a.play(
+                        Arc::clone(&player.audio),
+                        player.audio_rate,
+                        player.audio_channels,
+                        1.0,
+                        false,
+                    );
+                }
+                playing_soundtrack = true;
+            }
+        } else {
+            playing_soundtrack = false;
+        }
         if dirty {
             game.draw(&mut frame, STAGE_W as u32, STAGE_H as u32);
             dirty = false;
@@ -119,7 +146,17 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         let down = window.get_mouse_down(MouseButton::Left);
         if was_down && !down {
             if let Some((x, y)) = pos {
+                let had_movie = game.player.is_some();
                 if let Some(outcome) = game.click(x, y) {
+                    // A move cuts whatever the previous scene was playing.
+                    if outcome.destination.is_some() || outcome.go_back {
+                        if had_movie {
+                            if let Some(a) = &audio {
+                                a.stop_all();
+                            }
+                        }
+                        playing_soundtrack = false;
+                    }
                     if outcome.destination.is_some() || outcome.go_back || outcome.redraw {
                         dirty = true;
                     }

@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use director::{Bitmap, Movie, Palette};
 use lingo::Rect;
 
+use crate::media::MovieIndex;
+use crate::player::VideoPlayer;
 use crate::schema::Schema;
 use crate::script::{self, Effect, Outcome};
 use crate::state::State;
@@ -43,6 +45,9 @@ pub struct Game {
     chapters: HashMap<String, Chapter>,
     /// Effects the last click produced, for the front end to play back.
     pub pending: Vec<Effect>,
+    movies: MovieIndex,
+    /// The movie currently on screen, if the room has one.
+    pub player: Option<VideoPlayer>,
 }
 
 impl Game {
@@ -60,8 +65,11 @@ impl Game {
             root: root.to_path_buf(),
             chapters: HashMap::new(),
             pending: Vec::new(),
+            movies: MovieIndex::build(root),
+            player: None,
         };
         game.enter_chapter(Self::FIRST_CHAPTER);
+        game.start_room_video();
         Ok(game)
     }
 
@@ -180,10 +188,22 @@ impl Game {
             .and_then(|s| s.cast_name.as_deref())
     }
 
-    /// True when a room has nothing to draw, which is the case for the
-    /// video-only rooms while playback is unimplemented.
+    /// True when a room places nothing on the sprite channels. Such rooms are
+    /// not blank: they are the ones carried entirely by their movie.
     pub fn draws_nothing(&self) -> bool {
         self.visible().is_empty()
+    }
+
+    /// Loads and starts the current room's movie, if it has one.
+    pub fn start_room_video(&mut self) {
+        self.player = None;
+        let Some(name) = self.video().map(str::to_owned) else {
+            return;
+        };
+        match self.movies.find(&name) {
+            Some(path) => self.player = VideoPlayer::open(path),
+            None => eprintln!("warning: no file for movie {name}"),
+        }
     }
 
     /// The stage elements that should currently draw, back to front.
@@ -210,6 +230,31 @@ impl Game {
     /// Draws the current room into a 640x480 BGRA framebuffer.
     pub fn draw(&mut self, frame: &mut [u32], width: u32, height: u32) {
         frame.fill(0xff00_0000);
+
+        // The movie sits behind the sprite channels, which is how the game
+        // frames video inside static scenery.
+        if let Some(player) = &self.player {
+            let centre = self
+                .world
+                .nodes[self.room]
+                .sprites
+                .iter()
+                .find(|s| matches!(s.channel, Channel::Video))
+                .and_then(|s| s.center)
+                .unwrap_or((width as i32 / 2, height as i32 / 2));
+            let (w, h) = (player.width as u32, player.height as u32);
+            blit(
+                frame,
+                width,
+                height,
+                player.frame(),
+                w,
+                h,
+                centre.0 - w as i32 / 2,
+                centre.1 - h as i32 / 2,
+            );
+        }
+
         let domain = self.node().domain.clone();
         for (_, cast, center) in self.visible() {
             let Some(art) = self.art(&domain, cast) else {
@@ -279,6 +324,10 @@ impl Game {
                 }
                 self.room = next;
             }
+        }
+        // A move changes which movie is on screen, so reload it either way.
+        if outcome.destination.is_some() || outcome.go_back {
+            self.start_room_video();
         }
         self.pending.extend(outcome.effects.iter().cloned());
     }

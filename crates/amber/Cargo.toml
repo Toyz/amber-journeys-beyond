@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+cpal = "0.18.2"
 director = { path = "../director" }
 lingo = { path = "../lingo" }
 minifb = "0.28.0"

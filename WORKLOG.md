@@ -196,3 +196,35 @@ both shared my assumptions. Here I checked against ffmpeg, which shares
 none of them. Cinepak now matches it to R 0.0 G 0.0 B 0.0 on a full frame,
 and the ADPCM decoder matches 4,396,096 of 4,396,096 samples exactly. Those
 numbers mean something the earlier 307,200 of 307,200 did not.
+
+## 13. Video and audio in the engine
+
+Hooked the codecs up. Rooms that place a movie on the `#video` channel now
+load and play it behind the sprite channels, and the soundtrack goes out
+through cpal.
+
+Two things the data made awkward:
+
+**Movie names are not filenames.** A room asks for `intro.mov`, the disc
+holds `INTRO.MOV`, and a third of the references end in `.multiframe`
+rather than `.mov` - a marker for frame-addressed rather than linear
+playback, not an extension. Treating everything after the last dot as
+advisory took resolution from 165 of 196 to 191. The remaining five look
+genuinely absent under those names.
+
+**Audio cannot be streamed from an arbitrary point.** IMA ADPCM carries
+predictor state across the entire track, which is what entry 12 was about,
+so seeking into the middle of a soundtrack is not a matter of jumping to an
+offset. The movies are short enough that decoding the whole track on load
+is cheaper than the bookkeeping to do it properly, so that is what happens.
+
+The intro now plays where the game actually opens, which closes out the
+black screen from entry 7. Its first seconds are a genuine fade from black,
+so verifying it needed a seek and a pixel count rather than a look: at 60
+seconds in, 76,800 pixels of the 640x480 stage are non-black, which is
+exactly the footprint of a 320x240 movie centred on it. That the number
+comes out exact is the check - a partially decoded or mispositioned frame
+would not land on it.
+
+No audio device is treated as normal rather than fatal, since that is the
+common case over a remote session and the game is playable silently.

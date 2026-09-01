@@ -4,8 +4,11 @@
 //! the real game data and reports what parsed, which is how the format work is
 //! kept honest.
 
+mod audio;
 mod game;
 mod locations;
+mod media;
+mod player;
 mod render;
 mod schema;
 mod script;
@@ -137,6 +140,29 @@ fn cmd_info(dir: &Path) -> Res {
     println!("ambiguous names: {}", ambiguous.len());
     for (name, n) in ambiguous.iter().take(10) {
         println!("  {name:<28} {n} rooms");
+    }
+
+    // Every movie a room can ask for, and whether the file is present.
+    let index = media::MovieIndex::build(dir);
+    let mut wanted: BTreeMap<String, usize> = BTreeMap::new();
+    for node in &world.nodes {
+        for s in &node.sprites {
+            if matches!(s.channel, world::Channel::Video) {
+                if let Some(n) = &s.cast_name {
+                    *wanted.entry(n.clone()).or_default() += 1;
+                }
+            }
+        }
+    }
+    let missing: Vec<&String> = wanted.keys().filter(|n| index.find(n).is_none()).collect();
+    println!(
+        "movies: {} on disc, {} referenced, {} unresolved",
+        index.len(),
+        wanted.len(),
+        missing.len()
+    );
+    for m in missing.iter().take(8) {
+        println!("  missing {m}");
     }
 
     let sprites: usize = world.nodes.iter().map(|n| n.sprites.len()).sum();
@@ -294,6 +320,27 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
     const W: u32 = 640;
     const H: u32 = 480;
     let mut frame = vec![0u32; (W * H) as usize];
+    // Let a movie reach a frame with content in it; the opening seconds of
+    // most are a fade from black and would make a misleading screenshot. The
+    // wait is in movie time, not wall clock, so it does not depend on how long
+    // loading took.
+    let seek: f64 = std::env::var("AMBER_SEEK")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0);
+    if let Some(player) = &mut game.player {
+        println!(
+            "  movie {}x{}, {} frames, audio {} samples at {} Hz",
+            player.width,
+            player.height,
+            player.frame_count(),
+            player.audio.len(),
+            player.audio_rate
+        );
+        player.seek_seconds(seek);
+    } else if game.video().is_some() {
+        println!("  movie {} did not load", game.video().unwrap_or(""));
+    }
     game.draw(&mut frame, W, H);
 
     // The framebuffer is BGRA-in-a-u32; the writer wants straight RGBA bytes.
