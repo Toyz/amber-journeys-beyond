@@ -21,6 +21,9 @@ pub enum Effect {
     PlayVideo(Option<String>),
     /// Play only part of the room's movie, between two times in ticks.
     PlayVideoSegment { from: u32, to: u32 },
+    /// How the next stage change should be made: a cut by default, or one of
+    /// the transitions the game names.
+    SetTransition { kind: String },
     /// Stop whatever movie is playing, from `killVideo`.
     StopVideo,
     /// A one-shot sound effect or a voice line.
@@ -444,7 +447,21 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 .map(|s| s.trim_start_matches('#').to_string())
                 .find(|s| !s.eq_ignore_ascii_case("oStoryteller"));
         }
-        "settransition" => out.transition = name_arg(0).or(out.transition.take()),
+        // `setTransition( oPuppeteer, #fadeIn )` -- the receiver first, the
+        // transition second. Reading argument zero named the puppeteer, and
+        // the result was written to `transition`, which is the *movement*
+        // flavour a `goTo` carries. They are different things: one says how
+        // the screen changes, the other which way the player turned.
+        "settransition" => {
+            if let Some(kind) = args
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.trim_start_matches('#').to_string())
+                .find(|s| !s.eq_ignore_ascii_case("oPuppeteer"))
+            {
+                out.effects.push(Effect::SetTransition { kind });
+            }
+        }
         "showcreditscreen" => out.credits = true,
 
         // -- state -----------------------------------------------------------

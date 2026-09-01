@@ -2859,3 +2859,44 @@ and this entry exists so the next attempt does not mistake it for one.
 The thing worth chasing next is the lamp. If the video's opening room is one I
 already render but unlit, then the fault is a state or a light I am missing,
 and matching would find it the moment the render is right.
+
+## 79. Which release this is, and dissolves
+
+helba pushed back: this is an original ISO, so the film should be on it. That
+deserved a real answer rather than another byte search, so I walked the
+ISO9660 directory records properly instead of trusting the extraction.
+
+**676 files, 278 of them `.MOV`** -- exactly what was extracted, so nothing was
+lost on the way out. The volume declares 293910 blocks of 2048 bytes, 601927680
+in total, against an image of 602263552: complete, not truncated. Volume id
+`AMBER_JB`.
+
+And there is no Macintosh side. I checked for an Apple partition map at block
+one, and for an HFS master directory block on every 512 byte boundary in the
+image validated against its allocation block size -- nothing. This is a pure
+ISO9660 disc: **the PC release**. The longplay helba matched it against is the
+Macintosh release, which is a different disc.
+
+That resolves it. The PC disc does not carry `40sINTRO.mov`, and it does not
+carry `MEewall.mov` either -- whose siblings `MENTRYL.MOV`, `MENTRYR.MOV` and
+`MEMRLOOP.MOV` are all present, so the two absences sit right next to films
+that are there. The movies are `RIFX`, Mac byte order, because the game was
+authored on a Mac and the same movies shipped on both discs; that is what made
+me assume a hybrid.
+
+So the montage helba can see is on their video and not in my data, and no
+amount of engine work will produce it. Worth having spent the time to be sure
+rather than asserting it a third time.
+
+**Transitions.** `setTransition( oPuppeteer, #fadeIn )` had the same argument
+bug as `enterNewDomain` in entry 76 -- the receiver is the first argument, so
+reading argument zero named the puppeteer. It was also writing to
+`Outcome::transition`, which is the *movement* flavour a `goTo` carries. Those
+are two different things: one says how the screen changes, the other which way
+the player turned.
+
+Now its own effect, and implemented: the stage as it stood is kept before the
+new one is composed, and the two are mixed across about fourteen frames.
+`#slowMontage`, used twice, takes forty-five. The game asks for a transition a
+hundred and six times -- every door, every close-up, every step of a montage --
+and every one of those was a hard cut.

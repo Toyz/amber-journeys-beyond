@@ -55,6 +55,8 @@ pub struct Game {
     pub pending: Vec<Effect>,
     /// What the effect queue is holding for, if anything.
     effect_wait: Option<Wait>,
+    /// A transition the scripts have armed for the next stage change.
+    transition: Option<String>,
     /// Sprite channels a script has taken over, keyed by channel so they
     /// composite in the same back-to-front order as the room's own sprites.
     puppets: BTreeMap<u8, Puppet>,
@@ -98,6 +100,7 @@ impl Game {
             chapters: HashMap::new(),
             pending: Vec::new(),
             effect_wait: None,
+            transition: None,
             puppets: BTreeMap::new(),
             repeating: None,
             script: Vec::new(),
@@ -663,6 +666,20 @@ impl Game {
         audio
     }
 
+    /// Takes an armed transition, as the fraction to advance it each frame.
+    ///
+    /// A transition is armed once and spent on the next change of the stage,
+    /// which is what `setTransition` means: it does not persist.
+    pub fn take_transition(&mut self) -> Option<f32> {
+        let kind = self.transition.take()?;
+        Some(match kind.to_ascii_lowercase().as_str() {
+            // The two the game asks for. `#slowMontage` is used twice and is
+            // what its name says.
+            "slowmontage" => 1.0 / 45.0,
+            _ => 1.0 / 14.0,
+        })
+    }
+
     /// Drops a wait in progress, for a tool with no clock to wait against.
     pub fn clear_effect_wait(&mut self) {
         self.effect_wait = None;
@@ -688,6 +705,10 @@ impl Game {
             }
             Effect::TrimState { key, item } => {
                 self.state.trim_item(key, item);
+            }
+            Effect::SetTransition { kind } => {
+                trace!(crate::trace::Topic::Room, "transition armed: {kind}");
+                self.transition = Some(kind.clone());
             }
             Effect::PuppetSprite { channel, on } => {
                 if *on {

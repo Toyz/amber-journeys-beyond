@@ -119,6 +119,10 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
 
     let mut frames: u64 = 0;
     let started = std::time::Instant::now();
+    // The stage as it looked before the change a transition is covering, and
+    // how far through that transition we are.
+    let mut outgoing: Vec<u32> = vec![0; STAGE_W * STAGE_H];
+    let mut dissolve: Option<(f32, f32)> = None;
     while window.is_open() && !window.is_key_down(Key::Escape) {
         frames += 1;
         crate::trace::frame(frames);
@@ -238,9 +242,28 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             playing_soundtrack = false;
         }
         if dirty {
+            // A transition covers the change from what is on the stage now to
+            // what is about to be, so the outgoing image has to be kept before
+            // the new one is composed over it.
+            if let Some(step) = game.take_transition() {
+                outgoing.copy_from_slice(&frame);
+                dissolve = Some((0.0, step));
+            }
             game.draw(&mut frame, STAGE_W as u32, STAGE_H as u32);
             game.draw_inventory(&mut frame, STAGE_W as u32, STAGE_H as u32);
             dirty = false;
+        }
+
+        // Director's `#fadeIn` is a dissolve, not a cut. The game asks for one
+        // a hundred and six times -- every door, every close-up, every step of
+        // a montage -- and without it each of those is a hard jump.
+        if let Some((progress, step)) = dissolve {
+            let progress = progress + step;
+            if progress >= 1.0 {
+                dissolve = None;
+            } else {
+                dissolve = Some((progress, step));
+            }
         }
         // Tab shows where the live hotspots actually are, which is the quickest
         // way to tell a missing exit from one that is merely hard to find.
@@ -353,7 +376,10 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         }
         was_down = down;
 
-        out.copy_from_slice(&frame);
+        match dissolve {
+            Some((progress, _)) => blend(&mut out, &outgoing, &frame, progress),
+            None => out.copy_from_slice(&frame),
+        }
         if show_hotspots {
             let state = game.state.clone();
             for h in &game.node().hotspots {
@@ -384,6 +410,19 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
 /// sequence can hold: the mirror message suspends the ambience, plays a film,
 /// waits for it to end, and only then restores. Draining the whole queue in
 /// the frame the click arrived ran all of that in one instant.
+/// Mixes two composed stages, `progress` of the way from `from` to `to`.
+fn blend(out: &mut [u32], from: &[u32], to: &[u32], progress: f32) {
+    let t = progress.clamp(0.0, 1.0);
+    for ((o, a), b) in out.iter_mut().zip(from).zip(to) {
+        let mix = |shift: u32| {
+            let a = ((a >> shift) & 0xff) as f32;
+            let b = ((b >> shift) & 0xff) as f32;
+            ((a + (b - a) * t) as u32) & 0xff
+        };
+        *o = 0xff00_0000 | (mix(16) << 16) | (mix(8) << 8) | mix(0);
+    }
+}
+
 /// Applies one effect, for the `mix` command.
 pub fn apply_one(game: &mut Game, audio: Option<&Audio>, effect: &Effect) {
     let (mut dirty, mut playing) = (false, false);
@@ -514,6 +553,48 @@ pub fn update_ambience(game: &mut Game, audio: Option<&Audio>) {
             if let Some((pcm, rate, channels)) = game.sound(&name) {
                 a.play(Some(&name), Some(name.clone()), pcm, rate, channels, gain, true, true);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::blend;
+
+    #[test]
+    fn a_dissolve_starts_on_the_old_stage_and_ends_on_the_new() {
+        let from = vec![0xff00_0000u32; 4];
+        let to = vec![0xffff_ffffu32; 4];
+        let mut out = vec![0u32; 4];
+        blend(&mut out, &from, &to, 0.0);
+        assert_eq!(out[0], 0xff00_0000);
+        blend(&mut out, &from, &to, 1.0);
+        assert_eq!(out[0], 0xffff_ffff);
+    }
+
+    #[test]
+    fn half_way_is_half_way_in_every_channel() {
+        let from = vec![0xff00_0000u32];
+        let to = vec![0xffff_ffffu32];
+        let mut out = vec![0u32; 1];
+        blend(&mut out, &from, &to, 0.5);
+        for shift in [0, 8, 16] {
+            let v = (out[0] >> shift) & 0xff;
+            assert!((126..=128).contains(&v), "channel {shift} was {v}");
+        }
+    }
+
+    #[test]
+    fn progress_outside_the_range_does_not_wrap_a_channel() {
+        // A frame that overruns must clamp rather than roll over, which would
+        // flash the wrong colour on the last frame of every transition.
+        let from = vec![0xff00_0000u32];
+        let to = vec![0xffff_ffffu32];
+        let mut out = vec![0u32; 1];
+        for p in [-1.0, 1.5, 99.0] {
+            blend(&mut out, &from, &to, p);
+            let v = out[0] & 0xff;
+            assert!(v == 0 || v == 255, "clamped to {v} at {p}");
         }
     }
 }
