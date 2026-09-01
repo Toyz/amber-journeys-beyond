@@ -20,6 +20,15 @@ GLOBAL_GET = {0x49, 0x89}
 GLOBAL_SET = {0x4f}
 # Symbol and property names, also from the movie's name table.
 NAMED = {0x85, 0x45, 0x81}
+# Comparisons feed a conditional jump 73-99% of the time; 0x12 is almost never
+# preceded by a push, taking two comparison results instead, which is what a
+# logical combinator looks like. Arithmetic is preceded by pushes and followed
+# by a store. The exact operator each one is has not been pinned down, so they
+# print by role rather than by a guessed symbol.
+COMPARE = {0x0d: 'compare-a', 0x0e: 'compare-b', 0x0f: 'compare-c'}
+LOGICAL = {0x12: 'and/or'}
+ARITH = {0x04: 'arith-a', 0x05: 'add', 0x06: 'arith-c', 0x0a: 'arith-d'}
+LOOPBACK = {0x54}
 ARGLIST = {0x42, 0x43}
 LITERAL = {0x44, 0x84}
 JUMP = {0x93, 0x95}
@@ -95,6 +104,14 @@ def disasm(path, want):
                     txt = f"set global {names[arg]}" if arg < len(names) else f"set global #{arg}"
                 elif op in NAMED:
                     txt = f"push #{names[arg]}" if arg < len(names) else f"push #{arg}"
+                elif op in COMPARE:
+                    txt = f"compare ({COMPARE[op]})"
+                elif op in LOGICAL:
+                    txt = f"logical ({LOGICAL[op]})"
+                elif op in ARITH:
+                    txt = f"arith ({ARITH[op]})"
+                elif op in LOOPBACK:
+                    txt = f"loop back -> {o - arg}" if arg is not None else "loop back"
                 elif op == 0x01:
                     txt = "return"
                 elif op == 0x41:

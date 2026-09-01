@@ -532,3 +532,44 @@ is a check on the reading.
 Unidentified: the arithmetic and comparison opcodes, `0x03`, `0x0f`, `0x12`,
 `0x61`, `0x62`. Nothing is translated to Rust and the 66 handlers remain
 unimplemented.
+
+## 21. Comparisons and arithmetic, read rather than solved
+
+The statistical approach ran out of road. Solving stack effects from argument
+windows was better than whole-handler balance - windows are short and do not
+branch - but the opcodes I most needed still sat between 50% and 72%
+agreement, because a nested call inside an argument truncates the window and
+corrupts the equation.
+
+So I stopped solving and started reading. Listing handlers by length put
+`suspendSounds` in view, and it contains a textbook counted loop:
+
+     push int 1 / set local i
+     push local i / push local soundChannels / call count / 0x0d / jump out
+     ...
+     push int 1 / push local i / 0x05 / set local i / 0x54 back
+
+That is `repeat with i = 1 to count(soundChannels)`, and it names two
+opcodes on sight: `0x05` adds, `0x54` closes the loop.
+
+Confirming the family statistically then worked, because by then I knew what
+to measure. Comparisons are defined by what consumes them, not by what
+precedes them:
+
+  0x0d 0x0e 0x0f   comparisons     followed by a jump 99%, 73%, 75%
+  0x12             logical and/or  followed by a jump 93%, and preceded by a
+                                   push only 6% - it consumes comparison
+                                   results, not values
+  0x04 0x05 0x06 0x0a   arithmetic  preceded by a push 86-97%, followed by a
+                                   store
+
+Which comparison is which is still open, so the disassembler prints them by
+role rather than inventing a symbol for them. An honest `compare-c` is worth
+more than a confident `=` that turns out to be `<>`, and getting that backwards
+in a door handler would invert the behaviour while still looking plausible.
+
+The lesson I want to keep is about sequencing. Reading one handler carefully
+told me more in a minute than three rounds of corpus statistics, and it also
+told me what the statistics should be measuring. I reached for the aggregate
+method first because it feels more rigorous, but it only becomes rigorous once
+you know what question to put to it.
