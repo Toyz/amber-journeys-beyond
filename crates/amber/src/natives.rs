@@ -157,11 +157,20 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //   cursorOff
         //   if currentScreen = #spinningNow then
         //     setState(oStoryteller, #BT_fragStatus, #alignment)
-        //   ... further handling of #showMontage
+        //   if getState(oStoryteller, #showMontage) <> 2 then
+        //     setState(oStoryteller, #showMontage, 3)
+        //     updateDisplay(oPuppeteer)
+        //     resumeTime = the ticks + 60
+        //   else
+        //     resumeTime = the ticks
+        //   purgeMultiframes(...)
+        //   repeat while the ticks < resumeTime : updateStage
+        //   setState(oStoryteller, #showMontage, 2)
+        //   updateDisplay(oPuppeteer)
         //
-        // The montage branch turns on a comparison this port has not yet
-        // identified, so it is left out rather than guessed: getting it
-        // backwards would strand the fragment puzzle in the wrong screen.
+        // The busy loop is a one-second hold on the intermediate montage
+        // before settling back, which the engine expresses as a wait rather
+        // than by spinning.
         "backawayfromlaptop" => {
             let screen = state
                 .get("BT_fragStatus")
@@ -175,6 +184,13 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             if screen == "spinningnow" {
                 state.set("BT_fragStatus", Value::Symbol("alignment".into()));
             }
+            if state.get("showMontage").as_int() != Some(2) {
+                state.set("showMontage", Value::Int(3));
+                out.redraw = true;
+                out.effects.push(Effect::WaitTicks(60));
+            }
+            state.set("showMontage", Value::Int(2));
+            out.redraw = true;
         }
 
         // Preload hints for the laptop's animated controls; the engine decodes

@@ -26,7 +26,15 @@ NAMED = {0x85, 0x45, 0x81}
 # logical combinator looks like. Arithmetic is preceded by pushes and followed
 # by a store. The exact operator each one is has not been pinned down, so they
 # print by role rather than by a guessed symbol.
-COMPARE = {0x0d: 'compare-a', 0x0e: 'compare-b', 0x0f: 'compare-c'}
+# Established individually, each by a context where the meaning is forced:
+#   0x0c  a clamp's floor      if x < 1 then x = 1
+#   0x0d  a counted loop bound body runs while i <= count
+#   0x0e  the same gCPU test appears with both 0x0f and 0x0e, and a platform
+#         symbol admits only = and <>
+#   0x0f  the door setter's mirrored branches
+#   0x10  a clamp's ceiling     if x > 6 then x = 6
+#   0x11  fits the ordering below; only 15 uses and not independently forced
+COMPARE = {0x0c: '<', 0x0d: '<=', 0x0e: '<>', 0x0f: '=', 0x10: '>', 0x11: '>='}
 LOGICAL = {0x12: 'and/or'}
 ARITH = {0x04: 'arith-a', 0x05: 'add', 0x06: 'arith-c', 0x0a: 'arith-d'}
 LOOPBACK = {0x54}
@@ -106,7 +114,7 @@ def disasm(path, want):
                 elif op in NAMED:
                     txt = f"push #{names[arg]}" if arg < len(names) else f"push #{arg}"
                 elif op in COMPARE:
-                    txt = f"compare ({COMPARE[op]})"
+                    txt = f"compare {COMPARE[op]}"
                 elif op in LOGICAL:
                     txt = f"logical ({LOGICAL[op]})"
                 elif op in ARITH:
