@@ -22,6 +22,118 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // The original rolls a die so the swarm is only sometimes heard. The
         // roll is reproduced rather than firing every time, because the
         // intermittency is the effect.
+        // on pushNail targetNail
+        //   shadowNail = the next nail round: nail_1 -> nail_2 -> nail_3 -> nail_1
+        //   targetCurrentState = getState( targetNail )
+        //   targetMovement = #inward : nailSound = #nailHeadIn
+        //   if targetCurrentState = #out     then setState( targetNail, #halfway )
+        //   if targetCurrentState = #halfway then setState( targetNail, #in )
+        //   if targetCurrentState = #in      then
+        //     targetMovement = #outward : nailSound = #nailHeadOut
+        //     setState( targetNail, #out )
+        //   soundEffect nailSound : updateDisplay : wait 15
+        //   shadowCurrentState = getState( shadowNail )
+        //   if targetMovement = #inward then
+        //     if shadowCurrentState = #out     then setState( shadowNail, #in )
+        //     if shadowCurrentState = #halfway then setState( shadowNail, #out )
+        //     if shadowCurrentState = #in      then setState( shadowNail, #halfway )
+        //   else
+        //     if shadowCurrentState = #out     then setState( shadowNail, #halfway )
+        //     if shadowCurrentState = #halfway then setState( shadowNail, #in )
+        //     if shadowCurrentState = #in      then setState( shadowNail, #out )
+        //   if getState(#nail_1) = #out and getState(#nail_2) = #out
+        //                              and getState(#nail_3) = #out then
+        //     ... showMontage 1, 2, 3 with a film each ...
+        //     setState( #heartBox, #open ) : setState( #showMontage, 4 )
+        //
+        // Three nails, each `#out`, `#halfway` or `#in`, and pushing one drags
+        // the next one round with it: pressing a nail deeper pulls its
+        // neighbour back a step, and letting one pop out pushes its neighbour
+        // in a step. All three out opens the heart box.
+        //
+        // The chain of `if`s reads the *saved* state rather than re-reading
+        // the flag, which is why setting `#halfway` in the first test does not
+        // then fall into the second and skip straight to `#in`. Writing them
+        // as a match on the saved value keeps that property instead of relying
+        // on it.
+        "pushnail" => {
+            const NAILS: [&str; 3] = ["nail_1", "nail_2", "nail_3"];
+            // The nail's three depths, in the order pushing takes them.
+            const DEPTHS: [&str; 3] = ["out", "halfway", "in"];
+
+            let Some(target) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|n| n.trim_start_matches('#').to_string())
+                .filter(|n| NAILS.contains(&n.as_str()))
+            else {
+                return true;
+            };
+            let shadow = NAILS[(NAILS.iter().position(|n| *n == target).unwrap() + 1) % 3];
+
+            let depth = |state: &State, nail: &str| {
+                DEPTHS
+                    .iter()
+                    .position(|d| state.get(nail).as_symbol() == Some(d))
+                    .unwrap_or(0)
+            };
+
+            let was = depth(state, &target);
+            // Out and halfway go deeper; in pops all the way back out.
+            let inward = was < 2;
+            let moved = if inward { was + 1 } else { 0 };
+            state.set(&target, Value::Symbol(DEPTHS[moved].into()));
+            out.effects.push(Effect::PlaySound {
+                name: if inward { "nailHeadIn" } else { "nailHeadOut" }.into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::WaitTicks(15));
+
+            // The neighbour goes the other way, one step round the same ring.
+            let shadow_was = depth(state, shadow);
+            let shadow_now = if inward {
+                (shadow_was + 2) % 3
+            } else {
+                (shadow_was + 1) % 3
+            };
+            state.set(shadow, Value::Symbol(DEPTHS[shadow_now].into()));
+            out.effects.push(Effect::PlaySound {
+                name: if inward { "nailHeadIn" } else { "nailHeadOut" }.into(),
+                loudness: None,
+            });
+            out.redraw = true;
+
+            if NAILS.iter().any(|n| state.get(n).as_symbol() != Some("out")) {
+                return true;
+            }
+            // All three out. Three films in a row, then the box.
+            //
+            // The win sounds are behind `if gCPU = #PC`, and this port takes
+            // the Mac arm throughout: on the Mac the films carry their own
+            // audio, which is why the PC build has to play it separately. This
+            // engine decodes film soundtracks, so playing them again here
+            // would double them.
+            out.effects.push(Effect::CursorOff);
+            for step in 1..=3 {
+                out.effects.push(Effect::FadeToMontage(step));
+                out.effects.push(Effect::PlayVideo(None));
+                out.effects.push(Effect::WaitForVideo);
+                out.effects.push(Effect::StopVideo);
+            }
+            out.effects.push(Effect::SetState {
+                key: "heartBox".into(),
+                value: Value::Symbol("open".into()),
+            });
+            out.effects.push(Effect::FadeToMontage(4));
+            out.effects.push(Effect::PlaySound {
+                name: "heartOpen".into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::SetTransition {
+                kind: "fadeIn".into(),
+            });
+        }
+
         "beeswarm" => {
             if roll(state, 3) == 3 {
                 out.effects.push(Effect::PlaySound {
@@ -282,4 +394,116 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         _ => return false,
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- the three nails ----------------------------------------------------
+
+    fn nails() -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("BRICE".into())]);
+        // The schema starts all three halfway in.
+        for nail in ["nail_1", "nail_2", "nail_3"] {
+            s.set_all(nail, vec![Value::Symbol("halfway".into())]);
+        }
+        s
+    }
+
+    fn push(state: &mut State, nail: u8) -> Outcome {
+        let mut out = Outcome::default();
+        assert!(call(
+            "pushnail",
+            &[Value::Symbol(format!("nail_{nail}"))],
+            state,
+            &mut out
+        ));
+        out
+    }
+
+    fn depths(state: &State) -> Vec<String> {
+        ["nail_1", "nail_2", "nail_3"]
+            .iter()
+            .map(|n| state.get(n).as_symbol().unwrap_or("").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_nail_goes_out_halfway_in_and_back_out() {
+        let mut s = nails();
+        s.set("nail_1", Value::Symbol("out".into()));
+        for want in ["halfway", "in", "out"] {
+            push(&mut s, 1);
+            assert_eq!(depths(&s)[0], want);
+        }
+    }
+
+    #[test]
+    fn pushing_one_in_drags_its_neighbour_back() {
+        let mut s = nails();
+        push(&mut s, 1);
+        // nail_1 halfway -> in, so nail_2 halfway -> out.
+        assert_eq!(depths(&s), ["in", "out", "halfway"]);
+    }
+
+    #[test]
+    fn and_letting_one_out_pushes_its_neighbour_in() {
+        let mut s = nails();
+        s.set("nail_1", Value::Symbol("in".into()));
+        push(&mut s, 1);
+        // nail_1 pops out, so nail_2 halfway -> in.
+        assert_eq!(depths(&s), ["out", "in", "halfway"]);
+    }
+
+    #[test]
+    fn each_push_moves_the_nail_exactly_one_step() {
+        // The original saves the state into a local before its chain of ifs.
+        // Re-reading the flag would carry #out straight through to #in.
+        let mut s = nails();
+        s.set("nail_1", Value::Symbol("out".into()));
+        push(&mut s, 1);
+        assert_eq!(depths(&s)[0], "halfway");
+    }
+
+    #[test]
+    fn the_puzzle_can_be_solved_from_where_it_starts() {
+        // Breadth-first over all 27 positions says five pushes is the
+        // shortest way out, and that every position is reachable from every
+        // other -- so the puzzle cannot be locked up.
+        let mut s = nails();
+        for nail in [1, 1, 3, 1, 2] {
+            push(&mut s, nail);
+        }
+        assert_eq!(depths(&s), ["out", "out", "out"]);
+    }
+
+    #[test]
+    fn and_that_opens_the_heart_box() {
+        let mut s = nails();
+        for nail in [1, 1, 3, 1] {
+            let out = push(&mut s, nail);
+            assert!(
+                !out.effects.iter().any(|e| matches!(e, Effect::SetState { key, .. } if key == "heartBox")),
+                "the box opened early"
+            );
+        }
+        let out = push(&mut s, 2);
+        let opened = out.effects.iter().any(|e| {
+            matches!(e, Effect::SetState { key, value }
+                if key == "heartBox" && value.as_symbol() == Some("open"))
+        });
+        assert!(opened);
+        // Four montage steps, three of them with a film.
+        let montage: Vec<i32> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::FadeToMontage(n) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(montage, [1, 2, 3, 4]);
+    }
 }

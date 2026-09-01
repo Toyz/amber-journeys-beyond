@@ -3361,3 +3361,50 @@ the same object.
 
 180 tests, clippy clean, no warnings. Unported is **17 verbs across 24 call
 sites**, from 27 and 55 at the start of the day.
+
+## 87. Three nails
+
+Brice's nail puzzle, ported. Three nails, each `#out`, `#halfway` or `#in`,
+and they are linked: pushing one deeper drags the next one round back a step,
+and letting one pop out pushes the next one in a step. All three out opens the
+heart box.
+
+The handler has a shape worth pointing at:
+
+```text
+targetCurrentState = getState( targetNail )
+if targetCurrentState = #out     then setState( targetNail, #halfway )
+if targetCurrentState = #halfway then setState( targetNail, #in )
+if targetCurrentState = #in      then ...
+```
+
+Three sequential `if`s that would cascade -- `#out` becoming `#halfway`
+becoming `#in` in one press -- except that every one of them reads the *saved
+local* rather than re-reading the flag. That is the only thing standing between
+this and a nail that jumps two steps at a time. I have written it as a match on
+the saved value so the property is structural rather than something a later
+edit has to remember, and there is a test that presses a nail from `#out` and
+insists it lands on `#halfway`.
+
+Before writing the tests I ran the puzzle through a breadth-first search over
+all twenty-seven positions, because if my transition rules were wrong the
+puzzle would most likely be *unsolvable* rather than visibly broken -- and
+nothing else I have would have told me.
+
+```text
+reachable states: 27 of 27
+solution from (halfway, halfway, halfway): push 1, 1, 3, 1, 2
+```
+
+Every position reaches every other, so the puzzle cannot be locked up, and the
+schema's starting position is five pushes from open. That is a much stronger
+check than any single assertion I would have thought to write, and the sequence
+it found is now the test.
+
+The three win sounds are behind `if gCPU = #PC` and are not played here. This
+port takes the Mac arm throughout, and the reason it is right shows up cleanly
+in this handler: on the Mac the films carry their own audio, which is exactly
+why the PC build has to start the sound separately alongside the film. This
+engine decodes film soundtracks, so playing them again would double them.
+
+186 tests. Unported is **16 verbs across 21 call sites**.

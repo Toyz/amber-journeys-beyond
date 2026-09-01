@@ -94,7 +94,10 @@ mod handled_tests {
 
     #[test]
     fn an_unported_verb_says_so_too() {
-        for name in ["pushnail", "choosetrack", "drivethecar", "goodbyemandy"] {
+        // Named deliberately, so this fails loudly when one of them is
+        // ported and has to be swapped for another still on the list. A test
+        // that could not fail is what entry 81 was about.
+        for name in ["choosetrack", "drivethecar", "carcomments", "windowhints"] {
             assert!(!is_handled(name), "{name} reports ported but has no arm");
         }
     }
