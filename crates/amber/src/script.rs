@@ -665,7 +665,72 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         // -- audio -----------------------------------------------------------
         // `assertSound` is a voice line, `soundEffect` and `startSound` are
         // one-shots; they differ in mixing priority, not in scheduling.
-        "assertsound" | "soundeffect" | "startsound" | "playsting" => {
+        // on assertSound whichSound
+        //   if not inState( #utterancesRemaining, whichSound ) then return
+        //   if whichSound = #thoseBees and inState( #utterancesRemaining, #youBees )
+        //     then return
+        //   delayList = [#handwriting: 120]        -- Brice's; each chapter differs
+        //   sndDelay = getaProp( delayList, whichSound )
+        //   if voidp( sndDelay ) then sndDelay = 60
+        //   wait sndDelay
+        //   <play whichSound>
+        //   trimState( #utterancesRemaining, whichSound )
+        //
+        // `assertSound` is not `soundEffect` with a different name, and reading
+        // it as one -- which this did -- is why the characters repeated
+        // themselves. **A line is said once, ever.** If it is not in
+        // `#utterancesRemaining` nothing is said at all, and saying it takes it
+        // out of the list.
+        //
+        // That matters because the same line is placed in many rooms:
+        // `assertSound #victoryGarden` appears in seven of Margaret's, and
+        // #tedsComingHome and #dontWannaStay in five each. They are one remark
+        // the player might happen upon anywhere, not seven remarks.
+        //
+        // The pause before it is the beat the character takes before speaking:
+        // sixty ticks, except for one line per chapter that gets its own.
+        //
+        // Roxy has no `assertSound` at all and her rooms never call it.
+        "assertsound" => {
+            let Some(line) = name_arg(0) else { return };
+            let pending = |state: &State, want: &str| {
+                state
+                    .get_all("utterancesRemaining")
+                    .iter()
+                    .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(want)))
+            };
+            if !pending(state, &line) {
+                return;
+            }
+            // Brice's bees have an order: he does not remark on them being
+            // his until he has remarked on them at all. Edwin's chapter
+            // carries the same test against lines it does not have, which is
+            // a copy rather than a rule, and costs nothing either way.
+            if line.eq_ignore_ascii_case("thoseBees") && pending(state, "youBees") {
+                return;
+            }
+
+            // One line per chapter takes longer, or in Edwin's case much less.
+            let beat = match state.get("gChapter").as_str().unwrap_or_default() {
+                c if c.eq_ignore_ascii_case("MARGARET") && line.eq_ignore_ascii_case("victoryGarden") => 120,
+                c if c.eq_ignore_ascii_case("EDWIN") && line.eq_ignore_ascii_case("windControl") => 15,
+                c if c.eq_ignore_ascii_case("BRICE") && line.eq_ignore_ascii_case("handwriting") => 120,
+                _ => 60,
+            };
+            out.effects.push(Effect::WaitTicks(beat));
+            out.effects.push(Effect::PlaySound {
+                name: line.clone(),
+                loudness: name_arg(1),
+            });
+            // Taken out now rather than after the wait, which is where the
+            // original does it. The original blocks, so a second `assertSound`
+            // for the same line later in the same list sees it already gone
+            // and stays quiet; deferring the trim would let it speak twice.
+            // The cost is that a guard read during the pause sees the line
+            // already spent, which nothing in the game does.
+            state.trim_item("utterancesRemaining", &Value::Symbol(line));
+        }
+        "soundeffect" | "startsound" | "playsting" => {
             if let Some(n) = name_arg(0) {
                 out.effects.push(Effect::PlaySound {
                     name: n,
@@ -727,3 +792,108 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         }
     }
 }
+
+#[cfg(test)]
+mod assert_sound_tests {
+    use super::*;
+
+    fn spoke(out: &Outcome) -> Vec<String> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn margaret() -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all(
+            "utterancesRemaining",
+            vec![
+                Value::Symbol("victoryGarden".into()),
+                Value::Symbol("howDidI".into()),
+            ],
+        );
+        s
+    }
+
+    /// The same line is placed in many rooms -- `#victoryGarden` in seven of
+    /// Margaret's -- because it is one remark the player might happen upon
+    /// anywhere, not seven remarks. Reading `assertSound` as a plain
+    /// `soundEffect`, which is what this did, made her say it seven times.
+    #[test]
+    fn a_line_is_said_once_ever() {
+        let mut s = margaret();
+        let out = run(&["assertSound #victoryGarden".into()], &mut s);
+        assert_eq!(spoke(&out), ["victoryGarden"]);
+
+        // Spent: the second time she says nothing at all.
+        let out = run(&["assertSound #victoryGarden".into()], &mut s);
+        assert!(spoke(&out).is_empty());
+        // And the other line is untouched.
+        let out = run(&["assertSound #howDidI".into()], &mut s);
+        assert_eq!(spoke(&out), ["howDidI"]);
+    }
+
+    #[test]
+    fn a_line_she_does_not_have_is_not_said_at_all() {
+        let mut s = margaret();
+        let out = run(&["assertSound #thatVoice".into()], &mut s);
+        assert!(spoke(&out).is_empty());
+    }
+
+    #[test]
+    fn but_an_ordinary_sound_effect_repeats_as_often_as_it_is_asked() {
+        let mut s = margaret();
+        for _ in 0..3 {
+            let out = run(&["soundEffect #doorOpen".into()], &mut s);
+            assert_eq!(spoke(&out), ["doorOpen"]);
+        }
+    }
+
+    #[test]
+    fn the_beat_before_she_speaks_is_sixty_ticks_with_one_exception() {
+        let waits = |chapter: &str, line: &str| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol(chapter.into())]);
+            s.set_all("utterancesRemaining", vec![Value::Symbol(line.into())]);
+            let out = run(&[format!("assertSound #{line}")], &mut s);
+            out.effects.iter().find_map(|e| match e {
+                Effect::WaitTicks(t) => Some(*t),
+                _ => None,
+            })
+        };
+        assert_eq!(waits("MARGARET", "howDidI"), Some(60));
+        assert_eq!(waits("MARGARET", "victoryGarden"), Some(120));
+        assert_eq!(waits("BRICE", "handwriting"), Some(120));
+        // Edwin's exception goes the other way -- it is a shout, not a pause.
+        assert_eq!(waits("EDWIN", "windControl"), Some(15));
+        // And a chapter's exception is only its own.
+        assert_eq!(waits("BRICE", "victoryGarden"), Some(60));
+    }
+
+    #[test]
+    fn brices_bees_have_an_order() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("BRICE".into())]);
+        s.set_all(
+            "utterancesRemaining",
+            vec![
+                Value::Symbol("thoseBees".into()),
+                Value::Symbol("youBees".into()),
+            ],
+        );
+        // He does not remark on whose bees they are before remarking on them.
+        let out = run(&["assertSound #thoseBees".into()], &mut s);
+        assert!(spoke(&out).is_empty());
+
+        let out = run(&["assertSound #youBees".into()], &mut s);
+        assert_eq!(spoke(&out), ["youBees"]);
+        let out = run(&["assertSound #thoseBees".into()], &mut s);
+        assert_eq!(spoke(&out), ["thoseBees"]);
+    }
+}
+

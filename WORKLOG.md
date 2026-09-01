@@ -4315,3 +4315,58 @@ that it distinguishes them.
 
 228 tests. What is left: **14 verbs across 18 call sites, and 50 event
 handlers.**
+
+## 104. `assertSound` is not `soundEffect`
+
+I went to port the last verbs -- `carComments`, `keyholeComments`,
+`windowHints` -- and found they are all the same three lines: check whether a
+remark is still in `#utterancesRemaining`, and `assertSound` it. Which sent me
+to `assertSound`, which I had been treating as a synonym:
+
+```rust
+"assertsound" | "soundeffect" | "startsound" | "playsting" => { ... play it ... }
+```
+
+It is not a synonym. It is the mechanism by which **a line is said once,
+ever**:
+
+```text
+on assertSound whichSound
+  if not inState( #utterancesRemaining, whichSound ) then return
+  if whichSound = #thoseBees and inState( #utterancesRemaining, #youBees ) then return
+  sndDelay = getaProp( [#handwriting: 120], whichSound )
+  if voidp( sndDelay ) then sndDelay = 60
+  wait sndDelay
+  <play whichSound>
+  trimState( #utterancesRemaining, whichSound )
+```
+
+A line not in the list is not said at all, and saying it takes it out.
+
+That is worth more than the three handlers I set out to port, because the same
+remark is placed in many rooms. `assertSound #victoryGarden` appears in **seven**
+of Margaret's; `#tedsComingHome` and `#dontWannaStay` in five each. They are one
+observation the player might happen upon anywhere, not seven of them -- and
+until now she made it every single time. Sixty-two call sites across the game,
+drawing on lists of seventeen to twenty-five lines per chapter.
+
+helba said, weeks ago, that the sounds of the character talking to herself
+seemed off. They were.
+
+Three details worth keeping. The pause before speaking is sixty ticks, with one
+exception per chapter, and Edwin's goes the *other* way -- `#windControl` waits
+fifteen, because it is a shout rather than a remark. Brice's bees have an
+order: he will not say whose bees they are before he has said anything about
+bees at all, and Edwin's chapter carries a copy of that test against lines it
+does not have, which is a paste rather than a rule. And Roxy has no
+`assertSound` handler and none of her rooms call it -- she is the one who does
+not talk to herself.
+
+The trim happens immediately rather than after the pause, where the original
+puts it. The original blocks on its `wait`, so a second `assertSound` for the
+same line later in the same list finds it already gone; deferring the trim in
+an engine that queues its waits would let the line speak twice. The cost is
+that a guard read during the pause sees the line already spent, which nothing
+in the game does. That trade is in the comment.
+
+233 tests.
