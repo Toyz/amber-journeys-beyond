@@ -299,6 +299,19 @@ impl Game {
             self.state
                 .set_all("gZone", vec![lingo::Value::Symbol(zone)]);
         }
+        // The room's own mix, which handlers read off the puppeteer: the
+        // ghostly telephone rings at whatever level the room says the phone
+        // carries from here, so it is loud in the living room and faint
+        // upstairs.
+        let mix: Vec<(String, i32)> = self.world.nodes[room]
+            .ambience
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        for (key, level) in mix {
+            self.state
+                .set_all(&format!("gEarShot_{key}"), vec![lingo::Value::Int(level)]);
+        }
     }
 
     fn chapter(&mut self, domain: &str) -> Option<&mut Chapter> {

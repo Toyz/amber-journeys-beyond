@@ -628,6 +628,221 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on setPlayerIsExaminingPhone suggestion
+        //   if suggestion = 0 then
+        //     endLoop #phoneRoxy : endLoop #phoneDead
+        //   else
+        //     endLoop #phoneRinging
+        //     setProp( oStoryteller.states, #ghostlyPhoneCall, list(#dontRingPlease) )
+        //   setProp( oStoryteller.states, #playerIsExaminingPhone, list(suggestion) )
+        //
+        // Lifting the receiver stops the ringing and parks the call at
+        // `#dontRingPlease`, which is not one of the four settings the call's
+        // own setter accepts -- it is written straight to the flag, so the
+        // phone cannot start ringing again while it is in the player's hand.
+        "setplayerisexaminingphone" => {
+            let lifted = args.first().and_then(Value::as_int).unwrap_or(0) != 0;
+            let stop = |out: &mut Outcome, name: &str| {
+                out.effects.push(Effect::StopLoop {
+                    name: name.into(),
+                    fade: false,
+                });
+            };
+            if lifted {
+                stop(out, "phoneRinging");
+                state.set_all(
+                    "ghostlyPhoneCall",
+                    vec![Value::Symbol("dontRingPlease".into())],
+                );
+            } else {
+                stop(out, "phoneRoxy");
+                stop(out, "phoneDead");
+            }
+            state.set_all(
+                "playerIsExaminingPhone",
+                vec![Value::Int(lifted as i32)],
+            );
+            out.redraw = true;
+        }
+
+        // on putDownThePhone
+        //   if getState(#phoneButtonsPressed) > 0 and inState(#hauntsRemaining, #spookyOperator) then
+        //     setProp( ..., #phoneButtonsPressed, list(7) )
+        //     setState( oStoryteller, #ghostlyPhoneCall, #speaking )
+        //     setProp( ..., #phoneButtonsPressed, list(0) )
+        //   else
+        //     setState( oStoryteller, #playerIsExaminingPhone, 0 )
+        //     setState( oStoryteller, #ghostlyPhoneCall, #done )
+        //     setProp( ..., #phoneButtonsPressed, list(0) )
+        //     setTransition( oPuppeteer, #fadeIn )
+        //   updateDisplay( oPuppeteer )
+        //
+        // This is the puzzle. Pressing the buttons at all and then hanging up
+        // forces the count to seven, which is the one number above the
+        // threshold the speaking branch tests, so the operator answers. The
+        // count is cleared either way, so a failed attempt costs nothing but
+        // has to be made again from the beginning.
+        "putdownthephone" => {
+            let pressed = state.get("phoneButtonsPressed").as_int().unwrap_or(0);
+            let operator_pending = state
+                .get_all("hauntsRemaining")
+                .iter()
+                .any(|h| h.as_str().is_some_and(|s| s.eq_ignore_ascii_case("spookyOperator")));
+
+            if pressed > 0 && operator_pending {
+                state.set_all("phoneButtonsPressed", vec![Value::Int(7)]);
+                call("setghostlyphonecall", &[Value::Symbol("speaking".into())], state, out);
+                state.set_all("phoneButtonsPressed", vec![Value::Int(0)]);
+            } else {
+                call("setplayerisexaminingphone", &[Value::Int(0)], state, out);
+                call("setghostlyphonecall", &[Value::Symbol("done".into())], state, out);
+                state.set_all("phoneButtonsPressed", vec![Value::Int(0)]);
+            }
+            out.redraw = true;
+        }
+
+        // on setGhostlyPhoneCall suggestion
+        //   if not getPos([#notyet, #ringingNow, #speaking, #done], suggestion) then alert : return
+        //   if suggestion = #ringingNow then
+        //     setLoop #phoneRinging, oPuppeteer.earShot[#phoneVol]
+        //   if suggestion = #speaking then
+        //     cursorOff : endLoop #phoneRinging
+        //     if getState(#psionicWavesPresent) = 1 and inState(#hauntsRemaining, #phoneMessage) then
+        //       soundEffect #phoneRoxy : wait #soundStop, #phoneRoxy
+        //       suggestion = #done : setLoop #roxyCallDone
+        //       trimState #hauntsRemaining, #phoneMessage
+        //       trimState #hauntsRemaining, #spookyOperator
+        //       setState #AMBERVISION, #waitingForPlayer
+        //       setState #PKamberStatus, #WaveActivated
+        //       setState #PeekDisplay, #amberStatus
+        //     else if inState(#hauntsRemaining, #spookyOperator) then
+        //       if getState(#phoneButtonsPressed) > 6 then
+        //         soundEffect #spookyOperator : wait #soundStop, #spookyOperator
+        //         trimState #hauntsRemaining, #spookyOperator
+        //         setProp( ..., #phoneButtonsPressed, list(0) )
+        //         setLoop #phoneDead
+        //     else if inState(#hauntsRemaining, #phoneMessage) then setLoop #phoneDead
+        //     else setLoop #roxyCallDone
+        //   if suggestion = #done then
+        //     cursorOn
+        //     endLoop #phoneRinging : endLoop #spookyOperator : endLoop #phoneRoxy
+        //   setProp( oStoryteller.states, #ghostlyPhoneCall, list(suggestion) )
+        //
+        // What the player hears when they lift the receiver depends on where
+        // they are in the chapter, and the three answers are the phone being
+        // dead, an operator who should not exist, and Roxy's own message. The
+        // last of those is the one that matters: it consumes both phone haunts
+        // at once and switches the monitor on, so it is the call that moves the
+        // chapter forward rather than a piece of atmosphere.
+        //
+        // The branch rewrites `suggestion` to `#done`, which is why the call
+        // ends by itself: the flag written at the end is the rewritten one.
+        "setghostlyphonecall" => {
+            const VALID: [&str; 4] = ["notyet", "ringingNow", "speaking", "done"];
+            let Some(asked) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|v| v.trim_start_matches('#').to_string())
+            else {
+                return true;
+            };
+            let Some(&wanted) = VALID.iter().find(|v| v.eq_ignore_ascii_case(&asked)) else {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "setGhostlyPhoneCall: {asked} is not a call state"
+                );
+                return true;
+            };
+
+            let pending = |st: &State, haunt: &str| {
+                st.get_all("hauntsRemaining")
+                    .iter()
+                    .any(|h| h.as_str().is_some_and(|s| s.eq_ignore_ascii_case(haunt)))
+            };
+            let stop = |out: &mut Outcome, name: &str| {
+                out.effects.push(Effect::StopLoop {
+                    name: name.into(),
+                    fade: false,
+                })
+            };
+            let loop_at = |out: &mut Outcome, name: &str, volume: Option<i32>| {
+                out.effects.push(Effect::StartLoop {
+                    name: name.into(),
+                    volume,
+                })
+            };
+
+            let mut settle = wanted;
+
+            if wanted.eq_ignore_ascii_case("ringingNow") {
+                // How loud the phone carries from this room, which the room
+                // states as part of its own mix.
+                let level = state.get("gEarShot_phonevol").as_int();
+                loop_at(out, "phoneRinging", level);
+            }
+
+            if wanted.eq_ignore_ascii_case("speaking") {
+                out.effects.push(Effect::CursorOff);
+                stop(out, "phoneRinging");
+
+                let waves = state.get("psionicWavesPresent").as_int().unwrap_or(0) == 1;
+                if waves && pending(state, "phoneMessage") {
+                    out.effects.push(Effect::PlaySound {
+                        name: "phoneRoxy".into(),
+                        loudness: None,
+                    });
+                    out.effects.push(Effect::WaitForSound("phoneRoxy".into()));
+                    settle = "done";
+                    loop_at(out, "roxyCallDone", None);
+                    out.effects.push(Effect::TrimState {
+                        key: "hauntsRemaining".into(),
+                        item: Value::Symbol("phoneMessage".into()),
+                    });
+                    out.effects.push(Effect::TrimState {
+                        key: "hauntsRemaining".into(),
+                        item: Value::Symbol("spookyOperator".into()),
+                    });
+                    for (key, value) in [
+                        ("AMBERVISION", "waitingForPlayer"),
+                        ("PKamberStatus", "WaveActivated"),
+                        ("PeekDisplay", "amberStatus"),
+                    ] {
+                        out.effects.push(Effect::SetState {
+                            key: key.into(),
+                            value: Value::Symbol(value.into()),
+                        });
+                    }
+                } else if pending(state, "spookyOperator") {
+                    if state.get("phoneButtonsPressed").as_int().unwrap_or(0) > 6 {
+                        out.effects.push(Effect::PlaySound {
+                            name: "spookyOperator".into(),
+                            loudness: None,
+                        });
+                        out.effects.push(Effect::WaitForSound("spookyOperator".into()));
+                        out.effects.push(Effect::TrimState {
+                            key: "hauntsRemaining".into(),
+                            item: Value::Symbol("spookyOperator".into()),
+                        });
+                        state.set_all("phoneButtonsPressed", vec![Value::Int(0)]);
+                        loop_at(out, "phoneDead", None);
+                    }
+                } else if pending(state, "phoneMessage") {
+                    loop_at(out, "phoneDead", None);
+                } else {
+                    loop_at(out, "roxyCallDone", None);
+                }
+            }
+
+            if settle.eq_ignore_ascii_case("done") {
+                for name in ["phoneRinging", "spookyOperator", "phoneRoxy"] {
+                    stop(out, name);
+                }
+            }
+
+            state.set_all("ghostlyPhoneCall", vec![Value::Symbol(settle.into())]);
+            out.redraw = true;
+        }
+
         // on setScanTime howManyMinutes
         //   gScanFinish = the ticks + howManyMinutes * 3600
         //   setState(oStoryteller, #PeekDisplay, ...)
@@ -953,5 +1168,133 @@ mod scan_tests {
             .as_str()
             .is_some_and(|s| s == "goodScan5min"));
         assert!(out.go_back);
+    }
+}
+
+#[cfg(test)]
+mod phone_tests {
+    use super::*;
+
+    fn phone(haunts: &[&str]) -> State {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        state.set_all(
+            "hauntsRemaining",
+            haunts.iter().map(|h| Value::Symbol((*h).into())).collect(),
+        );
+        state.set_all("ghostlyPhoneCall", vec![Value::Symbol("notyet".into())]);
+        state
+    }
+
+    fn run(state: &mut State, handler: &str, args: &[Value]) -> Outcome {
+        let mut out = Outcome::default();
+        assert!(call(handler, args, state, &mut out), "{handler} unhandled");
+        out
+    }
+
+    fn sounds(out: &Outcome) -> Vec<String> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                Effect::StartLoop { name, .. } => Some(format!("loop {name}")),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_operator_answers_only_after_the_buttons_and_hanging_up() {
+        // Lifting the receiver alone gives nothing: the count is zero and the
+        // speaking branch tests for more than six.
+        let mut state = phone(&["spookyOperator", "phoneMessage"]);
+        let out = run(&mut state, "setghostlyphonecall", &[Value::Symbol("speaking".into())]);
+        assert!(!sounds(&out).iter().any(|s| s.contains("spookyOperator")));
+
+        // Pressing at all and then hanging up forces the count past it.
+        state.set_all("phoneButtonsPressed", vec![Value::Int(2)]);
+        let out = run(&mut state, "putdownthephone", &[]);
+        assert!(sounds(&out).iter().any(|s| s == "spookyOperator"));
+        assert_eq!(state.get("phoneButtonsPressed").as_int(), Some(0));
+    }
+
+    #[test]
+    fn the_operator_is_used_up_once_heard() {
+        let mut state = phone(&["spookyOperator", "phoneMessage"]);
+        state.set_all("phoneButtonsPressed", vec![Value::Int(2)]);
+        let out = run(&mut state, "putdownthephone", &[]);
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::TrimState { key, item }
+                if key == "hauntsRemaining"
+                    && item.as_str() == Some("spookyOperator")
+        )));
+    }
+
+    #[test]
+    fn roxys_message_needs_the_waves_and_ends_the_call_itself() {
+        // The branch rewrites its own argument to #done, which is why the
+        // call hangs up on its own rather than waiting to be put down.
+        let mut state = phone(&["phoneMessage", "spookyOperator"]);
+        state.set("psionicWavesPresent", Value::Int(1));
+        let out = run(&mut state, "setghostlyphonecall", &[Value::Symbol("speaking".into())]);
+        assert!(sounds(&out).iter().any(|s| s == "phoneRoxy"));
+        assert!(state
+            .get("ghostlyPhoneCall")
+            .as_str()
+            .is_some_and(|s| s == "done"));
+    }
+
+    #[test]
+    fn roxys_message_switches_the_monitor_on() {
+        // This is the call that moves the chapter forward rather than being
+        // atmosphere: it consumes both phone haunts and arms the monitor.
+        let mut state = phone(&["phoneMessage", "spookyOperator"]);
+        state.set("psionicWavesPresent", Value::Int(1));
+        let out = run(&mut state, "setghostlyphonecall", &[Value::Symbol("speaking".into())]);
+        let written: Vec<&str> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::SetState { key, .. } => Some(key.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(written.contains(&"AMBERVISION"));
+        assert!(written.contains(&"PKamberStatus"));
+    }
+
+    #[test]
+    fn without_the_waves_a_pending_message_leaves_the_line_dead() {
+        let mut state = phone(&["phoneMessage"]);
+        let out = run(&mut state, "setghostlyphonecall", &[Value::Symbol("speaking".into())]);
+        assert!(sounds(&out).iter().any(|s| s == "loop phoneDead"));
+    }
+
+    #[test]
+    fn with_nothing_left_to_hear_the_call_is_over() {
+        let mut state = phone(&[]);
+        let out = run(&mut state, "setghostlyphonecall", &[Value::Symbol("speaking".into())]);
+        assert!(sounds(&out).iter().any(|s| s == "loop roxyCallDone"));
+    }
+
+    #[test]
+    fn a_state_the_call_does_not_have_is_refused() {
+        let mut state = phone(&[]);
+        run(&mut state, "setghostlyphonecall", &[Value::Symbol("dialling".into())]);
+        assert!(state
+            .get("ghostlyPhoneCall")
+            .as_str()
+            .is_some_and(|s| s == "notyet"));
+    }
+
+    #[test]
+    fn lifting_the_receiver_stops_it_ringing_again() {
+        let mut state = phone(&[]);
+        run(&mut state, "setplayerisexaminingphone", &[Value::Int(1)]);
+        assert!(state
+            .get("ghostlyPhoneCall")
+            .as_str()
+            .is_some_and(|s| s == "dontRingPlease"));
     }
 }

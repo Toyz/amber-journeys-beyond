@@ -2326,3 +2326,56 @@ One check that found nothing, worth recording. `gazeboWind` peaks at exactly
 samples there out of five hundred and forty-five thousand. It is a hot
 recording, not a misread, and `sfx` prints the count now so the two never have
 to be guessed between again.
+
+## 67. The telephone
+
+helba: nothing happens when the phone is opened. Three handlers gated it, and
+the trace named all three in one line each -- `setPlayerIsExaminingPhone`,
+`setGhostlyPhoneCall`, `putDownThePhone`, none ported.
+
+`setGhostlyPhoneCall` is the piece worth having. Lifting the receiver asks it
+to go to `#speaking`, and what the player hears depends on where they are in
+the chapter:
+
+  - the psionic waves are present and the phone message is still pending:
+    Roxy's own message plays, and the branch **rewrites its own argument** to
+    `#done`, so the call hangs up by itself. It consumes both phone haunts at
+    once and switches the monitor on. This is the call that moves the chapter
+    forward; the others are atmosphere.
+  - the spooky operator is pending and the buttons have been pressed more than
+    six times: the operator speaks, is used up, the count is cleared and the
+    line goes dead.
+  - the message is still pending but the waves are not: a dead line.
+  - nothing left to hear: Roxy's call-done tone.
+
+The six is the puzzle, and `putDownThePhone` is where it is set: pressing the
+buttons *at all* and then hanging up forces the count to seven, which is the
+one number above the threshold. So the answer is not a combination, it is the
+gesture -- dial anything, put the phone down, and the operator answers. The
+count is cleared either way, so a failed attempt is free but has to be made
+again from the start.
+
+Then it did not work, and the reason is a good one. The buttons increment
+through the only computed action in the game:
+
+```text
+setProp( the lsStateData of oStoryteller, #phoneButtonsPressed,
+         [getState( oStoryteller, #phoneButtonsPressed ) + 1 ] )
+```
+
+`eval_arg` resolves a nested `getState` but not a sum, so the flag took the
+*text of the expression* as its value. The count never rose above six and the
+operator could never answer. One site in the whole game -- I counted before
+writing anything, because one site is not a reason to build an expression
+evaluator, though it is a reason to read a sum.
+
+Handlers also need the room's own mix now: the phone rings at whatever level
+the room says it carries from there, loud in the living room and faint
+upstairs. That is `#earShot` again, which the engine had been keeping to
+itself; it goes into the state as `gEarShot_<source>` on every move, beside the
+room and the area.
+
+Eight tests. The one I would keep is
+`the_operator_answers_only_after_the_buttons_and_hanging_up`, because it is the
+puzzle rather than the plumbing, and a port that quietly loses a puzzle looks
+exactly like a port that works.

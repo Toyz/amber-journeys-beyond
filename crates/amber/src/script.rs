@@ -267,21 +267,62 @@ fn find_comment(src: &str) -> Option<usize> {
     None
 }
 
-/// Resolves an argument that may itself be a `getState` lookup.
+/// Resolves an argument that may itself be a `getState` lookup, or a sum of
+/// one and a number.
+///
+/// The arithmetic exists for a single action in the whole game:
+///
+/// ```text
+/// setProp( the lsStateData of oStoryteller, #phoneButtonsPressed,
+///          [getState( oStoryteller, #phoneButtonsPressed ) + 1 ] )
+/// ```
+///
+/// which is how the telephone counts key presses. Left unevaluated the flag
+/// takes the text of the expression as its value, the count never rises above
+/// the threshold the operator waits for, and the puzzle cannot be finished.
+/// One site is not a reason to write an expression evaluator, but it is a
+/// reason to read a sum.
 fn eval_arg(arg: &Value, state: &State) -> Value {
     // A nested call survives parsing as a bare symbol; re-read it here.
-    if let Value::Symbol(s) = arg {
-        if s.contains('(') {
-            if let Some(call) = parse_call(s) {
-                if call.name == "getstate" {
-                    if let Some(key) = call.args.last().and_then(|v| v.as_str()) {
-                        return state.get(key);
-                    }
-                }
+    let Value::Symbol(s) = arg else {
+        return arg.clone();
+    };
+    if !s.contains('(') {
+        return arg.clone();
+    }
+
+    if let Some((left, right)) = split_sum(s) {
+        let a = eval_arg(&Value::Symbol(left.to_string()), state);
+        let b = eval_arg(&Value::Symbol(right.to_string()), state);
+        let b = b.as_int().or_else(|| right.trim().parse().ok());
+        if let (Some(a), Some(b)) = (a.as_int(), b) {
+            return Value::Int(a + b);
+        }
+    }
+
+    if let Some(call) = parse_call(s) {
+        if call.name == "getstate" {
+            if let Some(key) = call.args.last().and_then(|v| v.as_str()) {
+                return state.get(key);
             }
         }
     }
     arg.clone()
+}
+
+/// Splits `a + b` at a `+` that is not inside brackets.
+fn split_sum(text: &str) -> Option<(&str, &str)> {
+    let s = text.trim().trim_start_matches('[').trim_end_matches(']');
+    let mut depth = 0i32;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            '+' if depth == 0 => return Some((&s[..i], &s[i + 1..])),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Reads an argument as a bare symbol name, dropping any leading `#`.
