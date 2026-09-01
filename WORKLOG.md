@@ -766,3 +766,41 @@ ends. Space now stops the movie, and where the room has nothing else to show,
 moves on: the opening leads to `Gbhs_gameEntry`, which the name table made
 easy to find sitting next to `Gbhs_playIntro`. This is a deliberate departure
 - the original had no skip either - and it is marked as such in the code.
+
+## 27. The hovering drone: twelve bytes
+
+helba reported the repeating sound was still there after the spin fix, and
+described it as a loud hovering noise. That description was the clue: a spin
+sounds like stutter, a drone sounds like something periodic and wrong.
+
+Every ambient loop decoded with a peak of exactly 32768, which is the clamp
+value. I had noted that in entry 14 and explained it away: eight-bit sources
+reach full scale, and `(0 - 128) << 8` is exactly -32768, so the number was
+consistent with correct decoding. It was also consistent with a bug, and I
+did not check which.
+
+The check took one dump. Both sounds began with exactly twelve samples at
+-32768 and then real audio. Unsigned eight-bit silence is 0x80, not 0x00, so
+twelve zero bytes at the head of the samples are not audio at all - they are
+header being read as sound.
+
+These carry an extended sound header, and its sample data begins at offset 64,
+not at 52 where a field-by-field walk lands. Every offset was confirmed
+against the data rather than assumed: the frame count at +22 reads 70364,
+which is exactly the decoded length; the sample size at +48 reads 8; the audio
+visibly starts at +64.
+
+So every sound in the game opened with a full-scale click. On the house hum,
+a three-second loop, that is a thump every three seconds for as long as the
+player stands in the room.
+
+What the fix exposes is how badly the defect had hidden itself. The peaks now
+read 3328 for the grounds, 6084 for the garage, 9216 for the computer loop:
+real dynamic range, quiet ambiences actually quiet. Before, all nine reported
+32768, because twelve bad samples set the maximum for every one of them. The
+measurement I was using to check the sounds was itself dominated by the bug.
+
+That is the fourth time in this project a plausible explanation for a wrong
+number has cost me more than checking would have. The pattern is specific
+enough now to name: when a statistic comes out at exactly a boundary value,
+the boundary is the thing to investigate, not to rationalise.

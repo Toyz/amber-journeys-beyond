@@ -68,25 +68,41 @@ pub fn decode(data: &[u8], endian: Endian) -> Result<Sound> {
                 samples: raw.iter().map(|&b| u8_to_i16(b)).collect(),
             })
         }
-        // Extended header: interleaved, possibly 16-bit.
+        // Extended header. Its layout is fixed, and the offsets below were
+        // confirmed against the data rather than assumed: the frame count at
+        // +22 matches the decoded length exactly, the sample size at +48 reads
+        // 8, and the samples themselves begin at +64.
+        //
+        // Reading them from +52, as a naive field-by-field walk suggests,
+        // pulls twelve bytes of header in as audio. Those bytes are zero, and
+        // zero in unsigned 8-bit is full-scale negative, so every sound opened
+        // with a loud click. On a three-second ambient loop that is a thump
+        // every three seconds, for as long as the room is occupied.
         0xff => {
+            const FRAME_COUNT: usize = 22;
+            const SAMPLE_SIZE: usize = 48;
+            const SAMPLE_DATA: usize = 64;
+
             let channels = length_or_channels.max(1) as u16;
-            let frames = h.u32()? as usize;
-            h.bytes(10)?; // AIFF-style 80-bit rate, unused: we trust rate_fixed.
-            let _marker = h.u32()?;
-            let _instrument = h.u32()?;
-            let _reserved = h.u32()?;
-            let _future = h.u16()?;
-            let bits = h.u16()?;
-            let total = frames * channels as usize;
-            let mut samples = Vec::with_capacity(total);
+            let frames = {
+                let mut f = Reader::at(data, endian, start + FRAME_COUNT);
+                f.u32()? as usize
+            };
+            let bits = {
+                let mut b = Reader::at(data, endian, start + SAMPLE_SIZE);
+                b.u16()?
+            };
+
+            let mut s = Reader::at(data, endian, start + SAMPLE_DATA);
+            let total = frames.saturating_mul(channels as usize);
+            let mut samples = Vec::with_capacity(total.min(1 << 24));
             if bits == 16 {
-                for _ in 0..total.min(h.remaining() / 2) {
-                    samples.push(h.i16()?);
+                for _ in 0..total.min(s.remaining() / 2) {
+                    samples.push(s.i16()?);
                 }
             } else {
-                for _ in 0..total.min(h.remaining()) {
-                    samples.push(u8_to_i16(h.u8()?));
+                for _ in 0..total.min(s.remaining()) {
+                    samples.push(u8_to_i16(s.u8()?));
                 }
             }
             Ok(Sound {

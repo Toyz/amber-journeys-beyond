@@ -405,6 +405,13 @@ impl Movie {
         bitmap::decode(m, raw)
     }
 
+    /// The raw bytes of a sound cast member's `snd ` chunk, for inspection.
+    pub fn sound_raw(&self, cast_number: u32) -> Option<&[u8]> {
+        let m = self.member(cast_number)?;
+        let child = self.child(m.resource, TAG_SND)?;
+        self.resource_data(child).ok()
+    }
+
     pub fn sound(&self, cast_number: u32) -> Result<Sound> {
         let m = self.member(cast_number).ok_or(Error::BadCast(cast_number))?;
         let child = self
