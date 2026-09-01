@@ -2935,3 +2935,89 @@ On helba's remaining complaint, which I cannot fix: the scene after the Margaret
 transition needs `40sINTRO.mov`, and entry 79 established that this disc is the
 PC release and does not carry it. The room the engine picks instead is still
 the fallback recorded in entry 78, and it is still a guess.
+
+## 81. The end of the game, and a tally that flattered itself
+
+The psionic bar is the last puzzle in Roxy's chapter and, it turns out, the
+last puzzle in the game. Three verbs run it: `adjustAlgorithm`,
+`setFragmentBias` and `setFragmentAlignment`. All three are now ported.
+
+`adjustAlgorithm` reads like the lock in entry 54 -- three columns, a cast
+table each, step with the mouse held -- right up to its tail, where it stops
+being a dial and becomes an ending:
+
+```text
+if getState( #BT_algorithmLeft )   <> 5 then return
+if getState( #BT_algorithmMiddle ) <> 2 then return
+if getState( #BT_algorithmRight )  <> 8 then return
+cursorOff : wait 60 : soundEffect #happyBeep
+pushVideo : wait #videoStop
+setState( #BT_fragStatus, #allDone )
+setState( #endGame, 1 )
+```
+
+Five, two, eight. The schema opens the columns on two, three and five, so no
+column starts on its answer.
+
+Two details worth keeping. The columns **refuse at their limits** rather than
+wrapping -- one to eight, and a `#algorithmNotAvail` beep at either end --
+which is the opposite of the lock's wheels, and I would have got it wrong by
+analogy if I had not read it. And `#endGame` is written through the effect
+list rather than straight onto state, because the original sets it after `wait
+#videoStop`: the ending has to have played before the game is over. The test
+asserts on the effects for exactly that reason, which is the second time this
+port's timeline-order rule has shown up as a test that would otherwise have
+been written wrong.
+
+The other two verbs need no sprite code at all. `#BT_checkBox` is keyed
+`[#on, 1, 2, 3, #off]` and `#BT_bias1..3` are keyed by the bias value itself,
+so writing the flag and asking for a redraw lands every sprite where the
+original put it by hand. That one table answering to both `#on` and a number
+is why the same check box art serves two sections keyed on different flags --
+a small, deliberate piece of authoring that the state-indexed cast machinery
+from entry 54 picks up for free.
+
+`setFragmentAlignment` spins `#BT_psionOrder`, a three-element list, and is the
+one place where a flag's whole list is the value rather than a history. It is
+also guarded: neither the bias nor the psions move while their section is
+switched off, and the check box parks the bias in `#BT_storedBias` so switching
+back on restores it.
+
+### The tally that flattered itself
+
+While checking what was left I found `verify` reporting
+
+```text
+native handlers:     27 distinct, 55 call sites
+unhandled calls:     none
+```
+
+with six verbs I knew for a fact had no handler. Neither line was lying,
+exactly; both were answering a different question than the one they looked
+like they answered. `unhandled calls` counts *parse* failures. And every verb
+without a specific arm in `script.rs` becomes an `Effect::Native`, ported or
+not -- whether a handler exists is decided later, at apply time, by
+`natives::call` returning a bool. So the native tally reads the same either
+way.
+
+The fix is a separate question, `natives::is_handled`, asked of `call` itself
+so it cannot drift out of step with the arms. That took two goes. The first
+probed once on a blank state and reported `setFrontDoorIsOpen` unported -- the
+openers and the bleeding doors are keyed on `(chapter, verb)` and decline
+outright when the chapter is not theirs, so a blank probe reports all of them
+missing. It now asks once per chapter. I only caught it because I wrote the
+test asserting a known-ported verb answers yes, which I nearly did not bother
+with.
+
+The honest number is **27 verbs, 55 call sites**, none of them ported. Not the
+six I had been carrying in my head. The list is now printed, so it stops being
+something I have to remember.
+
+Removed a dead `resetBoxPuzzle` arm in the process -- a duplicate, shadowed by
+an earlier one. The compiler had been warning about it for two commits. The
+live copy happened to be the correct one; the dead copy used `set` where the
+list model needs `set_all`, and would have pushed an empty list onto the head
+instead of clearing it. That is luck, not judgement, and it is the second time
+this project a warning I skimmed past was pointing at something real.
+
+150 tests, clippy clean.

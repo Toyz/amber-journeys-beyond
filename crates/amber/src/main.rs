@@ -962,7 +962,29 @@ fn cmd_verify(dir: &Path) -> Res {
     for (k, v) in effects.iter().filter(|(k, _)| !k.starts_with("native:")) {
         println!("  {k:<24} {v:>5}");
     }
+    // Split by whether an arm actually exists, so an unported verb shows up
+    // here rather than hiding inside the native tally.
+    let mut unported: BTreeMap<&str, usize> = BTreeMap::new();
+    for (k, v) in effects.iter().filter(|(k, _)| k.starts_with("native:")) {
+        let name = k.trim_start_matches("native:");
+        if !natives::is_handled(name) {
+            *unported.entry(name).or_default() += v;
+        }
+    }
     println!("native handlers:     {native} distinct, {native_calls} call sites");
+    // Verbs a room's own action list names with no Rust arm behind them. The
+    // handlers already ported are called from inside other handlers rather
+    // than from an action list, so they do not appear in the tally above and
+    // this list is the honest measure of what is left.
+    let unported_calls: usize = unported.values().sum();
+    if unported.is_empty() {
+        println!("unported verbs:      none");
+    } else {
+        println!("unported verbs:      {} distinct, {unported_calls} call sites", unported.len());
+        for (k, v) in &unported {
+            println!("  {k:<24} {v:>5}");
+        }
+    }
     // Listing them by name lets the bytecode tooling match each against its
     // compiled body, so the remaining work can be ordered by size.
     if std::env::var_os("AMBER_LIST_NATIVE").is_some() {

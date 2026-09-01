@@ -843,6 +843,220 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on setFragmentBias option
+        //   checkFrames = getProp( oPuppeteer.frames, #BT_checkBox )
+        //   bias1Frames..bias3Frames likewise
+        //   currentState = getState( #BT_bias )
+        //   checkSprite = 22 : bias1Sprite = 23 : bias2Sprite = 24 : bias3Sprite = 25
+        //   if option = #toggle then
+        //     if currentState = #off then
+        //       newState = getState( #BT_storedBias )
+        //       setState( #BT_bias, newState )
+        //       ... four sprites to their #on cast
+        //     else
+        //       setState( #BT_bias, #off )
+        //       ... four sprites to their #off cast
+        //   else
+        //     if currentState <> #off then
+        //       ... step through list( 1, 2, 3, #None )
+        //       setState( #BT_bias, next ) : setState( #BT_storedBias, next )
+        //
+        // The check box remembers: turning the section off parks the value in
+        // #BT_storedBias and turning it back on restores it, so a player who
+        // switches the bias off mid-thought does not lose their place. The
+        // schema ships #BT_storedBias as [2, 1, 3, #None], already holding two.
+        //
+        // No sprite effects here. #BT_checkBox is keyed [#on, 1, 2, 3, #off]
+        // and #BT_bias1..3 are keyed by the bias value itself, so writing the
+        // flag and asking for a redraw puts every one of the four sprites on
+        // the cast the original set by hand. That one table answering to both
+        // #on and a number is why the same check box art serves this section
+        // and the alignment section above it, which key on different flags.
+        "setfragmentbias" => {
+            let cycle = [
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+                Value::Symbol("None".into()),
+            ];
+            let toggle = args
+                .first()
+                .and_then(Value::as_str)
+                .is_some_and(|o| o.trim_start_matches('#').eq_ignore_ascii_case("toggle"));
+            let current = state.get("BT_bias");
+            let off = current.as_symbol() == Some("off");
+
+            if toggle {
+                if off {
+                    let restored = state.get("BT_storedBias");
+                    state.set("BT_bias", restored);
+                } else {
+                    state.set("BT_bias", Value::Symbol("off".into()));
+                }
+            } else if !off {
+                // The bias only steps while its section is switched on.
+                let at = cycle.iter().position(|v| *v == current).unwrap_or(0);
+                let next = cycle[(at + 1) % cycle.len()].clone();
+                state.set("BT_bias", next.clone());
+                state.set("BT_storedBias", next);
+            }
+            out.redraw = true;
+        }
+
+        // on setFragmentAlignment option
+        //   currentPsionOrder = getProp( oStoryteller.states, #BT_psionOrder )
+        //   currentState = getState( #BT_alignmentLeft )
+        //   if currentState <> #off then currentState = #on
+        //   if option = #toggle then
+        //     if currentState = #on then
+        //       setProp( states, #BT_alignmentLeft,  list(#off) )
+        //       setProp( states, #BT_alignmentRight, list(#off) )
+        //     else
+        //       ... both to list(#on)
+        //     ... sprites 19, 20, 21 to the matching cast
+        //   else
+        //     if currentState <> #on then return
+        //     if option = #clockwise then
+        //       newFirst = getAt( currentPsionOrder, 3 )
+        //       deleteAt( currentPsionOrder, 3 ) : addAt( currentPsionOrder, 1, newFirst )
+        //       goTo #clockwise : castCursor : killVideo
+        //     if option = #counter then
+        //       newLast = getAt( currentPsionOrder, 1 )
+        //       deleteAt( currentPsionOrder, 1 ) : addAt( currentPsionOrder, 3, newLast )
+        //       goTo #counter : castCursor : killVideo
+        //
+        // The alignment control spins the three psions rather than setting a
+        // number: clockwise carries the last to the front and counter carries
+        // the first to the back, both on #BT_psionOrder, which the schema
+        // ships as [1, 2, 3]. This is the one place a flag's whole list is the
+        // value and not a history, which is why it is written with set_all.
+        //
+        // Both check boxes move together -- the left one is read for the state
+        // and the right one only ever follows it -- and neither spins while
+        // the section is off.
+        "setfragmentalignment" => {
+            let option = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|o| o.trim_start_matches('#').to_ascii_lowercase())
+                .unwrap_or_default();
+            let on = state.get("BT_alignmentLeft").as_symbol() != Some("off");
+
+            if option == "toggle" {
+                let now = Value::Symbol(if on { "off" } else { "on" }.into());
+                state.set_all("BT_alignmentLeft", vec![now.clone()]);
+                state.set_all("BT_alignmentRight", vec![now]);
+                out.redraw = true;
+                return true;
+            }
+            if !on {
+                return true;
+            }
+            let mut order = state.get_all("BT_psionOrder").to_vec();
+            if order.len() == 3 {
+                match option.as_str() {
+                    "clockwise" => order.rotate_right(1),
+                    "counter" => order.rotate_left(1),
+                    _ => return true,
+                }
+                state.set_all("BT_psionOrder", order);
+                out.destination = Some(option);
+                out.effects.push(Effect::StopVideo);
+                out.redraw = true;
+            }
+        }
+
+        // on adjustAlgorithm whichColumn, upOrDown
+        //   cursorOff
+        //   columnStack = getProp( oPuppeteer.frames, #BT_algo<Column> )
+        //   currentSetting = getState( #BT_algorithm<Column> )
+        //   if upOrDown = #down then newSetting = currentSetting - 1
+        //   if upOrDown = #up   then newSetting = currentSetting + 1
+        //   if newSetting < 1 or newSetting > 8 then
+        //     soundEffect #algorithmNotAvail
+        //   else
+        //     setProp( oStoryteller.states, #BT_algorithm<Column>, list(newSetting) )
+        //     set the castNum of the column's sprite from columnStack[newSetting]
+        //     lagTime = lagTime + 40 ... repeat while stillDown
+        //   if getState(#BT_algorithmLeft)   <> 5 then return
+        //   if getState(#BT_algorithmMiddle) <> 2 then return
+        //   if getState(#BT_algorithmRight)  <> 8 then return
+        //   cursorOff : wait 60 : soundEffect #happyBeep
+        //   pushVideo : wait #videoStop
+        //   setState( #BT_fragStatus, #allDone )
+        //   setState( #endGame, 1 )
+        //
+        // The three columns of the psionic bar, each a digit from one to
+        // eight, and setting them to five, two and eight is how the game ends.
+        // The schema starts them at two, three and five, so none of the three
+        // begins on its answer.
+        //
+        // A column at its limit refuses with a sound rather than wrapping,
+        // which is the opposite of the lock in Brice's chapter -- those wheels
+        // wrap through zero. Worth not assuming one from the other.
+        "adjustalgorithm" => {
+            const COLUMNS: [(&str, &str); 3] = [
+                ("left", "BT_algorithmLeft"),
+                ("middle", "BT_algorithmMiddle"),
+                ("right", "BT_algorithmRight"),
+            ];
+            const ANSWER: [(&str, i32); 3] = [
+                ("BT_algorithmLeft", 5),
+                ("BT_algorithmMiddle", 2),
+                ("BT_algorithmRight", 8),
+            ];
+
+            let Some(column) = args.first().and_then(Value::as_str).and_then(|c| {
+                let c = c.trim_start_matches('#');
+                COLUMNS
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(c))
+                    .map(|(_, flag)| *flag)
+            }) else {
+                return true;
+            };
+            let up = args
+                .get(1)
+                .and_then(Value::as_str)
+                .is_some_and(|d| d.trim_start_matches('#').eq_ignore_ascii_case("up"));
+
+            let current = state.get(column).as_int().unwrap_or(0);
+            let wanted = current + if up { 1 } else { -1 };
+            if !(1..=8).contains(&wanted) {
+                out.effects.push(Effect::PlaySound {
+                    name: "algorithmNotAvail".into(),
+                    loudness: None,
+                });
+                return true;
+            }
+            state.set_all(column, vec![Value::Int(wanted)]);
+            out.redraw = true;
+            // A click moves one step and a hold runs the column up or down.
+            out.repeat_while_held = true;
+
+            if ANSWER
+                .iter()
+                .all(|(flag, want)| state.get(flag).as_int() == Some(*want))
+            {
+                out.effects.push(Effect::CursorOff);
+                out.effects.push(Effect::WaitTicks(60));
+                out.effects.push(Effect::PlaySound {
+                    name: "happyBeep".into(),
+                    loudness: None,
+                });
+                out.effects.push(Effect::PlayVideo(None));
+                out.effects.push(Effect::WaitForVideo);
+                out.effects.push(Effect::SetState {
+                    key: "BT_fragStatus".into(),
+                    value: Value::Symbol("allDone".into()),
+                });
+                out.effects.push(Effect::SetState {
+                    key: "endGame".into(),
+                    value: Value::Int(1),
+                });
+            }
+        }
+
         // on setScanTime howManyMinutes
         //   gScanFinish = the ticks + howManyMinutes * 3600
         //   setState(oStoryteller, #PeekDisplay, ...)
@@ -1296,5 +1510,242 @@ mod phone_tests {
             .get("ghostlyPhoneCall")
             .as_str()
             .is_some_and(|s| s == "dontRingPlease"));
+    }
+
+    // -- the psionic bar ----------------------------------------------------
+
+    /// The bar as the schema ships it: the columns on two, three and five, the
+    /// bias off with two remembered, the alignment off, the psions in order.
+    fn bar() -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("BT_algorithmLeft", vec![Value::Int(2)]);
+        s.set_all("BT_algorithmMiddle", vec![Value::Int(3)]);
+        s.set_all("BT_algorithmRight", vec![Value::Int(5)]);
+        s.set_all(
+            "BT_bias",
+            vec![
+                Value::Symbol("off".into()),
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+                Value::Symbol("None".into()),
+            ],
+        );
+        s.set_all(
+            "BT_storedBias",
+            vec![
+                Value::Int(2),
+                Value::Int(1),
+                Value::Int(3),
+                Value::Symbol("None".into()),
+            ],
+        );
+        s.set_all("BT_alignmentLeft", vec![Value::Symbol("off".into())]);
+        s.set_all("BT_alignmentRight", vec![Value::Symbol("off".into())]);
+        s.set_all(
+            "BT_psionOrder",
+            vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+        );
+        s
+    }
+
+    fn step(state: &mut State, column: &str, up: bool) -> Outcome {
+        let mut out = Outcome::default();
+        let dir = if up { "up" } else { "down" };
+        assert!(call(
+            "adjustalgorithm",
+            &[
+                Value::Symbol(column.into()),
+                Value::Symbol(dir.into()),
+            ],
+            state,
+            &mut out,
+        ));
+        out
+    }
+
+    fn drive(state: &mut State, column: &str, to: i32) -> Outcome {
+        let flag = match column {
+            "left" => "BT_algorithmLeft",
+            "middle" => "BT_algorithmMiddle",
+            _ => "BT_algorithmRight",
+        };
+        let mut last = Outcome::default();
+        for _ in 0..16 {
+            let at = state.get(flag).as_int().unwrap_or(0);
+            if at == to {
+                return last;
+            }
+            last = step(state, column, at < to);
+        }
+        panic!("{column} never reached {to}");
+    }
+
+    /// The flags a handler writes through the effect list rather than
+    /// directly, which is where anything that has to land after a wait goes.
+    fn written(out: &Outcome) -> Vec<(String, Value)> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::SetState { key, value } => Some((key.clone(), value.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // #endGame and #BT_fragStatus are written through the effect list, not
+    // straight onto state, because the original sets them after `wait
+    // #videoStop` -- the ending has to have played before the game is over.
+    #[test]
+    fn five_two_eight_ends_the_game() {
+        let mut s = bar();
+        // Nothing has ended on the way: the last column is still on its five.
+        let out = drive(&mut s, "left", 5);
+        assert!(written(&out).is_empty());
+        drive(&mut s, "middle", 2);
+        let out = drive(&mut s, "right", 8);
+        assert_eq!(
+            written(&out),
+            [
+                ("BT_fragStatus".to_string(), Value::Symbol("allDone".into())),
+                ("endGame".to_string(), Value::Int(1)),
+            ]
+        );
+        assert!(out.effects.iter().any(|e| matches!(e, Effect::PlayVideo(_))));
+    }
+
+    #[test]
+    fn no_other_combination_does() {
+        let mut s = bar();
+        drive(&mut s, "left", 5);
+        drive(&mut s, "middle", 2);
+        let out = drive(&mut s, "right", 7);
+        assert!(written(&out).is_empty());
+    }
+
+    #[test]
+    fn a_column_at_its_limit_refuses_rather_than_wrapping() {
+        // The lock in Brice's chapter wraps through zero; this does not.
+        let mut s = bar();
+        drive(&mut s, "left", 1);
+        let out = step(&mut s, "left", false);
+        assert_eq!(s.get("BT_algorithmLeft"), Value::Int(1));
+        assert_eq!(sounds(&out), ["algorithmNotAvail"]);
+
+        drive(&mut s, "left", 8);
+        let out = step(&mut s, "left", true);
+        assert_eq!(s.get("BT_algorithmLeft"), Value::Int(8));
+        assert_eq!(sounds(&out), ["algorithmNotAvail"]);
+    }
+
+    fn bias(state: &mut State, option: &str) {
+        let mut out = Outcome::default();
+        assert!(call(
+            "setfragmentbias",
+            &[Value::Symbol(option.into())],
+            state,
+            &mut out,
+        ));
+    }
+
+    #[test]
+    fn the_check_box_gives_back_the_bias_it_was_switched_off_on() {
+        let mut s = bar();
+        // Switching the section on restores the remembered two, so a single
+        // step from there reaches three.
+        bias(&mut s, "toggle");
+        assert_eq!(s.get("BT_bias"), Value::Int(2));
+        bias(&mut s, "step");
+        assert_eq!(s.get("BT_bias"), Value::Int(3));
+        bias(&mut s, "toggle");
+        assert_eq!(s.get("BT_bias"), Value::Symbol("off".into()));
+        bias(&mut s, "toggle");
+        assert_eq!(s.get("BT_bias"), Value::Int(3));
+    }
+
+    #[test]
+    fn the_bias_will_not_step_while_its_section_is_off() {
+        let mut s = bar();
+        bias(&mut s, "step");
+        assert_eq!(s.get("BT_bias"), Value::Symbol("off".into()));
+    }
+
+    #[test]
+    fn the_bias_cycles_back_round_through_none() {
+        let mut s = bar();
+        bias(&mut s, "toggle");
+        let seen: Vec<Value> = (0..5)
+            .map(|_| {
+                bias(&mut s, "step");
+                s.get("BT_bias")
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                Value::Int(3),
+                Value::Symbol("None".into()),
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+            ]
+        );
+    }
+
+    fn align(state: &mut State, option: &str) -> Outcome {
+        let mut out = Outcome::default();
+        assert!(call(
+            "setfragmentalignment",
+            &[Value::Symbol(option.into())],
+            state,
+            &mut out,
+        ));
+        out
+    }
+
+    fn order(state: &State) -> Vec<i32> {
+        state
+            .get_all("BT_psionOrder")
+            .iter()
+            .filter_map(Value::as_int)
+            .collect()
+    }
+
+    #[test]
+    fn spinning_the_psions_is_a_rotation_not_a_swap() {
+        let mut s = bar();
+        align(&mut s, "toggle");
+        align(&mut s, "clockwise");
+        assert_eq!(order(&s), [3, 1, 2]);
+        align(&mut s, "clockwise");
+        assert_eq!(order(&s), [2, 3, 1]);
+        align(&mut s, "counter");
+        assert_eq!(order(&s), [3, 1, 2]);
+    }
+
+    #[test]
+    fn three_turns_the_same_way_come_back_round() {
+        let mut s = bar();
+        align(&mut s, "toggle");
+        for _ in 0..3 {
+            align(&mut s, "counter");
+        }
+        assert_eq!(order(&s), [1, 2, 3]);
+    }
+
+    #[test]
+    fn the_psions_will_not_spin_while_the_alignment_is_off() {
+        let mut s = bar();
+        align(&mut s, "clockwise");
+        assert_eq!(order(&s), [1, 2, 3]);
+    }
+
+    #[test]
+    fn both_alignment_boxes_move_together() {
+        let mut s = bar();
+        align(&mut s, "toggle");
+        assert_eq!(s.get("BT_alignmentLeft"), Value::Symbol("on".into()));
+        assert_eq!(s.get("BT_alignmentRight"), Value::Symbol("on".into()));
     }
 }

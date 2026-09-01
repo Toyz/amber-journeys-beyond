@@ -257,16 +257,6 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             state.set_all("boxList", Vec::new());
         }
 
-        // on resetBoxPuzzle
-        //   killVideo
-        //   setProp(oStoryteller, #boxList, [])
-        //
-        // Clears the boxes the player has opened, so the puzzle can be worked
-        // through again from the start.
-        "resetboxpuzzle" => {
-            out.effects.push(Effect::StopVideo);
-            state.set("boxList", Value::List(Vec::new()));
-        }
         // on newDoorStatic
         //   puppetSprite 45, 1
         //   loopClip = getProp(oPuppeteer, #doorStatic)

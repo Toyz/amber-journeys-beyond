@@ -27,6 +27,28 @@ use crate::state::State;
 ///
 /// `args` are already evaluated. Effects the handler produces are appended to
 /// `out` so they interleave with the calling script's own timeline.
+/// Whether a verb has a Rust handler in any chapter.
+///
+/// Worth having as its own question. An unported verb still parses, still
+/// reaches the native path and still counts as an `Effect::Native`, so a
+/// tally of native effects reads the same whether the handler exists or not
+/// -- which is how `verify` came to report "unhandled calls: none" while
+/// two dozen verbs had no arm anywhere.
+///
+/// Asking `call` is the only answer that cannot drift out of step with the
+/// arms themselves, but it has to be asked once per chapter: the openers and
+/// the bleeding doors are keyed on `(chapter, verb)` and decline outright when
+/// the chapter is not theirs, so a single probe on a blank state reports every
+/// one of them missing.
+pub fn is_handled(name: &str) -> bool {
+    ["ROXY", "MARGARET", "EDWIN", "BRICE"].iter().any(|chapter| {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol((*chapter).into())]);
+        let mut out = Outcome::default();
+        call(name, &[], &mut state, &mut out)
+    })
+}
+
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
     shared::call(name, args, state, out)
         || roxy::call(name, args, state, out)
@@ -48,3 +70,33 @@ pub(super) fn roll(state: &mut State, sides: i32) -> i32 {
     state.set("gRandomSeed", Value::Int(next as i32));
     ((next >> 16) % sides.max(1) as u32) as i32 + 1
 }
+
+#[cfg(test)]
+mod handled_tests {
+    use super::*;
+
+    /// `is_handled` is only useful if an arm answers yes on empty arguments,
+    /// which is not free: a handler that reads argument zero and returns false
+    /// when it is missing would report itself unported.
+    #[test]
+    fn a_ported_verb_says_so_even_with_no_arguments() {
+        for name in [
+            "setfrontdoorisopen",
+            "adjustalgorithm",
+            "setfragmentbias",
+            "setfragmentalignment",
+            "resetboxpuzzle",
+            "setopenbox",
+        ] {
+            assert!(is_handled(name), "{name} has an arm but reports unported");
+        }
+    }
+
+    #[test]
+    fn an_unported_verb_says_so_too() {
+        for name in ["initradiodial", "initwhirligig", "camcontrol", "pushnail"] {
+            assert!(!is_handled(name), "{name} reports ported but has no arm");
+        }
+    }
+}
+
