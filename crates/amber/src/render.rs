@@ -133,6 +133,18 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             "gTicks",
             lingo::Value::Int((started.elapsed().as_secs_f64() * 60.0) as i32),
         );
+        // And the scan unit's countdown reads that clock. The original walks
+        // it back when the player looks at the unit, on a sprite `mouseDown`
+        // this engine has no equivalent of; nothing but the unit itself reads
+        // the status, so keeping it current costs nothing and a scan that is
+        // never looked at still finishes.
+        {
+            let mut out = crate::script::Outcome::default();
+            if crate::natives::call("resetpeekdisplay", &[], &mut game.state, &mut out) && out.redraw
+            {
+                dirty = true;
+            }
+        }
 
         // A handler's sequence can hold part way through -- suspend, play a
         // film, wait for it, restore -- so the queue is pumped every frame and

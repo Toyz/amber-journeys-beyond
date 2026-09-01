@@ -843,6 +843,128 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on exitFrame                     -- Roxy's frame script, on entry
+        //   repeat with i = 1 to 48: puppetSprite i, 1
+        //   scanStatus = getState( #PKscanStatus )
+        //   if getPos( [#Wait1min .. #Wait5min], scanStatus ) <> 0 then
+        //     minutesRemaining = getPos( [#Wait1min .. #Wait5min], scanStatus )
+        //     gScanFinish = the ticks + minutesRemaining * 3600
+        //   initInventory : domainIsReady = 1 : cursorOff
+        //   restoreSounds #fadeIn : closePatchFile : go "bigLoop"
+        //
+        // Coming back into Roxy's chapter with a scan already running restarts
+        // its clock from however many minutes the status says are left, rather
+        // than carrying a deadline across from whenever the chapter was left.
+        // A scan does not run while you are somewhere else.
+        //
+        // Only this branch is ported; the rest is loading and hand-off that
+        // this engine does its own way.
+        //
+        // Guarded on the chapter. Every chapter has an `exitFrame` and two of
+        // them do real work, so without this the first arm in the dispatch
+        // chain answers for all four -- which is exactly what happened:
+        // adding this one stopped Margaret's opening running at all.
+        "exitframe" if state.get("gChapter").is_symbol("ROXY") => {
+            const COUNTDOWN: [&str; 5] = [
+                "Wait1min", "Wait2min", "Wait3min", "Wait4min", "Wait5min",
+            ];
+            let status = state.get("PKscanStatus");
+            let Some(status) = status.as_str().map(|s| s.trim_start_matches('#')) else {
+                return true;
+            };
+            if let Some(minutes) = COUNTDOWN
+                .iter()
+                .position(|w| w.eq_ignore_ascii_case(status))
+                .map(|i| i as i32 + 1)
+            {
+                let now = state.get("gTicks").as_int().unwrap_or(0);
+                state.set("gScanFinish", Value::Int(now + minutes * 3600));
+            }
+            out.effects.push(Effect::RestoreSounds { fade: true });
+        }
+
+        // From the peek unit's own `on mouseDown`, which recomputes the
+        // countdown every time the display is looked at:
+        //
+        //   currentStatus = getState( #PKscanStatus )
+        //   if currentStatus = #ReadyForPlayback and getState( #scanUnitIsActive ) = 0 then
+        //     setProp( states, #PKscanStatus, list(#Online) )
+        //   if getPos( [#Wait1min, #Wait2min, #Wait3min, #Wait4min, #Wait5min],
+        //              currentStatus ) <> 0 then
+        //     if voidp( gScanFinish ) then
+        //       put ">¥> There is no set 'gScanFinish' time.. this can only lead to trouble..."
+        //     else
+        //       minutesRemaining = (gScanFinish - the ticks) / 3600 + 1
+        //       if minutesRemaining > 0
+        //         then currentStatus = getAt( [#Wait1min .. #Wait5min], minutesRemaining )
+        //         else currentStatus = #ReadyForPlayback
+        //   if currentStatus <> #Offline and currentStatus <> #CantAttach then
+        //     setState( #PKscanStatus, currentStatus )
+        //
+        // The scan unit counts down in real time. `setScanTime` parks a
+        // deadline in `gScanFinish` and this is what walks the status back
+        // through `#Wait5min`, `#Wait4min` ... to `#ReadyForPlayback`. Without
+        // it a scan started never finishes, which is what this port did: the
+        // deadline was written and never read.
+        //
+        // The original recomputes when the player looks at the unit, on a
+        // sprite `mouseDown` this engine has no equivalent of. Here it is
+        // recomputed each frame instead. Only the unit's own display and its
+        // setter ever read `#PKscanStatus` -- five scripts touch it and three
+        // of them are the unit itself -- so a status that is always current
+        // rather than current-when-looked-at is not a difference anything can
+        // see.
+        "resetpeekdisplay" => {
+            const COUNTDOWN: [&str; 5] = [
+                "Wait1min", "Wait2min", "Wait3min", "Wait4min", "Wait5min",
+            ];
+            let status = state.get("PKscanStatus");
+            let Some(status) = status.as_str().map(|s| s.trim_start_matches('#')) else {
+                return true;
+            };
+
+            // A unit that finished its scan and was then switched off goes
+            // back to simply being on.
+            if status.eq_ignore_ascii_case("ReadyForPlayback")
+                && state.get("scanUnitIsActive").as_int() == Some(0)
+            {
+                state.set("PKscanStatus", Value::Symbol("Online".into()));
+                return true;
+            }
+            if !COUNTDOWN.iter().any(|w| w.eq_ignore_ascii_case(status)) {
+                return true;
+            }
+            let Some(finish) = state.get("gScanFinish").as_int() else {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "scan unit is counting down with no deadline set"
+                );
+                return true;
+            };
+            let now = state.get("gTicks").as_int().unwrap_or(0);
+            // Ticks are sixtieths, so 3600 of them is the minute. The plus one
+            // is what makes a scan with any time left at all still read as a
+            // whole minute remaining.
+            let remaining = (finish - now) / 3600 + 1;
+            // The plus one compensates for the truncating division, so any
+            // time left at all still reads as a whole minute remaining. It
+            // also means that evaluated on the very tick a five-minute scan is
+            // started, this comes out as six. The original never sees that --
+            // it only recomputes when the player looks at the unit, by which
+            // point the clock has moved -- but this runs every frame, so the
+            // clamp is written down rather than left to an index that happens
+            // to fall off the end of the list.
+            let settled = if remaining > 0 {
+                COUNTDOWN[(remaining as usize).clamp(1, COUNTDOWN.len()) - 1]
+            } else {
+                "ReadyForPlayback"
+            };
+            if !settled.eq_ignore_ascii_case(status) {
+                state.set("PKscanStatus", Value::Symbol(settled.into()));
+                out.redraw = true;
+            }
+        }
+
         // on adjustBarSettings upOrDown
         //   cursorOff
         //   whichSetting = getState( #BarSelection )
@@ -2104,5 +2226,107 @@ mod phone_tests {
         s.set_all("BarMode", vec![Value::Symbol("setOFF".into())]);
         nudge(&mut s, true);
         assert_eq!(s.get("BarLevel"), Value::Int(4));
+    }
+
+    // -- the scan unit's countdown -----------------------------------------
+
+    fn scanning(minutes: i32) -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("gTicks", vec![Value::Int(0)]);
+        s.set_all("scanUnitIsActive", vec![Value::Int(1)]);
+        let mut out = Outcome::default();
+        assert!(call("setscantime", &[Value::Int(minutes)], &mut s, &mut out));
+        s
+    }
+
+    fn at_tick(state: &mut State, ticks: i32) -> String {
+        state.set_all("gTicks", vec![Value::Int(ticks)]);
+        let mut out = Outcome::default();
+        assert!(call("resetpeekdisplay", &[], state, &mut out));
+        state.get("PKscanStatus").as_str().unwrap_or("").to_string()
+    }
+
+    /// The original's arithmetic, worked through for a five-minute scan set
+    /// at tick zero, so `gScanFinish` is 18000:
+    ///
+    /// | tick | `(finish - now) / 3600 + 1` | shows |
+    /// |---|---|---|
+    /// | 0 | 6, clamped | `Wait5min` |
+    /// | 3600 | 5 | `Wait5min` |
+    /// | 7200 | 4 | `Wait4min` |
+    /// | 14400 | 2 | `Wait2min` |
+    /// | 18000 | 1 | `Wait1min` |
+    /// | 21600 | 0 | `ReadyForPlayback` |
+    ///
+    /// So the unit rounds a part-minute up and finishes one minute after its
+    /// nominal deadline -- which is self-consistent, because the number it
+    /// shows is the number of minutes still to run. I had assumed a plain
+    /// countdown and written the test to that; the handler was right and the
+    /// test was wrong.
+    #[test]
+    fn a_scan_counts_itself_down_and_finishes() {
+        let mut s = scanning(5);
+        assert_eq!(at_tick(&mut s, 0), "Wait5min");
+        assert_eq!(at_tick(&mut s, 3600), "Wait5min");
+        assert_eq!(at_tick(&mut s, 7200), "Wait4min");
+        assert_eq!(at_tick(&mut s, 10800), "Wait3min");
+        assert_eq!(at_tick(&mut s, 14400), "Wait2min");
+        assert_eq!(at_tick(&mut s, 18000), "Wait1min");
+        assert_eq!(at_tick(&mut s, 21600), "ReadyForPlayback");
+        // And stays finished.
+        assert_eq!(at_tick(&mut s, 30000), "ReadyForPlayback");
+    }
+
+    #[test]
+    fn any_part_of_a_minute_left_counts_as_a_whole_one() {
+        let mut s = scanning(5);
+        assert_eq!(at_tick(&mut s, 3600), "Wait5min");
+        // One tick past the boundary and the fifth minute is gone.
+        assert_eq!(at_tick(&mut s, 3601), "Wait4min");
+    }
+
+    #[test]
+    fn a_finished_unit_that_is_switched_off_goes_back_to_online() {
+        let mut s = scanning(1);
+        at_tick(&mut s, 7200);
+        assert_eq!(
+            s.get("PKscanStatus"),
+            Value::Symbol("ReadyForPlayback".into())
+        );
+        s.set("scanUnitIsActive", Value::Int(0));
+        let mut out = Outcome::default();
+        assert!(call("resetpeekdisplay", &[], &mut s, &mut out));
+        assert_eq!(s.get("PKscanStatus"), Value::Symbol("Online".into()));
+    }
+
+    #[test]
+    fn coming_back_to_the_chapter_restarts_the_clock() {
+        // A scan does not run while the player is in another chapter: the
+        // deadline is rebuilt from however many minutes the status says.
+        let mut s = scanning(3);
+        s.set_all("gTicks", vec![Value::Int(100_000)]);
+        let mut out = Outcome::default();
+        assert!(call("exitframe", &[], &mut s, &mut out));
+        assert_eq!(s.get("gScanFinish"), Value::Int(100_000 + 3 * 3600));
+    }
+
+    #[test]
+    fn each_chapters_frame_script_answers_only_for_its_own() {
+        // Every chapter has an exitFrame and the dispatch chain is
+        // first-match-wins, so without a guard Roxy's answers for all four.
+        let mut s = scanning(3);
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all("currentLocation", vec![Value::Symbol("bedrm_fadeIn".into())]);
+        let mut out = Outcome::default();
+        // Through the real dispatch chain, which tries Roxy before Margaret.
+        assert!(crate::natives::call("exitframe", &[], &mut s, &mut out));
+        assert!(
+            out.effects.iter().any(|e| matches!(
+                e,
+                Effect::GoToRoom { room, .. } if room == "bedrm_margaret"
+            )),
+            "Roxy's frame script answered for Margaret's chapter"
+        );
     }
 }

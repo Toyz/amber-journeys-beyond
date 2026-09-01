@@ -82,10 +82,37 @@ def literals_of(s, be):
             out.append('?')
     return out
 
-def disasm(path, want):
+def handlers(path):
+    """Every handler in a movie, with the chunk it lives in.
+
+    A movie has many frame scripts and several can share a name -- `exitFrame`
+    appears once per frame that has one -- so asking for a handler by name
+    returns whichever comes first. This lists them all so the right one can be
+    picked out by its chunk.
+    """
+    d, be, res = load(path)
+    names = names_of(d, be, res)
+    out = []
+    for si in [i for i, r in enumerate(res) if r[0] == 'Lscr']:
+        s = body(d, res, si)
+        if len(s) < 0x5c:
+            continue
+        hc = rd(s, be, 0x48, 2); ho = rd(s, be, 0x4a, 4)
+        for i in range(hc):
+            p = ho + i * 42
+            if p + 42 > len(s):
+                break
+            nid = rd(s, be, p, 2)
+            out.append((si, names[nid] if nid < len(names) else f'?{nid}'))
+    return out
+
+
+def disasm(path, want, only_chunk=None):
     d, be, res = load(path)
     names = names_of(d, be, res)
     for si in [i for i, r in enumerate(res) if r[0] == 'Lscr']:
+        if only_chunk is not None and si != only_chunk:
+            continue
         s = body(d, res, si)
         if len(s) < 0x5c:
             continue
@@ -168,5 +195,12 @@ def disasm(path, want):
             return
     print(f"no handler named {want}")
 
-disasm(_argv[1] if len(_argv) > 1 else 'extract/BRICE/BRICE.DXR',
-       _argv[2] if len(_argv) > 2 else 'setGrateIsOpen')
+_path = _argv[1] if len(_argv) > 1 else 'extract/BRICE/BRICE.DXR'
+_want = _argv[2] if len(_argv) > 2 else 'setGrateIsOpen'
+if _want == '--list':
+    for _chunk, _name in handlers(_path):
+        print(f"{_chunk:>6}  {_name}")
+else:
+    # An optional third argument picks one chunk, for a name that appears more
+    # than once. `--list` gives the chunk numbers.
+    disasm(_path, _want, int(_argv[3]) if len(_argv) > 3 else None)

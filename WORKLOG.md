@@ -3684,3 +3684,69 @@ later and I never went back to fix the front page. It now says what there
 actually is: two releases, one disc and two discs, and what each is missing.
 
 198 tests.
+
+## 92. The scan unit finishes
+
+Roxy's frame script, and the other half of helba's scanner complaint.
+
+`setScanTime` has been parking a deadline in `gScanFinish` since it was ported,
+and **nothing ever read it**. A scan started never finished. The deadline was
+written, the clock was ticking, and the two were never introduced.
+
+The reader lives inside the peek unit's own `on mouseDown`:
+
+```text
+minutesRemaining = (gScanFinish - the ticks) / 3600 + 1
+if minutesRemaining > 0
+  then currentStatus = getAt( [#Wait1min .. #Wait5min], minutesRemaining )
+  else currentStatus = #ReadyForPlayback
+```
+
+and Roxy's `exitFrame` rebuilds the deadline on entering the chapter, from
+whatever the status says is left -- so a scan does not run while the player is
+off in another haunting.
+
+### Where the test was wrong and the code was right
+
+I wrote the countdown, wrote a test for it, and the test failed. My first
+instinct was that the handler was off by one. Working the original's arithmetic
+through for a five-minute scan set at tick zero:
+
+| tick | `(finish - now) / 3600 + 1` | shows |
+|---|---|---|
+| 0 | 6, clamped | `Wait5min` |
+| 3600 | 5 | `Wait5min` |
+| 7200 | 4 | `Wait4min` |
+| 18000 | 1 | `Wait1min` |
+| 21600 | 0 | `ReadyForPlayback` |
+
+The `+ 1` rounds a part-minute up, so the unit finishes a minute after its
+nominal deadline -- and that is *self-consistent*, because the number on the
+display is genuinely how many minutes are still to run. I had assumed a plain
+countdown, written the test to my assumption, and then nearly changed working
+code to match it. The table is now in the test as a comment.
+
+One thing the original never has to handle: evaluated on the very tick a scan
+starts, that expression comes out as six and indexes off the end of a
+five-element list. It only recomputes when the player looks at the unit, by
+which point the clock has moved. This engine recomputes every frame, so the
+clamp is written down rather than left to an index that happens to fall off the
+end.
+
+### Two frame scripts, one dispatch chain
+
+Adding Roxy's `exitFrame` silently broke Margaret's opening, ported an hour
+earlier. The native dispatch is `shared || roxy || edwin || brice || margaret`,
+first match wins, and Roxy's arm answered for every chapter.
+
+I caught it because I ran the walk again rather than trusting the build. Both
+arms are now guarded on `gChapter`, and there is a test that goes through the
+real chain -- my first attempt at that test called Roxy's module-local `call`
+and would have passed no matter what the dispatcher did.
+
+That is the third check this month that could not have failed. I am starting to
+think the rule is: a test that exercises a *module* proves nothing about a
+*chain*, and every bug this class has produced was at a seam between two things
+that each worked.
+
+203 tests. Unported is 14 verbs across 18 call sites.

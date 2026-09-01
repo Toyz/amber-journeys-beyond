@@ -301,7 +301,9 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //
         // The `#volume: 0` on both loops is not a mistake to be corrected:
         // `fadeUpRadio` at the end is what brings them in.
-        "exitframe" => {
+        // Guarded on the chapter, because every chapter has an `exitFrame`
+        // and the dispatch chain is first-match-wins.
+        "exitframe" if state.get("gChapter").is_symbol("MARGARET") => {
             if !state.get("currentLocation").is_symbol("bedrm_fadeIn") {
                 return true;
             }
