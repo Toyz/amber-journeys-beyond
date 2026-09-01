@@ -94,7 +94,7 @@ mod handled_tests {
 
     #[test]
     fn an_unported_verb_says_so_too() {
-        for name in ["initradiodial", "initwhirligig", "camcontrol", "pushnail"] {
+        for name in ["initwhirligig", "camcontrol", "pushnail", "choosetrack"] {
             assert!(!is_handled(name), "{name} reports ported but has no arm");
         }
     }

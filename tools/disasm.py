@@ -69,8 +69,13 @@ def literals_of(s, be):
         kind = rd(s, be, p, 4); off = rd(s, be, p + 4, 4)
         q = dato + off
         if kind == 1 and q + 4 <= len(s):
+            # The length is followed by the bytes, and Director stores a
+            # trailing NUL inside the count. Printing only the length was
+            # enough to see that a handler builds a symbol out of pieces, and
+            # not nearly enough to see which symbol.
             n = rd(s, be, q, 4)
-            out.append(f'<string {n}>')
+            text = s[q + 4:q + 4 + n].split(b'\0')[0].decode('latin1')
+            out.append(repr(text))
         elif q + 4 <= len(s):
             out.append(str(struct.unpack('>i' if be else '<i', s[q:q + 4])[0]))
         else:

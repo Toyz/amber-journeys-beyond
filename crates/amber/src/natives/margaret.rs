@@ -14,6 +14,16 @@ use lingo::Value;
 use crate::script::{Effect, Outcome};
 use crate::state::State;
 
+/// Where each station sits on the dial, from `checkRadioStations`. The dial
+/// runs 0 to 240 in steps of four, so a station is four or eight either side
+/// of its own position before the signal is lost.
+const RADIO_STATIONS: [(&str, i32); 4] = [
+    ("bedroom", 36),
+    ("diningRm", 56),
+    ("kitchen", 88),
+    ("livingRm", 196),
+];
+
 /// Runs a handler from this chapter, or reports that it is not one of ours.
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
     match name {
@@ -246,6 +256,263 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on initRadioDial
+        //   gStaticMarkers = [ #bedroomWarm: [0, 4, 8], #bedroomCool: [12, 16, 20],
+        //                      #diningRmWarm: [48, 52, 56], #diningRmCool: [60, 64, 68],
+        //                      #livingRmWarm: [72, 76, 80], #livingRmCool: [84, 88, 92],
+        //                      #kitchenWarm: [96, 100, 104], #kitchenCool: [108, 112, 116],
+        //                      #bedroom: [228], #diningRm: [236], #livingRm: [240],
+        //                      #kitchen: [244], #inBetween: [216, 220, 224] ]
+        //   if inState( #tunedIn, #diningRm ) then
+        //     gStaticMarkers[#inBetween]   = [264, 268, 272]
+        //     gStaticMarkers[#bedroom]     = [232]
+        //     gStaticMarkers[#bedroomWarm] = [24, 28, 32]
+        //     gStaticMarkers[#bedroomCool] = [36, 40, 44]
+        //     if getState( #dumbWaiter ) = #kitchen then
+        //       gStaticMarkers[#kitchen]     = [256]
+        //       gStaticMarkers[#kitchenWarm] = [168, 172, 176]
+        //       gStaticMarkers[#kitchenCool] = [180, 184, 188]
+        //     else
+        //       gStaticMarkers[#kitchen]     = [248]
+        //       gStaticMarkers[#kitchenWarm] = [120, 124, 128]
+        //       gStaticMarkers[#kitchenCool] = [132, 136, 140]
+        //
+        // The frames of `radio.mov` to show for each band of the dial: the
+        // station itself, and the warm and cool bands either side of it where
+        // the signal is coming in or going out.
+        //
+        // The branch worth keeping: **where the kitchen station sits depends
+        // on where the dumb waiter is**. The kitchen radio is heard up the
+        // dumb waiter shaft, so moving the shaft moves the station. Nothing
+        // else in the chapter ties two puzzles together this quietly, and it
+        // was invisible until entry 82 -- every one of these numbers was being
+        // printed as an unrelated symbol.
+        "initradiodial" => {
+            const BASE: [(&str, &[i32]); 13] = [
+                ("bedroomWarm", &[0, 4, 8]),
+                ("bedroomCool", &[12, 16, 20]),
+                ("diningRmWarm", &[48, 52, 56]),
+                ("diningRmCool", &[60, 64, 68]),
+                ("livingRmWarm", &[72, 76, 80]),
+                ("livingRmCool", &[84, 88, 92]),
+                ("kitchenWarm", &[96, 100, 104]),
+                ("kitchenCool", &[108, 112, 116]),
+                ("bedroom", &[228]),
+                ("diningRm", &[236]),
+                ("livingRm", &[240]),
+                ("kitchen", &[244]),
+                ("inBetween", &[216, 220, 224]),
+            ];
+            let mark = |state: &mut State, band: &str, frames: &[i32]| {
+                state.set_all(
+                    &format!("gStaticMarker_{band}"),
+                    frames.iter().map(|f| Value::Int(*f)).collect(),
+                );
+            };
+            for (band, frames) in BASE {
+                mark(state, band, frames);
+            }
+            // The original seeds the station positions only `if voidp`, but
+            // they are constants, so writing them every time is the same
+            // thing without a guard that has to be believed.
+            for (station, at) in RADIO_STATIONS {
+                state.set_all(&format!("gRadioStation_{station}"), vec![Value::Int(at)]);
+            }
+            if state.get_all("tunedIn").iter().any(|v| v.as_symbol() == Some("diningRm")) {
+                mark(state, "inBetween", &[264, 268, 272]);
+                mark(state, "bedroom", &[232]);
+                mark(state, "bedroomWarm", &[24, 28, 32]);
+                mark(state, "bedroomCool", &[36, 40, 44]);
+                if state.get("dumbWaiter").as_symbol() == Some("kitchen") {
+                    mark(state, "kitchen", &[256]);
+                    mark(state, "kitchenWarm", &[168, 172, 176]);
+                    mark(state, "kitchenCool", &[180, 184, 188]);
+                } else {
+                    mark(state, "kitchen", &[248]);
+                    mark(state, "kitchenWarm", &[120, 124, 128]);
+                    mark(state, "kitchenCool", &[132, 136, 140]);
+                }
+            }
+        }
+
+        // on radioDial upOrDown
+        //   if getState( #tunedIn ) <> #inBetween then
+        //     if not voidp( gStaticWhere ) then gStaticWhere = getState( #tunedIn )
+        //     setState( #tunedIn, #inBetween )
+        //     endLoop #BRclock : endLoop #Kclock : endLoop #DRclock
+        //     endLoop #LRclock : endLoop #roaringFire
+        //     idle
+        //     set the visible of sprite 44 = 1
+        //   if upOrDown = #up then
+        //     if gRadioDial < 240 then gRadioDial = gRadioDial + 4
+        //   else
+        //     if gRadioDial > 3   then gRadioDial = gRadioDial - 4
+        //   set the movieTime of sprite 45 = gRadioDial
+        //   patchPalette
+        //   repeat while mouseDown ...
+        //
+        // The dial is a movie scrubbed by hand: sixty-one positions four ticks
+        // apart. Turning it off a station stops the room's clock and its fire
+        // with it, which is the point -- those loops are the station, heard
+        // through the house rather than out of the radio.
+        "radiodial" => {
+            let up = args
+                .first()
+                .and_then(Value::as_str)
+                .is_some_and(|d| d.trim_start_matches('#').eq_ignore_ascii_case("up"));
+
+            let tuned = state.get("tunedIn");
+            if tuned.as_symbol() != Some("inBetween") {
+                state.set_all("gStaticWhere", vec![tuned]);
+                state.set("tunedIn", Value::Symbol("inBetween".into()));
+                for loop_name in ["BRclock", "Kclock", "DRclock", "LRclock", "roaringFire"] {
+                    out.effects.push(Effect::StopLoop {
+                        name: loop_name.into(),
+                        fade: false,
+                    });
+                }
+            }
+
+            let at = state.get("gRadioDial").as_int().unwrap_or(0);
+            // Both limits are one-sided in the original: it steps up while
+            // below 240 and down while above 3, so the ends are 240 and 0.
+            let moved = if up {
+                if at < 240 { at + 4 } else { at }
+            } else if at > 3 {
+                at - 4
+            } else {
+                at
+            };
+            state.set_all("gRadioDial", vec![Value::Int(moved)]);
+            // The needle is a frame of the dial movie, not a sprite.
+            out.effects.push(Effect::PlayVideoSegment {
+                from: moved as u32,
+                to: moved as u32 + 4,
+            });
+            out.repeat_while_held = true;
+            out.redraw = true;
+
+            call("checkradiostations", &[], state, out);
+        }
+
+        // on checkRadioStations
+        //   oldStaticWhere = gStaticWhere
+        //   gStaticWhere = #inBetween
+        //   if voidp( gRadioStations ) then
+        //     gRadioStations = [#bedroom: 36, #diningRm: 56, #kitchen: 88, #livingRm: 196]
+        //   repeat with i in gRadioStations
+        //     if gRadioDial = i then gStaticWhere = getOne( gRadioStations, i ) : exit
+        //     if abs( gRadioDial - i ) = 4 then
+        //       gStaticWhere = value( "#" & getOne( gRadioStations, i ) & "Warm" ) : exit
+        //     if abs( gRadioDial - i ) = 8 then
+        //       gStaticWhere = value( "#" & getOne( gRadioStations, i ) & "Cool" ) : exit
+        //   nearbyRoom = getOne( gRadioStations, i )
+        //   onTheAir = getProp( oStoryteller.states, #tunedIn )
+        //   if getPos( onTheAir, nearbyRoom ) = 0 then return
+        //   if nearbyRoom = #diningRm then
+        //     ... demote gStaticWhere one band per pass ...
+        //     if ticks > gDR_timer + 120 then
+        //       cursorOff
+        //       setLoop( #radioTuner, 120 ) : setLoop( #DRradio, 90 )
+        //       assertSound #thatStation
+        //       ... wait for #thatStation to finish ...
+        //       cursorOn
+        //       setLoop( #radioTuner, 230 ) : setLoop( #DRradio, 120 )
+        //       gDR_timer = ticks
+        //   else
+        //     gStaticWhere = #inBetween
+        //
+        // The band names are built by string concatenation -- `"#" & station &
+        // "Warm"` -- which is why they never appeared in the name table and
+        // why `gStaticMarkers` looked like it was keyed on nothing.
+        //
+        // `onTheAir` is `getProp( states, #tunedIn )`, the whole list rather
+        // than its head, so it falls out of the list-valued state model for
+        // free: a station is on the air if it is one of the values #tunedIn
+        // is allowed to take.
+        //
+        // Only the dining room gets the full fade-in here. The other three
+        // stations set the band and stop, and their programmes are started
+        // elsewhere; that is the original's shape, not an omission of mine.
+        "checkradiostations" => {
+            let at = state.get("gRadioDial").as_int().unwrap_or(0);
+            let mut band = "inBetween".to_string();
+            let mut nearby = None;
+            for (station, default) in RADIO_STATIONS {
+                let pos = state
+                    .get(&format!("gRadioStation_{station}"))
+                    .as_int()
+                    .unwrap_or(default);
+                let away = (at - pos).abs();
+                let found = match away {
+                    0 => Some(station.to_string()),
+                    4 => Some(format!("{station}Warm")),
+                    8 => Some(format!("{station}Cool")),
+                    _ => None,
+                };
+                if let Some(found) = found {
+                    band = found;
+                    nearby = Some(station);
+                    break;
+                }
+            }
+            state.set_all("gStaticWhere", vec![Value::Symbol(band.clone())]);
+            out.redraw = true;
+
+            let Some(nearby) = nearby else { return true };
+            let on_the_air = state
+                .get_all("tunedIn")
+                .iter()
+                .any(|v| v.as_symbol() == Some(nearby));
+            if !on_the_air || nearby != "diningRm" || band != "diningRm" {
+                return true;
+            }
+            state.set("tunedIn", Value::Symbol("diningRm".into()));
+            out.effects.push(Effect::CursorOff);
+            // Under the announcement, then up once it has finished.
+            out.effects.push(Effect::StartLoop { name: "radioTuner".into(), volume: Some(120) });
+            out.effects.push(Effect::StartLoop { name: "DRradio".into(), volume: Some(90) });
+            out.effects.push(Effect::PlaySound { name: "thatStation".into(), loudness: None });
+            out.effects.push(Effect::WaitForSound("thatStation".into()));
+            out.effects.push(Effect::StartLoop { name: "radioTuner".into(), volume: Some(230) });
+            out.effects.push(Effect::StartLoop { name: "DRradio".into(), volume: Some(120) });
+        }
+
+        // on backAwayFromRadio
+        //   currentRoom = getState( #tunedIn )
+        //   if currentRoom <> #inBetween then
+        //     cursorOff : updateDisplay( oPuppeteer ) : trimState
+        //     if currentRoom <> #bedroom then
+        //       endLoop #DRradio : endLoop #LRradio : endLoop #Kradio ...
+        //
+        // Walking away leaves the station you tuned playing and stops the
+        // other three, so the house keeps the radio on behind you.
+        "backawayfromradio" => {
+            let tuned = state.get("tunedIn");
+            let Some(room) = tuned.as_symbol().map(str::to_string) else {
+                return true;
+            };
+            if room == "inBetween" {
+                return true;
+            }
+            out.effects.push(Effect::CursorOff);
+            for (station, _) in RADIO_STATIONS {
+                let loop_name = match station {
+                    "bedroom" => "BRradio",
+                    "diningRm" => "DRradio",
+                    "livingRm" => "LRradio",
+                    _ => "Kradio",
+                };
+                if station != room {
+                    out.effects.push(Effect::StopLoop {
+                        name: loop_name.into(),
+                        fade: false,
+                    });
+                }
+            }
+            out.redraw = true;
+        }
+
         // on resetBoxPuzzle
         //   killVideo
         //   setProp( oStoryteller.states, #boxList, [] )
@@ -435,5 +702,150 @@ mod box_tests {
         let mut s = dresser();
         open(&mut s, "snd9");
         assert!(opened(&s).is_empty());
+    }
+
+
+    // -- the radio ----------------------------------------------------------
+
+    fn radio() -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all("tunedIn", vec![Value::Symbol("inBetween".into())]);
+        let mut out = Outcome::default();
+        assert!(call("initradiodial", &[], &mut s, &mut out));
+        s
+    }
+
+    fn turn(state: &mut State, up: bool) -> Outcome {
+        let mut out = Outcome::default();
+        let dir = if up { "up" } else { "down" };
+        assert!(call("radiodial", &[Value::Symbol(dir.into())], state, &mut out));
+        out
+    }
+
+    fn dial(state: &State) -> i32 {
+        state.get("gRadioDial").as_int().unwrap_or(-1)
+    }
+
+    fn where_at(state: &mut State, at: i32) -> String {
+        state.set_all("gRadioDial", vec![Value::Int(at)]);
+        let mut out = Outcome::default();
+        assert!(call("checkradiostations", &[], state, &mut out));
+        state.get("gStaticWhere").as_symbol().unwrap_or("").to_string()
+    }
+
+    fn stopped(out: &Outcome) -> Vec<String> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::StopLoop { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_dial_stops_at_both_ends() {
+        let mut s = radio();
+        for _ in 0..70 {
+            turn(&mut s, false);
+        }
+        assert_eq!(dial(&s), 0);
+        for _ in 0..70 {
+            turn(&mut s, true);
+        }
+        assert_eq!(dial(&s), 240);
+        // And does not run past it.
+        turn(&mut s, true);
+        assert_eq!(dial(&s), 240);
+    }
+
+    #[test]
+    fn the_dial_moves_four_at_a_time() {
+        let mut s = radio();
+        turn(&mut s, true);
+        assert_eq!(dial(&s), 4);
+        turn(&mut s, true);
+        assert_eq!(dial(&s), 8);
+        turn(&mut s, false);
+        assert_eq!(dial(&s), 4);
+    }
+
+    #[test]
+    fn turning_off_a_station_stops_the_room_with_it() {
+        let mut s = radio();
+        s.set("tunedIn", Value::Symbol("diningRm".into()));
+        let out = turn(&mut s, true);
+        assert_eq!(s.get("tunedIn"), Value::Symbol("inBetween".into()));
+        assert_eq!(
+            stopped(&out),
+            ["BRclock", "Kclock", "DRclock", "LRclock", "roaringFire"]
+        );
+    }
+
+    #[test]
+    fn and_only_does_that_once() {
+        let mut s = radio();
+        s.set("tunedIn", Value::Symbol("diningRm".into()));
+        turn(&mut s, true);
+        // Already between stations: nothing left to stop.
+        let out = turn(&mut s, true);
+        assert!(stopped(&out).is_empty());
+    }
+
+    #[test]
+    fn a_station_has_a_warm_and_a_cool_band_either_side() {
+        let mut s = radio();
+        assert_eq!(where_at(&mut s, 56), "diningRm");
+        assert_eq!(where_at(&mut s, 52), "diningRmWarm");
+        assert_eq!(where_at(&mut s, 60), "diningRmWarm");
+        assert_eq!(where_at(&mut s, 48), "diningRmCool");
+        assert_eq!(where_at(&mut s, 64), "diningRmCool");
+    }
+
+    #[test]
+    fn and_nothing_at_all_between_them() {
+        let mut s = radio();
+        // Far from all four of 36, 56, 88 and 196.
+        assert_eq!(where_at(&mut s, 150), "inBetween");
+    }
+
+    #[test]
+    fn the_dumb_waiter_moves_the_kitchen_station() {
+        let frames = |s: &State| {
+            s.get_all("gStaticMarker_kitchenWarm")
+                .iter()
+                .filter_map(Value::as_int)
+                .collect::<Vec<_>>()
+        };
+        // The rewrite only happens once the dining room is on the air.
+        let mut down = State::new();
+        down.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        down.set_all("tunedIn", vec![Value::Symbol("diningRm".into())]);
+        let mut up = down.clone();
+        down.set("dumbWaiter", Value::Symbol("kitchen".into()));
+        up.set("dumbWaiter", Value::Symbol("attic".into()));
+        let mut out = Outcome::default();
+        assert!(call("initradiodial", &[], &mut down, &mut out));
+        assert!(call("initradiodial", &[], &mut up, &mut out));
+        assert_eq!(frames(&down), [168, 172, 176]);
+        assert_eq!(frames(&up), [120, 124, 128]);
+    }
+
+    #[test]
+    fn walking_away_leaves_your_station_playing() {
+        let mut s = radio();
+        s.set("tunedIn", Value::Symbol("diningRm".into()));
+        let mut out = Outcome::default();
+        assert!(call("backawayfromradio", &[], &mut s, &mut out));
+        assert_eq!(stopped(&out), ["BRradio", "Kradio", "LRradio"]);
+    }
+
+    #[test]
+    fn and_stops_nothing_if_you_never_tuned_one() {
+        let mut s = radio();
+        let mut out = Outcome::default();
+        assert!(call("backawayfromradio", &[], &mut s, &mut out));
+        assert!(stopped(&out).is_empty());
     }
 }

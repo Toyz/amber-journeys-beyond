@@ -3113,3 +3113,73 @@ five verbs off the list for weeks.
 zero -- `#bedroomWarm: [<op03>, 4, 8]` against `#bedroomCool: [12, 16, 20]`
 admits nothing else -- but "certainly in context" is exactly the reasoning that
 got me here, so it stays printed as an unknown until I can count it.
+
+## 83. The radio
+
+With entry 82's fix in place the radio reads straight through, so it is ported:
+`initRadioDial`, `radioDial`, `checkRadioStations` and `backAwayFromRadio`.
+
+The dial is a movie. `gRadioDial` is a movieTime on sprite 45, running 0 to 240
+in steps of four -- sixty-one positions -- and turning the knob scrubs it by
+hand rather than playing it. Each station sits at a fixed position:
+
+```text
+gRadioStations = [#bedroom: 36, #diningRm: 56, #kitchen: 88, #livingRm: 196]
+```
+
+and you are on a station when the dial is exactly on its number, in its **warm**
+band four either side, or its **cool** band eight either side. Past that there
+is nothing. The band names are built by concatenation --
+
+```text
+gStaticWhere = value( "#" & getOne( gRadioStations, i ) & "Warm" )
+```
+
+-- which is why they never appear in the name table, and why `gStaticMarkers`
+looked for the longest time like a property list keyed on nothing.
+
+Three things about it I would not have guessed.
+
+**Turning off a station stops the house.** Not just the radio: `#BRclock`,
+`#Kclock`, `#DRclock`, `#LRclock` and `#roaringFire` all end the moment the
+dial moves off a station. Those loops *are* the station -- the room you are
+tuned to, heard through the walls, rather than a broadcast out of the speaker.
+Which is the whole conceit of the thing and I had it filed as an ambience bug.
+
+**Walking away leaves it on.** `backAwayFromRadio` stops the other three
+stations' loops and leaves yours running, so the house keeps the radio on
+behind you.
+
+**The dumb waiter moves the kitchen station.** If the dumb waiter is down in
+the kitchen the station sits at frame 248 with its bands at 120-140; anywhere
+else and it is at 256 with its bands at 168-188. The kitchen radio is heard up
+the dumb waiter shaft, and moving the shaft moves where you find it on the
+dial. That is two puzzles quietly wired together, and until entry 82 every one
+of those numbers was printing as an unrelated symbol.
+
+`onTheAir` fell out for free. The original asks `getProp( oStoryteller.states,
+#tunedIn )` -- the whole list, not its head -- and searches it for the station.
+Under the list-valued state model from entry 53 that is exactly `get_all`, so a
+station is on the air if it is one of the values `#tunedIn` is allowed to take.
+No new concept, and a small piece of evidence that the state model is the right
+shape.
+
+Only the dining room gets the full fade-in inside `checkRadioStations`: tuner
+at 120 and the station at 90 under the announcement, then 230 and 120 once it
+has finished. The other three set their band and stop. I have left it that way
+because that is the original's shape, not an omission -- but I am flagging it
+here rather than in a comment, because if a station turns out to be silent in
+play, this is the first place to look.
+
+Also fixed the literal table, which read each string's length and threw the
+bytes away. It now prints them, which is how `"#"`, `"Warm"` and `"Cool"`
+turned up -- along with the authors' own debug line, still in the shipped
+bytecode:
+
+```text
+'>¥> Puzzle solved .. tuning in the Living Room! ¥¥¥ -<<'
+```
+
+Unported is now **24 verbs across 44 call sites**, down from 27 and 55.
+
+159 tests, clippy clean.
