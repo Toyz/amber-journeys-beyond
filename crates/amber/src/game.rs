@@ -146,8 +146,55 @@ impl Game {
 
         self.seed_chapter(domain);
 
-        let target = start
-            .and_then(|(name, _)| self.world.resolve(&name, Some(domain)))
+        // The declared start, but only if it can actually show something.
+        //
+        // Margaret's chapter declares `#bedrm_fadeIn`, which is a scaffolding
+        // record: its only sprite is a seventeen by three palette holder, its
+        // exits go to a literal `#destination`, and the film it plays --
+        // `40sINTRO.mov` -- is one of seven digital video members on the disc
+        // with no file behind it. Entering there is a black screen with no way
+        // out. Roxy's opening also draws nothing, but its film is there, so
+        // the test is whether the room has *either*.
+        let declared = start.and_then(|(name, _)| self.world.resolve(&name, Some(domain)));
+        let usable = declared.filter(|&i| {
+            let here = self.room;
+            self.room = i;
+            let plays = self
+                .video()
+                .is_some_and(|name| self.movies.find(&name).is_some());
+            // A way out, rather than anything about what is drawn. The
+            // template's only sprite is a seventeen by three palette holder,
+            // which is drawing by any measure and a scene by none; what marks
+            // it as scaffolding is that both its exits go to a literal
+            // `#destination` that resolves to no room at all.
+            //
+            // The guards are deliberately ignored. Brice's chapter opens on a
+            // montage whose every exit is gated until it has played, so asking
+            // which exits are live right now would reject a perfectly good
+            // opening. Asking whether they *name* a room separates a scene
+            // from a template: the template's exits go to `#destination`,
+            // which is a word rather than a place.
+            let leads_somewhere = self.world.nodes[i]
+                .hotspots
+                .iter()
+                .filter(|h| !h.actions.is_empty())
+                .filter_map(|h| {
+                    let mut probe = self.state.clone();
+                    crate::script::run(&h.actions, &mut probe).destination
+                })
+                .any(|dest| self.world.resolve(&dest, Some(domain)).is_some());
+            self.room = here;
+            if !plays && !leads_somewhere {
+                trace!(
+                    crate::trace::Topic::Room,
+                    "{domain} declares a start with no film and no exit; \
+                     going to its first room with art instead"
+                );
+            }
+            plays || leads_somewhere
+        });
+
+        let target = usable
             .or_else(|| self.first_room_with_art(domain))
             .or_else(|| self.world.domains.get(domain).map(|(s, _)| *s));
         if let Some(t) = target {

@@ -2413,3 +2413,40 @@ wherever the fault is.
 
 Six tests on the cabinets. `the_bin_opens_over_an_open_cupboard_and_nothing_else_does`
 is the one that carries the finding.
+
+## 69. A chapter that opened on nothing
+
+helba jumped to Margaret and got a black screen. The chapter's schema declares
+its start as `#bedrm_fadeIn`, and that record is scaffolding the authors left
+in: its only sprite is a seventeen by three palette holder, its exits go to a
+literal `#destination`, and the film it plays is `40sINTRO.mov`, which is one
+of seven digital video members on the disc with no file behind it. Two hundred
+and seventy-two have one. Entering there is a black screen with no way out, in
+this engine and in the original.
+
+So a declared start has to be checked rather than trusted, and the interesting
+part was getting the check right. I tried three.
+
+**Does it draw anything?** No: the palette holder draws, and seventeen by three
+pixels is drawing by any measure and a scene by none.
+
+**Does it have a live exit?** No, and this one is worse, because it rejected
+Brice's opening as well. That chapter opens on a montage of close-ups gated on
+`#showMontage`, and every exit is blocked until the montage has played. A test
+that asks what is reachable *now* throws away a perfectly good opening.
+
+**Do its exits name a room that exists?** Yes. Guards ignored, destinations
+resolved. Brice's montage names real rooms it cannot reach yet; the template
+names `#destination`, which is a word rather than a place. Together with "or it
+has a film that plays", that keeps Roxy's video-only opening, keeps Brice's
+montage, keeps Edwin, and steps Margaret past the scaffolding to `bedrm_A1` --
+the forties bedroom, which is where the chapter is actually set.
+
+Worth naming that the first two attempts were both heuristics about *how much*
+was there, and the one that works is structural: not how big the sprite is or
+what is reachable this instant, but whether the exits refer to anything. The
+same shape of mistake as the movie-loop heuristic in entry 63, caught two
+attempts earlier this time.
+
+`verify` prints all four entries now, because the rule that skips a dead start
+is also the rule that could skip a live one.

@@ -405,6 +405,34 @@ fn cmd_export(movie_path: &Path, cast: u32, out: &Path) -> Res {
 
 /// Renders one room to a PNG without opening a window, so the compositor can be
 /// exercised in a terminal or in CI.
+/// Reports where each chapter opens.
+///
+/// A chapter's declared start can be a record that shows nothing and goes
+/// nowhere -- Margaret's is scaffolding whose film is not on the disc -- and
+/// entering one is a black screen with no way out. It is worth seeing all four
+/// at once, because the rule that skips a dead start is also the rule that
+/// could skip a live one.
+fn verify_chapter_entries(dir: &Path) -> Res {
+    let mut game = game::Game::new(dir)?;
+    let mut domains: Vec<String> = game.world.domains.keys().cloned().collect();
+    domains.sort();
+    println!("chapter entries:");
+    for domain in domains {
+        game.enter_chapter(&domain);
+        let movie = game.video();
+        let node = game.node();
+        println!(
+            "  {domain:<10} {:<22} {}",
+            node.name.clone().unwrap_or_default(),
+            match movie {
+                Some(m) => format!("movie {m}"),
+                None => format!("{} sprites", node.sprites.len()),
+            }
+        );
+    }
+    Ok(())
+}
+
 /// Reports how many movies are marked to loop.
 ///
 /// The flag lives on the cast member, and reading the wrong byte would either
@@ -696,6 +724,7 @@ fn cmd_verify(dir: &Path) -> Res {
     verify_cast_lookups(dir)?;
     verify_audio_mix(dir)?;
     verify_movie_loops(dir)?;
+    verify_chapter_entries(dir)?;
     let world = World::load(dir)?;
     let mut unhandled: BTreeMap<String, usize> = BTreeMap::new();
     let mut effects: BTreeMap<String, usize> = BTreeMap::new();
