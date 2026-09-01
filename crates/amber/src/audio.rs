@@ -44,26 +44,34 @@ impl Mixer {
             if frames == 0 {
                 return false;
             }
+            let src = voice.channels.max(1) as usize;
             for frame in out.chunks_mut(out_channels) {
-                let index = voice.position as usize;
-                if index >= frames {
+                if voice.position >= frames as f64 {
                     if !voice.looping {
                         return false;
                     }
-                    voice.position = 0.0;
-                    continue;
+                    // Carry the fractional remainder across the seam. Resetting
+                    // to zero instead drops part of a sample every lap, and
+                    // skipping the output frame leaves a hole: on a
+                    // three-second ambient loop that is an audible tick every
+                    // three seconds, for as long as the room is occupied.
+                    voice.position -= frames as f64;
                 }
-                // Linear interpolation between adjacent source frames.
+                let index = voice.position as usize;
                 let frac = (voice.position - index as f64) as f32;
-                let src = voice.channels.max(1) as usize;
+                // Interpolate into the start of the loop rather than off the
+                // end of the buffer, so the seam is continuous.
+                let next = if index + 1 < frames {
+                    index + 1
+                } else if voice.looping {
+                    0
+                } else {
+                    index
+                };
                 for (c, slot) in frame.iter_mut().enumerate() {
                     let sc = c.min(src - 1);
                     let a = voice.samples[index * src + sc] as f32;
-                    let b = voice
-                        .samples
-                        .get((index + 1) * src + sc)
-                        .copied()
-                        .unwrap_or(voice.samples[index * src + sc]) as f32;
+                    let b = voice.samples[next * src + sc] as f32;
                     *slot += (a + (b - a) * frac) / 32768.0 * voice.gain * master;
                 }
                 voice.position += voice.step;

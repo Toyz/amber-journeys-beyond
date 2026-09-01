@@ -41,8 +41,28 @@ impl State {
                     .map(|i| Value::Symbol(i.clone()))
                     .collect(),
             ),
-            _ => self.props.get(&key).cloned().unwrap_or(Value::Void),
+            _ => self
+                .props
+                .get(&key)
+                .cloned()
+                .unwrap_or(Value::Void),
         }
+    }
+
+    /// Keeps the `playerHas<Item>` flag in step with what is carried.
+    ///
+    /// Rooms hide a taken object by drawing an "object gone" plate over the
+    /// scene, gated on one of these flags; there are eight of them and 185
+    /// references. The chapter schema seeds them all to zero, so they cannot
+    /// be derived when read - a stored value always exists - and taking an
+    /// item has to write the flag, which is what the compiled `addInventory`
+    /// does alongside its slot bookkeeping.
+    ///
+    /// The one explicit assignment in the game, setting the headgear to
+    /// `#usedUp` once consumed, still applies afterwards and is not disturbed.
+    fn sync_possession(&mut self, item: &str, held: bool) {
+        let key = format!("playerhas{}", item.to_ascii_lowercase());
+        self.props.insert(key, Value::Int(held as i32));
     }
 
     pub fn set(&mut self, key: &str, value: Value) {
@@ -78,10 +98,12 @@ impl State {
         if !self.inventory.iter().any(|i| i.eq_ignore_ascii_case(item)) {
             self.inventory.push(item.to_owned());
         }
+        self.sync_possession(item, true);
     }
 
     pub fn delete_inventory(&mut self, item: &str) {
         self.inventory.retain(|i| !i.eq_ignore_ascii_case(item));
+        self.sync_possession(item, false);
         if self
             .item_in_use
             .as_deref()

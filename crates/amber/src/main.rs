@@ -375,6 +375,14 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
         game.start_room_video();
     }
 
+    // Granting items makes the "object taken" plates reachable, which
+    // otherwise need real progress to see.
+    if let Ok(items) = std::env::var("AMBER_GIVE") {
+        for item in items.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            game.state.add_inventory(item);
+        }
+    }
+
     const W: u32 = 640;
     const H: u32 = 480;
     let mut frame = vec![0u32; (W * H) as usize];
