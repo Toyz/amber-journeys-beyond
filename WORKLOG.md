@@ -4763,3 +4763,61 @@ cursors do not need them -- the casts are in the movie -- but any other
 resource-fork file on that disc is invisible to me, and I had not noticed.
 
 250 tests.
+
+## 114. Wrong cursor, wrong place
+
+helba, on the new cursors: "i do think we're showing the wrong cursors in wrong
+places". Right, and the cause is not in the cursor code at all.
+
+`Verb::ItemInUse` ranks **above** `Verb::Browse` whether or not the player is
+carrying anything. Nearly every room opens its hotspot list with
+
+```text
+ItemInUse (-8, 60, 645, 376) ["stowInventory( getState( oStoryteller, #itemInUse ) )"]
+```
+
+-- a region covering the whole stage. So with empty hands that region won
+everywhere the directional regions did not reach, which meant most of most
+rooms showed the pointer cursor instead of the browse diamond, and a click on
+the scenery stowed nothing instead of walking.
+
+The enum's own doc comment says what should happen:
+
+> Fires only while the player is carrying something, to use it on the scene.
+
+It says it, and the code did not do it. One line: an `#itemInUse` region is out
+of the running with empty hands.
+
+Cursors were the thing that made this visible. The behaviour has been wrong
+since hit-testing was written; nothing showed it, because a click landing on a
+whole-stage region that does nothing is indistinguishable from a click landing
+on nothing.
+
+### `cursorOff`, the fifth one
+
+helba also asked for the desktop pointer to be hidden, which it now is -- the
+game draws its own. That made a second fault obvious immediately: every set
+piece opens with `cursorOff`, and the pointer sat there through all of them.
+
+`Effect::CursorOff` is emitted at a hundred and four call sites and was applied
+at none. **The fifth** effect in this engine to be produced and dropped, after
+`PlayVideo`, `new_domain`, `FadeToMontage` and `PlayVideoSegment`.
+
+Which is the part worth writing down, because entry 84 added a test to stop
+exactly this, and the test passed. It asked whether a variant is *mentioned* in
+a file that applies effects. `Effect::CursorOff` was mentioned -- in a list of
+effects to emit. So the guard I built against dropping effects on the floor
+could be satisfied by dropping an effect on the floor next to a mention of it.
+
+It now requires a **match arm**, and I checked it by deleting the arm I had
+just written and watching it fail:
+
+```text
+Effect variants never applied: ["CursorOff"]
+```
+
+That check took thirty seconds and I did not do it the first time. A test
+written to catch a class of bug is worth nothing until it has caught one, and
+the cheapest way to find out is to make the bug on purpose.
+
+250 tests.

@@ -106,6 +106,9 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     // The original runs at a nominal 15 fps; this only caps the loop, and the
     // room is static between clicks anyway.
     window.set_target_fps(60);
+    // The game draws its own pointer into the frame, so the desktop's would be
+    // a second one sitting on top of it.
+    window.set_cursor_visibility(false);
 
     // `frame` holds the composed scene, redrawn only when it changes;
     // `out` adds the cursor, which follows the mouse every frame.
@@ -406,7 +409,13 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 );
             }
         }
-        if let Some((mx, my)) = pos {
+        // A sequence takes the pointer away until it is done: `cursorOff` at
+        // the top of a set piece, and the queue running dry is the `cursorOn`
+        // this engine does not otherwise get.
+        if game.cursor_hidden && !game.effects_busy() && game.script_idle() {
+            game.cursor_hidden = false;
+        }
+        if let Some((mx, my)) = pos.filter(|_| !game.cursor_hidden) {
             let verb = game.hotspot_at(mx, my).map(|(v, _)| v);
             // The game's own art first; the drawn shapes are what is left when
             // a cursor is a system one -- `#back` and `#noCursor` have no cast
@@ -683,11 +692,26 @@ mod effect_coverage {
             .copied()
             .filter(|v| *v != "Native")
             .filter(|v| {
+                // A *match arm*, not a mention. The first version of this test
+                // asked whether the name appeared anywhere in a file that
+                // applies effects, and `Effect::CursorOff` appeared in a list
+                // of effects to emit -- so the test passed for a hundred and
+                // four call sites that were dropped on the floor.
                 let used = format!("Effect::{v}");
                 !APPLIERS.iter().any(|src| {
-                    // The declaration site does not count, only a use in a
-                    // file that acts on effects.
-                    src.matches(&used).count() > 0
+                    src.match_indices(&used).any(|(at, _)| {
+                        let rest = &src[at + used.len()..];
+                        let head: String =
+                            rest.chars().take(80).collect::<String>().replace('\n', " ");
+                        // `Effect::X =>`, or a pattern binding before the arrow.
+                        let arm = head.trim_start();
+                        arm.starts_with("=>")
+                            || (arm.starts_with('{') || arm.starts_with('('))
+                                && head.split("=>").next().is_some_and(|before| {
+                                    !before.contains(';') && !before.contains(',')
+                                        || before.matches('{').count() > 0
+                                }) && head.contains("=>")
+                    })
                 })
             })
             .collect();

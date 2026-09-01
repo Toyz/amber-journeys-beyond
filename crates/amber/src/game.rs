@@ -90,6 +90,10 @@ pub struct Game {
     /// The rect that film's cast member says it occupies, which is not always
     /// the size the film is stored at.
     playing_size: Option<(u32, u32)>,
+    /// Whether a sequence has taken the pointer away. Every set piece opens
+    /// with `cursorOff` and the player is meant to watch it, not click through
+    /// it.
+    pub cursor_hidden: bool,
     pub player: Option<VideoPlayer>,
 }
 
@@ -110,6 +114,7 @@ impl Game {
             pending: Vec::new(),
             playing: None,
             playing_size: None,
+            cursor_hidden: false,
             effect_wait: None,
             transition: None,
             puppets: BTreeMap::new(),
@@ -759,6 +764,11 @@ impl Game {
     }
 
     /// Whether the effect queue still has work, including a wait in progress.
+    /// Whether the action list has run out, as distinct from its effects.
+    pub fn script_idle(&self) -> bool {
+        self.script.is_empty() && self.waiting.is_none()
+    }
+
     pub fn effects_busy(&self) -> bool {
         !self.pending.is_empty() || self.effect_wait.is_some()
     }
@@ -799,6 +809,14 @@ impl Game {
                     ),
                 }
             }
+            // Every set piece opens with this and the original hides the
+            // pointer for its duration. It was emitted in a hundred and four
+            // places and acted on in none -- the fifth effect in this engine
+            // to be produced and dropped, and the one my coverage test could
+            // not see, because the test asks whether a variant is *mentioned*
+            // in a file that applies effects and this one was mentioned in a
+            // list of effects to emit.
+            Effect::CursorOff => self.cursor_hidden = true,
             Effect::SetTransition { kind } => {
                 trace!(crate::trace::Topic::Room, "transition armed: {kind}");
                 self.transition = Some(kind.clone());

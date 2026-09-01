@@ -396,6 +396,13 @@ impl Node {
             .iter()
             .filter(|h| h.bounds.contains(x, y))
             .filter(|h| !h.actions.is_empty())
+            // An `#itemInUse` region is there to catch something being used on
+            // the scene, and does not exist with empty hands. Nearly every room
+            // has one covering the whole stage, so leaving it in the running
+            // put it above the browse region underneath -- which meant most of
+            // most rooms showed the wrong cursor, and clicking the scenery
+            // stowed nothing instead of walking.
+            .filter(|h| holding || h.verb != Verb::ItemInUse)
             .filter(|h| live(&h.condition))
             .enumerate()
             .max_by_key(|(index, h)| (rank(h.verb), std::cmp::Reverse(*index)))
