@@ -223,6 +223,43 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             });
         }
 
+        // on peekAlert
+        //   if gPeekAlertEnabled = 0 or getState(#playerHasPeekUnit) = 0 then exit
+        //   colorGraphic    = getAt(getProp(oPuppeteer, #PeekUnit), 1)
+        //   highGlowGraphic = getAt(..., 3)
+        //   lowGlowGraphic  = getAt(..., 2)
+        //   oldPeekGraphic  = the castNum of sprite 7
+        //   if oldPeekGraphic <> colorGraphic then lowGlowGraphic = colorGraphic
+        //   repeat with i = 1 to 12
+        //     hold five ticks
+        //     alternate sprite 7 between the high and low glow
+        //   end repeat
+        //
+        // The peek unit pulses in the inventory bar to say it has something to
+        // show. Its three icons are the plain one and two glows, which is why
+        // the inventory table lists three casts for this item and two for
+        // every other.
+        "peekalert" => {
+            let enabled = state.get("gPeekAlertEnabled").as_int().unwrap_or(0) != 0;
+            let carried = state.get("playerHasPeekUnit").as_int().unwrap_or(0) != 0;
+            if !enabled || !carried {
+                return true;
+            }
+            // The icons are the second and third of the item's three, which
+            // the inventory table already names.
+            for i in 0..12 {
+                out.effects.push(Effect::WaitTicks(5));
+                // The third icon is the bright glow and the second the dim
+                // one, which is how the item comes to list three where every
+                // other lists two.
+                out.effects.push(Effect::SpriteCastIcon {
+                    channel: 7,
+                    item: "PeekUnit".into(),
+                    index: if i % 2 == 0 { 3 } else { 2 },
+                });
+            }
+        }
+
         _ => return false,
     }
     true

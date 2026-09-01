@@ -1269,3 +1269,31 @@ Worth noticing that the missing lookup did not fail. It compiled, the tests
 passed, the handler count fell by seven, and every number I habitually check
 said the work was done. What caught it was rereading the port next to the
 disassembly it claimed to implement.
+
+## 44. The peek alert, and the same mistake twice
+
+`peekAlert` pulses the peek unit in the inventory bar to say it has something
+to show: twelve cycles on sprite channel 7, five ticks apart, alternating
+between two glow icons. The guard forced a new opcode along the way - the
+handler returns when the alert is disabled *or* the unit is not carried, which
+makes `0x13` an or against `0x12`'s and.
+
+The item's three icons explain something noticed weeks ago and left alone. The
+inventory table lists two casts for every item and three for the peek unit;
+the third is this brighter glow. A detail that looked like an inconsistency in
+the data was the data being precise about something not yet implemented.
+
+I wrote the port referencing icons by invented names, `PeekGlowHigh` and
+`PeekGlowLow`, which exist nowhere. Nothing would have resolved, the channel
+would have stayed empty, and no pulse would have appeared. It compiled, the
+tests passed, and the handler count fell by exactly twelve.
+
+That is the second time in three entries: `newDoorStatic` claimed a channel
+and never set its cast, and this named casts that do not exist. Both times the
+count fell correctly, which is what makes the mistake comfortable to make. The
+count measures that a handler stopped being reported, not that it does
+anything.
+
+The icons are addressed by position now, as the original's `getAt` reads them,
+and the inventory table keeps every cast an item lists rather than the first
+two.

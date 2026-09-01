@@ -52,6 +52,8 @@ pub enum Effect {
     /// `getProp(oPuppeteer, #doorStatic)` does. Resolved when applied, since
     /// the table belongs to the chapter and handlers do not carry one.
     SpriteCastNamed { channel: u8, name: String },
+    /// Point a channel at one of an inventory item's icons, by position.
+    SpriteCastIcon { channel: u8, item: String, index: usize },
     /// A puzzle or set-piece handler that still lives in Director bytecode.
     Native { name: String, args: Vec<Value> },
 }

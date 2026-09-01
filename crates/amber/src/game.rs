@@ -331,6 +331,11 @@ impl Game {
                     self.puppets.entry(*channel).or_default().cast = cast;
                 }
             }
+            Effect::SpriteCastIcon { channel, item, index } => {
+                if let Some(cast) = self.inventory.icon_at(item, *index) {
+                    self.puppets.entry(*channel).or_default().cast = cast;
+                }
+            }
             Effect::SpriteVisible { channel, visible } => {
                 self.puppets.entry(*channel).or_default().hidden = !*visible;
             }

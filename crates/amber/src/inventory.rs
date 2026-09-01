@@ -17,10 +17,15 @@ use lingo::{parse_value, Value};
 pub const ICON: i32 = 67;
 
 /// Cast numbers for one item's icons.
-#[derive(Copy, Clone, Debug)]
+///
+/// Most items list two, plain and lit. The peek unit lists three, the extra
+/// being a brighter glow it alternates with while alerting.
+#[derive(Clone, Debug)]
 pub struct Icons {
     pub plain: u32,
     pub lit: u32,
+    /// Every cast the item lists, in order, for handlers that index them.
+    pub all: Vec<u32>,
 }
 
 pub struct Inventory {
@@ -49,7 +54,14 @@ impl Inventory {
                     .map(|n| n as u32)
                     .collect();
                 if let [plain, lit, ..] = nums[..] {
-                    icons.insert(name.clone(), Icons { plain, lit });
+                    icons.insert(
+                        name.clone(),
+                        Icons {
+                            plain,
+                            lit,
+                            all: nums.clone(),
+                        },
+                    );
                 }
             }
         }
@@ -57,7 +69,13 @@ impl Inventory {
     }
 
     pub fn icons(&self, item: &str) -> Option<Icons> {
-        self.icons.get(&item.to_ascii_lowercase()).copied()
+        self.icons.get(&item.to_ascii_lowercase()).cloned()
+    }
+
+    /// One of an item's icons by position, as `getAt` reads them.
+    pub fn icon_at(&self, item: &str, index: usize) -> Option<u32> {
+        let icons = self.icons.get(&item.to_ascii_lowercase())?;
+        icons.all.get(index.checked_sub(1)?).copied()
     }
 
     pub fn len(&self) -> usize {
