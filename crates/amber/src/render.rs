@@ -92,10 +92,34 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             if let Some(a) = &audio {
                 for (name, level) in game.ambience() {
                     let gain = level * game.sounds.gain(&name);
+                    // A radio or clock is a programme of takes played in order,
+                    // not one looping voice, so it goes to the sequencer. Some
+                    // groups hold a single take and no running order; those are
+                    // ordinary loops and the mixer can hold them gaplessly.
+                    if game.sounds.is_group(&name) {
+                        if game.start_program(&name, gain) {
+                            continue;
+                        }
+                        let single = game.sounds.group_items(&name).first().map(|s| s.to_string());
+                        if let Some(item) = single {
+                            if let Some((pcm, rate, ch)) = game.group_sound_public(&name, &item) {
+                                a.play(Some(name), pcm, rate, ch, gain, true);
+                            }
+                        }
+                        continue;
+                    }
                     if let Some((pcm, rate, channels)) = game.sound(&name) {
                         a.play(Some(name), pcm, rate, channels, gain, true);
                     }
                 }
+            }
+        }
+
+        // Advance any running programme, queuing its next item as the current
+        // one runs out.
+        if let Some((pcm, rate, channels, gain)) = game.tick_program() {
+            if let Some(a) = &audio {
+                a.play(None, pcm, rate, channels, gain, false);
             }
         }
 
@@ -206,7 +230,10 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                                     a.play(Some(name), pcm, rate, ch, gain, true);
                                 }
                             }
-                            Effect::StopLoop { name, .. } => a.stop(&name),
+                            Effect::StopLoop { name, .. } => {
+                                a.stop(&name);
+                                game.stop_program(&name);
+                            }
                             // Fades are not modelled yet; the duck itself is
                             // what the scripts rely on.
                             Effect::SuspendSounds { .. } => a.set_master(0.25),

@@ -54,6 +54,36 @@ impl Schema {
         (!entries.is_empty()).then_some(Schema { entries })
     }
 
+    /// The play order for a named programme, when the entry is one.
+    ///
+    /// A programme is declared as a list of symbols naming items inside the
+    /// matching sound group, e.g.
+    /// `#BRradio : [#tune2, #BRannouncer1, #tune1, #BRannouncer2]`. That is
+    /// distinguishable from an ordinary flag by its values: a flag's list is
+    /// its legal settings, and those are rarely all symbols and never repeat.
+    pub fn playlist(&self, name: &str) -> Option<Vec<String>> {
+        let (_, values) = self
+            .entries
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))?;
+        if values.len() < 2 {
+            return None;
+        }
+        let items: Vec<String> = values
+            .iter()
+            .filter_map(|v| v.as_symbol())
+            .map(str::to_owned)
+            .collect();
+        if items.len() != values.len() {
+            return None;
+        }
+        // A flag lists distinct legal values; a programme repeats its takes.
+        let mut unique = items.clone();
+        unique.sort();
+        unique.dedup();
+        (unique.len() < items.len()).then_some(items)
+    }
+
     /// The room the chapter begins in.
     pub fn start_location(&self) -> Option<&str> {
         self.value_of("currentLocation")?.as_str()

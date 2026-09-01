@@ -192,21 +192,17 @@ fn cmd_info(dir: &Path) -> Res {
                 }
             }
         }
-        let resolved = wanted
-            .keys()
-            .filter(|n| game.sounds.source(n).is_some())
-            .count();
+        let known = |n: &str| game.sounds.source(n).is_some() || game.sounds.is_group(n);
+        let resolved = wanted.keys().filter(|n| known(n)).count();
         println!(
-            "sounds: {} files on disc, {} symbols tabulated, {} of {} referenced resolve",
+            "sounds: {} files on disc, {} symbols and {} groups tabulated, {} of {} referenced resolve",
             game.sounds.file_count(),
             game.sounds.len(),
+            game.sounds.group_count(),
             resolved,
             wanted.len()
         );
-        let unresolved: Vec<&String> = wanted
-            .keys()
-            .filter(|n| game.sounds.source(n).is_none())
-            .collect();
+        let unresolved: Vec<&String> = wanted.keys().filter(|n| !known(n)).collect();
         for n in unresolved.iter().take(6) {
             println!("  unresolved {n}");
         }
@@ -442,8 +438,46 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
         }
     };
 
+    // A group is a programme: report its running order and each take.
+    let groups: Vec<String> = names
+        .iter()
+        .filter(|n| game.sounds.is_group(n))
+        .cloned()
+        .collect();
+    for g in &groups {
+        let started = game.start_program(g, 1.0);
+        if !started {
+            // A group with no running order is a plain loop, not a programme.
+            let items = game.sounds.group_items(g).join(", ");
+            println!("  {g:<20} loop group, items: {items}");
+            continue;
+        }
+        println!("  {g:<20} programme, playlist found");
+        for step in 0..8 {
+            let at = game.program_position();
+            match game.tick_program() {
+                Some((pcm, rate, ch, _)) => {
+                    let secs = pcm.len() as f32 / (rate.max(1) * ch.max(1) as u32) as f32;
+                    let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+                    let (i, n) = at.unwrap_or((0, 0));
+                    println!(
+                        "      step {step} (item {i}/{n}): {:>8} samples {secs:>5.1}s peak {peak}",
+                        pcm.len()
+                    );
+                }
+                None => break,
+            }
+            // Skip the wait so the whole running order can be checked.
+            game.force_program_step();
+        }
+        game.stop_program(g);
+    }
+
     let (mut ok, mut silent, mut failed) = (0, 0, 0);
     for n in &names {
+        if game.sounds.is_group(n) {
+            continue;
+        }
         match game.sound(n) {
             Some((pcm, rate, channels)) => {
                 let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);

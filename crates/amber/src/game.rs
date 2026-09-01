@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use director::{Bitmap, Movie, Palette};
 use lingo::Rect;
@@ -49,6 +50,8 @@ pub struct Game {
     pub pending: Vec<Effect>,
     movies: MovieIndex,
     pub sounds: SoundBank,
+    /// The radio or clock programme currently running, if any.
+    program: Option<Program>,
     /// Decoded sounds, keyed by symbol. Effects fire repeatedly, so decoding
     /// each one once matters more here than it does for the movies.
     pcm_cache: HashMap<String, Option<Arc<Vec<i16>>>>,
@@ -74,6 +77,7 @@ impl Game {
             pending: Vec::new(),
             movies: MovieIndex::build(root),
             sounds: SoundBank::new(root),
+            program: None,
             pcm_cache: HashMap::new(),
             pcm_meta: HashMap::new(),
             player: None,
@@ -296,6 +300,149 @@ impl Game {
         }
     }
 
+    /// Starts a radio or clock programme, if `group` names one.
+    ///
+    /// A programme is a group of takes plus an order to play them in, so it
+    /// cannot be handed to the mixer as a single looping voice: each item has
+    /// to be queued as its predecessor ends.
+    pub fn start_program(&mut self, group: &str, gain: f32) -> bool {
+        // A programme is declared by the chapter that uses it, so the current
+        // one is checked first; the search widens because a room can name a
+        // programme that belongs to another chapter's schema.
+        let domain = self.node().domain.clone();
+        let mut order = self
+            .chapter(&domain)
+            .and_then(|c| c.schema.as_ref())
+            .and_then(|s| s.playlist(group));
+        if order.is_none() {
+            for other in world_domains(&self.world) {
+                if other == domain {
+                    continue;
+                }
+                order = self
+                    .chapter(&other)
+                    .and_then(|c| c.schema.as_ref())
+                    .and_then(|s| s.playlist(group));
+                if order.is_some() {
+                    break;
+                }
+            }
+        }
+        let Some(order) = order else { return false };
+        if order.is_empty() || !self.sounds.is_group(group) {
+            return false;
+        }
+        self.program = Some(Program {
+            group: group.to_string(),
+            order,
+            next: 0,
+            due: Instant::now(),
+            gain,
+        });
+        true
+    }
+
+    pub fn stop_program(&mut self, group: &str) {
+        if self
+            .program
+            .as_ref()
+            .is_some_and(|p| p.group.eq_ignore_ascii_case(group))
+        {
+            self.program = None;
+        }
+    }
+
+    /// Brings the next item forward, so a programme can be stepped through
+    /// without waiting out each take. Diagnostics only.
+    pub fn force_program_step(&mut self) {
+        if let Some(p) = self.program.as_mut() {
+            p.due = Instant::now();
+        }
+    }
+
+    /// The item index the programme will play next, for diagnostics.
+    pub fn program_position(&self) -> Option<(usize, usize)> {
+        let p = self.program.as_ref()?;
+        Some((p.next % p.order.len(), p.order.len()))
+    }
+
+    pub fn program_running(&self) -> Option<&str> {
+        self.program.as_ref().map(|p| p.group.as_str())
+    }
+
+    /// Returns the next item to play when the current one has run its course.
+    ///
+    /// The caller plays it and the programme schedules the following item from
+    /// the length of what was just handed over, which keeps the sequence
+    /// running without the mixer having to report completions.
+    pub fn tick_program(&mut self) -> Option<(Arc<Vec<i16>>, u32, u16, f32)> {
+        let program = self.program.as_ref()?;
+        if Instant::now() < program.due {
+            return None;
+        }
+        let (group, item, gain) = {
+            let p = self.program.as_mut()?;
+            let item = p.order[p.next % p.order.len()].clone();
+            p.next = p.next.wrapping_add(1);
+            (p.group.clone(), item, p.gain)
+        };
+
+        let pcm = self.group_sound(&group, &item)?;
+        let seconds = pcm.0.len() as f64 / (pcm.1.max(1) as f64 * pcm.2.max(1) as f64);
+        if let Some(p) = self.program.as_mut() {
+            p.due = Instant::now() + Duration::from_secs_f64(seconds.max(0.05));
+        }
+        Some((pcm.0, pcm.1, pcm.2, gain))
+    }
+
+    /// Decodes one item of a sound group, for callers outside this module.
+    pub fn group_sound_public(
+        &mut self,
+        group: &str,
+        item: &str,
+    ) -> Option<(Arc<Vec<i16>>, u32, u16)> {
+        self.group_sound(group, item)
+    }
+
+    /// Decodes one item of a sound group, cached like any other sound.
+    fn group_sound(&mut self, group: &str, item: &str) -> Option<(Arc<Vec<i16>>, u32, u16)> {
+        let key = format!(
+            "{}::{}",
+            group.to_ascii_lowercase(),
+            item.trim_start_matches('#').to_ascii_lowercase()
+        );
+        if !self.pcm_cache.contains_key(&key) {
+            let decoded = match self.sounds.source_in(group, item)?.clone() {
+                Source::Files(takes) => {
+                    let name = takes.first()?;
+                    let path = self.sounds.file(name)?.to_path_buf();
+                    sound::load(&path)
+                }
+                Source::Cast(number) => {
+                    let domain = self.node().domain.clone();
+                    let chapter = self.chapter(&domain)?;
+                    chapter.movie.sound(number).ok().map(|s| sound::Pcm {
+                        samples: s.samples,
+                        rate: s.sample_rate,
+                        channels: s.channels,
+                    })
+                }
+            };
+            let (pcm, meta) = match decoded {
+                Some(p) => {
+                    let meta = (p.rate, p.channels);
+                    (Some(Arc::new(p.samples)), meta)
+                }
+                None => (None, (22050, 1)),
+            };
+            self.pcm_cache.insert(key.clone(), pcm);
+            self.pcm_meta.insert(key.clone(), meta);
+        }
+        let samples = self.pcm_cache.get(&key)?.clone()?;
+        let &(rate, channels) = self.pcm_meta.get(&key)?;
+        Some((samples, rate, channels))
+    }
+
     /// Decodes a named sound, from a file on the disc or a `snd ` cast member,
     /// and caches the result. Returns the samples with their rate and channel
     /// count.
@@ -427,6 +574,17 @@ fn world_domains(world: &World) -> Vec<String> {
     let mut names: Vec<String> = world.domains.keys().cloned().collect();
     names.sort();
     names
+}
+
+/// A running radio or clock programme.
+struct Program {
+    group: String,
+    order: Vec<String>,
+    /// Index of the next item to play, wrapping so the programme cycles.
+    next: usize,
+    /// When the current item is expected to finish.
+    due: Instant,
+    gain: f32,
 }
 
 /// Blits RGBA source pixels onto a BGRA framebuffer, clipped to its bounds.

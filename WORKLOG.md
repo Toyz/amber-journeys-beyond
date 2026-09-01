@@ -260,3 +260,32 @@ has to know which it is looking at.
 The remaining unresolved symbols are not missing sounds. `#BRradio` and its
 siblings are playlists declared in the state schema - sequences of tunes and
 announcers that cycle - so they need a sequencer rather than a file.
+
+## 15. Radio and clock programmes
+
+The unresolved sounds from entry 14 turned out to be a second layer of the
+same table. `#BRradio` appears in two places meaning two different things:
+in the sound bank it is a **group**, a nested property list of takes, and in
+the state schema it is a **running order**, a list of symbols naming items
+within that group.
+
+That double meaning is why the item names repeat across groups: `#tune1` is
+one file in the bedroom and another in the kitchen, so the resolution key is
+the pair, not the name. My first parser dropped every group on the floor,
+because it only handled property values that were strings, integers or flat
+lists, and a group is a nested property list.
+
+Telling a running order from an ordinary flag needs a test, since both are
+lists of symbols in the same file. A flag's list is its legal settings, which
+are distinct by definition; a programme's list is a sequence, and sequences
+repeat their takes. Requiring a duplicate separates them cleanly, and it
+correctly declines to treat the three single-take groups as programmes:
+`#Shed: [#tune1]` is a plain loop, and the mixer holds it gaplessly rather
+than the sequencer re-queuing it.
+
+Verifying this needed stepping the running order rather than listening. Each
+of the four radios alternates a long tune with a short announcer segment, and
+the decoded lengths show exactly that shape: 122.3s, 18.4s, 122.3s, 6.3s,
+122.3s, 14.3s. The tune entries are byte-identical because `#tune1` and
+`#tune2` both point at the same file, which is a detail I would have assumed
+was a bug had the sample counts not matched exactly.

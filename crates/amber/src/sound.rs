@@ -40,6 +40,12 @@ pub struct Pcm {
 /// Symbol-to-source tables plus an index of the audio files on disc.
 pub struct SoundBank {
     sources: HashMap<String, Source>,
+    /// Sounds that belong to a named group rather than the top level, keyed by
+    /// `(group, item)`. Radio and clock programmes are built this way: the
+    /// group holds the takes and the schema holds the order to play them in,
+    /// and item names repeat across groups, so `#tune1` means a different file
+    /// in the bedroom than in the kitchen.
+    groups: HashMap<(String, String), Source>,
     gains: HashMap<String, f32>,
     files: HashMap<String, PathBuf>,
 }
@@ -50,6 +56,7 @@ impl SoundBank {
         index_files(root, 0, &mut files);
         SoundBank {
             sources: HashMap::new(),
+            groups: HashMap::new(),
             gains: HashMap::new(),
             files,
         }
@@ -95,6 +102,29 @@ impl SoundBank {
                                 self.sources.insert(name.clone(), Source::Files(takes));
                             }
                         }
+                        // A nested property list is a group, not a sound.
+                        Value::Props(items) => {
+                            for (item, source) in items {
+                                let parsed = match source {
+                                    Value::String(f) => Source::Files(vec![f.clone()]),
+                                    Value::Int(c) if *c > 0 => Source::Cast(*c as u32),
+                                    Value::List(takes) => {
+                                        let takes: Vec<String> = takes
+                                            .iter()
+                                            .filter_map(|t| t.as_str())
+                                            .map(str::to_owned)
+                                            .collect();
+                                        if takes.is_empty() {
+                                            continue;
+                                        }
+                                        Source::Files(takes)
+                                    }
+                                    _ => continue,
+                                };
+                                self.groups
+                                    .insert((name.clone(), item.clone()), parsed);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -114,7 +144,42 @@ impl SoundBank {
     }
 
     pub fn source(&self, symbol: &str) -> Option<&Source> {
-        self.sources.get(&symbol.trim_start_matches('#').to_ascii_lowercase())
+        self.sources
+            .get(&symbol.trim_start_matches('#').to_ascii_lowercase())
+    }
+
+    /// A sound belonging to a named group, e.g. `#tune1` within `#BRradio`.
+    pub fn source_in(&self, group: &str, item: &str) -> Option<&Source> {
+        self.groups.get(&(
+            group.trim_start_matches('#').to_ascii_lowercase(),
+            item.trim_start_matches('#').to_ascii_lowercase(),
+        ))
+    }
+
+    /// True when the name is a group of sounds rather than a single one.
+    pub fn is_group(&self, name: &str) -> bool {
+        let key = name.trim_start_matches('#').to_ascii_lowercase();
+        self.groups.keys().any(|(g, _)| *g == key)
+    }
+
+    /// The item names inside a group.
+    pub fn group_items(&self, group: &str) -> Vec<&str> {
+        let key = group.trim_start_matches('#').to_ascii_lowercase();
+        let mut items: Vec<&str> = self
+            .groups
+            .keys()
+            .filter(|(g, _)| *g == key)
+            .map(|(_, i)| i.as_str())
+            .collect();
+        items.sort_unstable();
+        items
+    }
+
+    pub fn group_count(&self) -> usize {
+        let mut names: Vec<&str> = self.groups.keys().map(|(g, _)| g.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        names.len()
     }
 
     /// Playback gain for a sound, defaulting to unity when untabulated.
