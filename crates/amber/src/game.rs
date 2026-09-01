@@ -312,6 +312,14 @@ impl Game {
     /// composited over the room.
     pub fn apply_puppet(&mut self, effect: &Effect) -> bool {
         match effect {
+            // Deferred state writes, so they land in timeline order rather
+            // than when the handler ran.
+            Effect::SetState { key, value } => {
+                self.state.set(key, value.clone());
+            }
+            Effect::TrimState { key, item } => {
+                self.state.trim_item(key, item);
+            }
             Effect::PuppetSprite { channel, on } => {
                 if *on {
                     self.puppets.entry(*channel).or_default();

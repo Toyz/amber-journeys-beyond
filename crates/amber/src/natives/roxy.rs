@@ -112,12 +112,22 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             if screen == "spinningnow" {
                 state.set("BT_fragStatus", Value::Symbol("alignment".into()));
             }
+            // The intermediate montage has to be on screen across the hold,
+            // so both writes are queued. Written directly they would flip
+            // through 3 to 2 before the wait ever ran, and the second of the
+            // two would be all anyone saw.
             if state.get("showMontage").as_int() != Some(2) {
-                state.set("showMontage", Value::Int(3));
+                out.effects.push(Effect::SetState {
+                    key: "showMontage".into(),
+                    value: Value::Int(3),
+                });
                 out.redraw = true;
                 out.effects.push(Effect::WaitTicks(60));
             }
-            state.set("showMontage", Value::Int(2));
+            out.effects.push(Effect::SetState {
+                key: "showMontage".into(),
+                value: Value::Int(2),
+            });
             out.redraw = true;
         }
 
@@ -293,7 +303,13 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::PlayVideo(None));
             out.effects.push(Effect::WaitForVideo);
             out.effects.push(Effect::RestoreSounds { fade: true });
-            state.trim_item("hauntsRemaining", &Value::Symbol(haunt.to_string()));
+            // Queued rather than written here: the movie is gated on the
+            // haunt still being in the pool, so trimming it now would consume
+            // the haunt before the movie it belongs to has played.
+            out.effects.push(Effect::TrimState {
+                key: "hauntsRemaining".into(),
+                item: Value::Symbol(haunt.to_string()),
+            });
         }
 
         _ => return false,

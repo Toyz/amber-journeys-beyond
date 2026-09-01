@@ -54,6 +54,17 @@ pub enum Effect {
     SpriteCastNamed { channel: u8, name: String },
     /// Point a channel at one of an inventory item's icons, by position.
     SpriteCastIcon { channel: u8, item: String, index: usize },
+    /// Write a flag in timeline order, for a value that must land between two
+    /// waits rather than when the handler ran.
+    SetState { key: String, value: Value },
+    /// Remove an item from a list-valued flag, in timeline order.
+    ///
+    /// A handler's effects are played back later while its state writes happen
+    /// as it runs, so anything that must follow a wait has to be an effect.
+    /// The haunts turn on this: their movie is shown only while the haunt is
+    /// still in the pool, so trimming it before the movie plays consumes the
+    /// haunt without ever showing it.
+    TrimState { key: String, item: Value },
     /// A puzzle or set-piece handler that still lives in Director bytecode.
     Native { name: String, args: Vec<Value> },
 }

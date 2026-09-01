@@ -1362,3 +1362,36 @@ whole behaviour, unexamined.
 
 Both haunts now play once and leave the pool, and the house runs out of things
 to do as the player sees them.
+
+## 47. Effects were deferred, state was not
+
+helba reported the haunts playing but never being seen: the pool shrank, the
+haunt was consumed, and no movie appeared.
+
+The haunt's movie is a room sprite gated on the haunt still being pending:
+
+  margMir.mov   ch #video   [#includes: [#hauntsRemaining, #ghostBrushingHair]]
+
+and the hotspot moves first, then triggers the haunt, so the movie belongs to
+the room the player has just walked into. All of that was right. What was
+wrong was mine: a handler's effects are queued and played back later, but its
+state writes happened as it ran. So `testForMargGhost` queued the movie and
+then trimmed the haunt immediately, and by the time the queue reached the
+movie its guard was false.
+
+The haunt was consumed without ever being shown, which is the worst version
+of this failure: the pool shrank, so the state said it had happened.
+
+`Effect::TrimState` and `Effect::SetState` put state writes on the same
+timeline as everything else. Anything that must land between two waits is now
+queued rather than written.
+
+Checking the other ports for the same fault found it once more.
+`backAwayFromLaptop` sets the montage to an intermediate value, holds a
+second, then settles back; both writes were immediate and the wait between
+them deferred, so it flipped straight through and the hold showed nothing.
+
+Two ports, same mistake, and neither would have been caught by the reference
+check from entry 45: every name resolved, every cast existed. The check
+answers whether a handler points at real things, not whether it does them in
+the right order.
