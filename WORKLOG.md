@@ -573,3 +573,44 @@ told me more in a minute than three rounds of corpus statistics, and it also
 told me what the statistics should be measuring. I reached for the aggregate
 method first because it feels more rigorous, but it only becomes rigorous once
 you know what question to put to it.
+
+## 22. Nine handlers ported, and a constant found by diffing
+
+Cross-referencing the engine's own list of missing handlers against the
+compiled ones gave the work inventory I should have built earlier: 65 of the
+66 have bodies in the movies, and sorting them by size shows the ground is
+not uniform. The smallest are one to thirty instructions; the largest,
+`driveTheCar`, is 1026.
+
+The small ones read cleanly, and a matched pair settled `0x03` in two lines:
+
+  enableGust    push #gustEnabled / push int 1 / setState
+  disableGust   push #gustEnabled / 0x03       / setState
+
+`0x03` pushes the constant zero. Its 980 uses across the corpus had resisted
+every statistical test I threw at it, and a two-line diff between handlers
+that differ only in the value they store gave it up immediately. That is the
+third time in this project that reading a specific pair beat measuring the
+whole population.
+
+Ported so far: `enableGust`, `disableGust`, `enableSongs`, `disableSongs`,
+`freezeInventory`, `beeSwarm`, and three that turn out to be empty hooks in
+the shipped build. The engine's own report moves from 66 distinct handlers
+over 438 call sites to 57 over 384.
+
+`beeSwarm` is worth a note. It reads as a one-in-three die roll gating a
+sound, so the port rolls too rather than firing every time - the
+intermittency is the effect. The roll is seeded from game state instead of a
+system source, so a replayed save sounds the same, which the original would
+not have guaranteed but which is the better behaviour for a save file.
+
+### Polarity is still assumed
+
+`beeSwarm` also pins the jump convention, if the reading is right: the
+comparison is followed by a jump that skips the sound, so the jump must be
+taken when the comparison is false, which makes `0x0f` an equality test. That
+is consistent and it is what the handler ought to do, but it rests on the
+sound being the rarer outcome rather than the commoner one. Every ported
+handler so far is unconditional and so does not depend on it; the first
+conditional handler will, and that is where it needs a harder check than
+plausibility.

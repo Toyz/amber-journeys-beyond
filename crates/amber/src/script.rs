@@ -380,12 +380,17 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
             out.effects.push(effect);
         }
 
-        // Everything else is a set-piece handler whose body is Director
-        // bytecode rather than data. Recording the call keeps the timeline
-        // intact so these can be filled in one at a time.
-        _ => out.effects.push(Effect::Native {
-            name: call.name.clone(),
-            args,
-        }),
+        // Set-piece handlers whose bodies are Director bytecode. Those that
+        // have been decoded and ported run here; the rest are recorded so the
+        // timeline stays intact and the engine's report stays honest about
+        // what is still missing.
+        _ => {
+            if !crate::natives::call(&call.name, &args, state, out) {
+                out.effects.push(Effect::Native {
+                    name: call.name.clone(),
+                    args,
+                });
+            }
+        }
     }
 }

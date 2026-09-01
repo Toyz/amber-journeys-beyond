@@ -8,6 +8,7 @@ mod audio;
 mod game;
 mod locations;
 mod media;
+mod natives;
 mod player;
 mod render;
 mod schema;
@@ -573,6 +574,18 @@ fn cmd_verify(dir: &Path) -> Res {
         println!("  {k:<24} {v:>5}");
     }
     println!("native handlers:     {native} distinct, {native_calls} call sites");
+    // Listing them by name lets the bytecode tooling match each against its
+    // compiled body, so the remaining work can be ordered by size.
+    if std::env::var_os("AMBER_LIST_NATIVE").is_some() {
+        let mut by_use: Vec<(&String, &usize)> = effects
+            .iter()
+            .filter(|(k, _)| k.starts_with("native:"))
+            .collect();
+        by_use.sort_by_key(|(_, v)| std::cmp::Reverse(**v));
+        for (k, v) in by_use {
+            println!("  native {} {}", k.trim_start_matches("native:"), v);
+        }
+    }
     if unhandled.is_empty() {
         println!("unhandled calls:     none");
     } else {
