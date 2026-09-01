@@ -56,11 +56,12 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     let mut playing_soundtrack = false;
     let mut ambience_room = usize::MAX;
     eprintln!("space skips a movie, tab outlines live hotspots, escape quits");
+    let opening_movie = game.video();
     eprintln!(
         "starting in {} / {}{}",
         game.node().domain,
         game.node().name.clone().unwrap_or_default(),
-        match game.video() {
+        match &opening_movie {
             Some(m) => format!(" (playing {m})"),
             None => String::new(),
         }

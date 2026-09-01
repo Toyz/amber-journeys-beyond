@@ -2162,3 +2162,54 @@ A hundred tests. The one I would keep if I could keep only one is
 `a_finished_scan_survives_being_fiddled_with`, because that is a rule about
 fairness rather than about a format, and those are the ones a port loses
 silently.
+
+## 63. Scenery that stopped after one pass
+
+helba: the door scanner's animation played once and stopped, the ceiling fan
+did not loop, and was the scanner's button gated on house power.
+
+It is not gated on house power. It is gated on `#scanUnitIsActive`, and the ON
+and OFF hotspots share one rectangle -- the same physical indicator at the top
+of the unit -- with opposite guards. Taking the unit off the door wants that
+flag at 0 too, so the button has to be pressed once before the unit will come
+away. Driving it from the walkthrough, `[1, 0]` to `[0, 1]` and back, both arms
+fire. The scripts were fine.
+
+What was wrong was that the animation stopped, which made a working unit look
+dead. Director keeps a QuickTime sprite running for as long as the frame holds
+it, and my player held the last frame instead. So the fan turned once, the
+scanner swept once, and the monitors froze.
+
+The distinction that decides it is in the room, not in the movie. A movie over
+a scene is scenery -- the fan, the scan unit's dial, a monitor -- and runs for
+as long as the player stands there. A room carried *entirely* by its movie is
+the opening, a montage, an ending, and those play once and hold. So the loop
+follows from whether the room draws anything else, and a movie a script is
+waiting on with `wait #videoStop` is taken out of the loop when the wait arms,
+or the wait would never clear.
+
+The other half was that the scanner was playing the wrong film, or rather
+playing one by luck. Its video sprite names its cast the way a plate does:
+
+```text
+#castName: "SC_PATIO.multiframe", #castNum: [#AMBERVISION, #QTsc_patio]
+```
+
+Twenty-eight video sprites are written that way and I had been reading the
+`#castName` -- which is a placeholder, and the reason for the `.multiframe`
+suffix I could never account for. The table resolves the monitor's state to a
+cast member, and for a monitor that is off that is a dummy parked off stage
+rather than the film. The same room has a second video sprite holding the real
+movie at x=788, off the side of a 640 wide stage, which is the same trick from
+the other direction.
+
+Entry 54's reading of `updateDisplay` had a special case I noted and did not
+implement: a sprite keyed on `#AMBERVISION` shows its `#off` entry for every
+state except `#on`. That is in now, for plates and for movies both.
+
+A check that found nothing, recorded because a negative is worth as much: Mac
+`snd ` resources carry loop points, and I had been discarding them. If an
+ambience declared a sustain inside a longer recording, looping the whole buffer
+would replay its lead every lap. None of the twenty-seven sounds in the movies
+declares one, so the house hum repeating every 3.2 seconds is the asset being
+3.2 seconds long, not a seam I have got wrong.

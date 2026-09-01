@@ -155,6 +155,32 @@ impl Game {
         }
     }
 
+    /// Resolves a state-indexed cast to a cast number.
+    ///
+    /// `table[state[flag]]`, with the one exception `updateDisplay` makes:
+    ///
+    /// ```text
+    /// if triggerVar = #AMBERVISION and getState(#AMBERVISION) <> #on then
+    ///   assignedCast = getaProp(frameStack, #off)
+    /// else
+    ///   assignedCast = getaProp(frameStack, getState(triggerVar))
+    /// ```
+    ///
+    /// So a sprite keyed on the monitor shows its `#off` art for every state
+    /// but `#on` -- including `#inBetween`, which the tables list separately
+    /// and which this rule means is never selected through here.
+    pub fn resolve_cast(&mut self, flag: &str, table: &str) -> Option<u32> {
+        let held = self.state.get(flag);
+        let key = if flag.eq_ignore_ascii_case("AMBERVISION")
+            && !held.as_str().is_some_and(|v| v.eq_ignore_ascii_case("on"))
+        {
+            lingo::Value::Symbol("off".into())
+        } else {
+            held
+        };
+        self.cast_lookup(table, &key)
+    }
+
     /// Resolves a lookup-table entry for the current room's chapter.
     pub fn cast_lookup(&mut self, table: &str, key: &lingo::Value) -> Option<u32> {
         let domain = self.node().domain.clone();
@@ -327,13 +353,40 @@ impl Game {
     /// Rooms that consist only of a movie are common at chapter boundaries: the
     /// intro, the montages and the endings all place a single element on this
     /// channel and nothing on the sprite channels.
-    pub fn video(&self) -> Option<&str> {
-        self.node()
+    /// The movie the room currently places on its video channel.
+    ///
+    /// A video sprite may name its cast the same way a plate does, as
+    /// `[#AMBERVISION, #QTsc_patio]`, and twenty-eight of them do. Returning
+    /// the sprite's own `#castName` ignores that: the name is a placeholder --
+    /// `SC_PATIO.multiframe` -- and the movie actually wanted is whichever
+    /// cast member the table names, which for a monitor that is off is a
+    /// dummy parked off stage rather than the film.
+    pub fn video(&mut self) -> Option<String> {
+        let sprite = self
+            .node()
             .sprites
             .iter()
-            .find(|s| matches!(s.channel, Channel::Video))
-            .filter(|s| self.state.test(&s.condition))
-            .and_then(|s| s.cast_name.as_deref())
+            .find(|s| matches!(s.channel, Channel::Video) && self.state.test(&s.condition))
+            .cloned()?;
+
+        if let Some((flag, table)) = &sprite.cast_lookup {
+            let (flag, table) = (flag.clone(), table.clone());
+            if let Some(cast) = self.resolve_cast(&flag, &table) {
+                let domain = self.node().domain.clone();
+                let named = self
+                    .chapter(&domain)
+                    .and_then(|c| c.movie.member(cast))
+                    .and_then(|m| m.name.clone());
+                if let Some(name) = named {
+                    return Some(name);
+                }
+                trace!(
+                    crate::trace::Topic::Video,
+                    "{table}[{flag}] is cast {cast}, which has no name"
+                );
+            }
+        }
+        sprite.cast_name.clone()
     }
 
     /// True when a room places nothing on the sprite channels. Such rooms are
@@ -367,7 +420,7 @@ impl Game {
     /// Loads and starts the current room's movie, if it has one.
     pub fn start_room_video(&mut self) {
         self.player = None;
-        let Some(name) = self.video().map(str::to_owned) else {
+        let Some(name) = self.video() else {
             return;
         };
         match self.movies.find(&name) {
@@ -380,6 +433,21 @@ impl Game {
                 eprintln!("warning: no file for movie {name}");
             }
         }
+
+        // A movie over a scene is scenery and runs for as long as the player
+        // stands there: the ceiling fan, the scan unit's dial, the monitors.
+        // A room carried entirely by its movie is not scenery -- it is the
+        // opening, a montage, an ending -- and those play once and hold their
+        // last frame.
+        let scenery = !self.draws_nothing();
+        if let Some(p) = &mut self.player {
+            p.set_looping(scenery);
+        }
+        trace!(
+            crate::trace::Topic::Video,
+            "{name} {}",
+            if scenery { "loops" } else { "plays once" }
+        );
     }
 
     /// The stage elements that should currently draw, back to front.
@@ -401,7 +469,16 @@ impl Game {
             .filter_map(|s| {
                 let cast = match (s.cast_number, &s.cast_lookup) {
                     (0, Some((flag, table))) => {
-                        let key = self.state.get(flag);
+                        // The monitor's sprites show their `#off` art for
+                        // every state but `#on`; see `resolve_cast`.
+                        let held = self.state.get(flag);
+                        let key = if flag.eq_ignore_ascii_case("AMBERVISION")
+                            && !held.as_str().is_some_and(|v| v.eq_ignore_ascii_case("on"))
+                        {
+                            lingo::Value::Symbol("off".into())
+                        } else {
+                            held
+                        };
                         let found = tables.and_then(|t| t.lookup(table, &key));
                         if found.is_none() {
                             trace!(
@@ -447,6 +524,12 @@ impl Game {
         while !self.pending.is_empty() {
             let effect = self.pending.remove(0);
             if let Some(w) = wait_for(&effect) {
+                // A movie something is waiting on has to be allowed to end.
+                if matches!(w, Wait::Video) {
+                    if let Some(p) = &mut self.player {
+                        p.set_looping(false);
+                    }
+                }
                 // The wait is armed after the effects before it are handed
                 // over, so the video this is waiting on has been started by
                 // the time the wait is first tested.

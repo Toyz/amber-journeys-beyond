@@ -47,6 +47,8 @@ pub struct VideoPlayer {
     decoder: Video,
     pub width: u16,
     pub height: u16,
+    /// Whether the movie restarts when it reaches its end.
+    looping: bool,
     /// Index of the frame currently in `decoder`.
     current: usize,
     frame_count: usize,
@@ -123,6 +125,8 @@ impl VideoPlayer {
             timescale: timescale.max(1),
             started: Instant::now(),
             finished: frame_count == 0,
+            // Scenery until a script says otherwise.
+            looping: true,
             audio,
             audio_rate,
             audio_channels,
@@ -152,10 +156,19 @@ impl VideoPlayer {
             Some(i) => i,
             None => 0,
         };
-        if target >= self.frame_count.saturating_sub(1) && now > 0 {
+        if target >= self.frame_count.saturating_sub(1)
+            && now > 0
+            && now >= video.duration.max(1)
+        {
+            if self.looping {
+                // Start the clock again rather than counting on from a
+                // timestamp that is already past the end.
+                self.started = Instant::now();
+                self.current = usize::MAX;
+                return self.seek(0);
+            }
             // Hold the last frame rather than blanking when the movie ends.
-            self.finished = target >= self.frame_count.saturating_sub(1)
-                && now >= video.duration.max(1);
+            self.finished = true;
         }
         if target == self.current {
             return false;
@@ -190,6 +203,18 @@ impl VideoPlayer {
         }
         self.current = target;
         true
+    }
+
+    /// Plays the movie again from the start when it reaches the end.
+    ///
+    /// A movie the room places on its video channel is scenery: the scan
+    /// unit's dial, a fan, a monitor. Director keeps a QuickTime sprite
+    /// running for as long as the frame holds it, so those animate for as
+    /// long as the player stands there. One that a script is waiting on with
+    /// `wait #videoStop` must be allowed to end instead, or the wait never
+    /// clears.
+    pub fn set_looping(&mut self, looping: bool) {
+        self.looping = looping;
     }
 
     pub fn frame(&self) -> &[u8] {

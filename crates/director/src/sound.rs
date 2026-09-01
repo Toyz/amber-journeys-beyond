@@ -5,6 +5,12 @@ use crate::{Error, Result};
 pub struct Sound {
     pub sample_rate: u32,
     pub channels: u16,
+    /// The sustain the resource declares, in frames, when it has one.
+    ///
+    /// A Mac `snd ` carries loop points, and an ambience recorded with a lead
+    /// in and a tail declares a sustain inside them. Looping the whole buffer
+    /// instead replays that lead every lap.
+    pub loop_points: Option<(u32, u32)>,
     /// Interleaved signed 16-bit samples, whatever the source depth was.
     pub samples: Vec<i16>,
 }
@@ -49,8 +55,8 @@ pub fn decode(data: &[u8], endian: Endian) -> Result<Sound> {
     let _data_pointer = h.u32()?;
     let length_or_channels = h.u32()?;
     let rate_fixed = h.u32()?;
-    let _loop_start = h.u32()?;
-    let _loop_end = h.u32()?;
+    let loop_start = h.u32()?;
+    let loop_end = h.u32()?;
     let encoding = h.u8()?;
     let _base_frequency = h.u8()?;
 
@@ -65,6 +71,7 @@ pub fn decode(data: &[u8], endian: Endian) -> Result<Sound> {
             Ok(Sound {
                 sample_rate,
                 channels: 1,
+                loop_points: sustain(loop_start, loop_end, count),
                 samples: raw.iter().map(|&b| u8_to_i16(b)).collect(),
             })
         }
@@ -108,11 +115,26 @@ pub fn decode(data: &[u8], endian: Endian) -> Result<Sound> {
             Ok(Sound {
                 sample_rate,
                 channels,
+                loop_points: sustain(loop_start, loop_end, frames),
                 samples,
             })
         }
         other => Err(Error::Unsupported(format!("snd encoding {other:#x}"))),
     }
+}
+
+/// The declared sustain, when it is a real one.
+///
+/// A resource with nothing to say writes zero for both, and one that loops
+/// end to end says so by covering the whole buffer; neither is worth carrying.
+fn sustain(start: u32, end: u32, frames: usize) -> Option<(u32, u32)> {
+    if end <= start || end as usize > frames {
+        return None;
+    }
+    if start == 0 && end as usize >= frames {
+        return None;
+    }
+    Some((start, end))
 }
 
 #[inline]

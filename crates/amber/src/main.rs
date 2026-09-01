@@ -516,7 +516,7 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
         );
         player.seek_seconds(seek);
     } else if game.video().is_some() {
-        println!("  movie {} did not load", game.video().unwrap_or(""));
+        println!("  movie {} did not load", game.video().unwrap_or_default());
     }
     game.draw(&mut frame, W, H);
 
