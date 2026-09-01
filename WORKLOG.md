@@ -4998,3 +4998,36 @@ in this entry or the last. A newer toolchain turning on new lints, not a
 regression, and a sweep for another sitting.
 
 258 tests.
+
+## 118. Two ports that never got committed
+
+`transitToEdwin` and `forcePalette` were written, built and verified before the
+last break and then sat in the working tree while three commits went past them
+naming other files. I found them in the diff of a clippy sweep, which is not
+where you want to find your own work.
+
+`transitToEdwin` is Roxy's chapter handing over to Edwin's, and the same shape
+as `goodbyeMandy` ending Brice's: two montage steps with a film on each, a
+fade to the third, then `enterNewDomain`. The monitor is switched off first --
+`#AMBERVISION` to `#off` -- because Amber vision is not something Edwin's
+chapter has.
+
+It also calls `castCursor #toEdwin`, and that one is worth a note because it
+looks like something missing. `castCursor` takes a number; given a symbol it
+prints "wow, a cursor label" and returns. It is dead in the original, so
+leaving it out loses nothing.
+
+`forcePalette` is ported as an empty arm, deliberately. Director has one
+palette for the whole stage, so a room whose art was authored against a
+different one has to force it before drawing. This engine resolved that
+differently back in entry 94: every plate carries the number of the palette it
+was drawn against and is decoded against that. There is no stage palette here
+to force. An empty arm with the reasoning next to it is better than leaving it
+on the unported list, where it would read as work outstanding rather than work
+done another way.
+
+The lesson is about the commit, not the code. My habit of staging named paths
+-- which exists because `git add -A` once swept 1.9 GB into this repository --
+means anything I forget to name stays behind indefinitely and silently. Naming
+paths is still right. Checking `git status` before saying a thread is finished
+is the part I skipped.

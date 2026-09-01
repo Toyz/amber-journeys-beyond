@@ -1293,6 +1293,66 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on transitToEdwin
+        //   cursorOff
+        //   setState( #AMBERVISION, #off )
+        //   ... fadeOut, killVideo, sprite 39 off stage ...
+        //   setState( #showMontage, 1 ) : updateDisplay #fastVideo
+        //   castCursor #toEdwin
+        //   pushVideo : wait #videoStop
+        //   setState( #showMontage, 2 ) : killVideo : updateDisplay #fastVideo
+        //   pushVideo : wait #videoStop : killVideo
+        //   setState( #showMontage, 3 ) : setTransition #fadeIn : updateDisplay
+        //   setState( #showMontage, 0 )
+        //   enterNewDomain( oStoryteller, string(#Edwin), 15 )
+        //
+        // Roxy's chapter into Edwin's, and the same shape as `goodbyeMandy`
+        // ending Brice's: montage steps with a film on each, then the domain
+        // changes. The monitor goes off first -- `#AMBERVISION` to `#off` --
+        // because the next chapter is not somewhere it works.
+        //
+        // `castCursor #toEdwin` is a cursor label rather than a number, and
+        // `castCursor` prints "wow, a cursor label" and returns without doing
+        // anything. It is dead in the original too, so nothing is missing by
+        // leaving it out.
+        "transittoedwin" => {
+            out.effects.push(Effect::CursorOff);
+            state.set("AMBERVISION", Value::Symbol("off".into()));
+            out.effects.push(Effect::StopVideo);
+
+            for step in [1, 2] {
+                out.effects.push(Effect::SetState {
+                    key: "showMontage".into(),
+                    value: Value::Int(step),
+                });
+                out.effects.push(Effect::PlayVideo(None));
+                out.effects.push(Effect::WaitForVideo);
+                out.effects.push(Effect::StopVideo);
+            }
+            out.effects.push(Effect::FadeToMontage(3));
+            out.effects.push(Effect::SetState {
+                key: "showMontage".into(),
+                value: Value::Int(0),
+            });
+            out.new_domain = Some("EDWIN".into());
+        }
+
+        // on forcePalette palName
+        //   puppetPalette palName, 60
+        //   setProp( ..., #changeMe, ... )
+        //   cursorOn
+        //
+        // Director has one palette for the whole stage, so a room whose art
+        // was authored against another has to force it before drawing. This
+        // engine resolves a palette per cast member -- each plate carries the
+        // number of the one it was drawn against, from entry 94 -- so there is
+        // no stage palette to force and nothing to do.
+        //
+        // Ported as the no-op it is here rather than left unported, so the
+        // count stops reporting it as work outstanding when the work is
+        // already done a different way.
+        "forcepalette" => {}
+
         // on setBarMode whichOne
         //   cursorOff
         //   oldMode = getState( #BarMode )
