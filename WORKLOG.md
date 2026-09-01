@@ -2491,3 +2491,46 @@ end of the stretch rather than the end of the film.
 
 Seven tests. `only_the_last_five_are_remembered_so_a_wrong_start_costs_nothing`
 is the one that carries the design.
+
+## 71. Hearing a room without hearing it
+
+helba said the box puzzle made no sound, and I could not answer it. The window
+is the only place the audio path runs, and the only way to see a fault there
+was to hear it -- which I cannot do. So I had spent a while reasoning about
+channel caps and gain lookups from the shape of the code, which is exactly the
+kind of guessing this log keeps recording as a mistake.
+
+`mix` runs the same path against a mixer with no output and prints what it is
+holding:
+
+```text
+bedrm_boxes: the bed
+  BRclock            gain 0.03 looping
+  houseHum           gain 0.11 looping
+
+click (440, 190)
+  snd1box            gain 1.00 one-shot
+```
+
+So the box sounds do reach the mixer, at full gain, over a bed at a tenth of
+it. Every theory I had been forming was wrong, and it took one command to say
+so.
+
+The tool then found a real bug I had not been looking for. A segment plays part
+of a film, and the film's *soundtrack* was still handed over whole and started
+from the beginning. `BOXPLAY.MOV` holds all five music box performances, so
+opening one box played all five tunes -- wrong, and loud enough to bury the
+box's own click. The soundtrack is sliced to the segment now.
+
+Two smaller things the report made obvious. The bed is quieter than the room's
+numbers suggest because a level is the room's `#earShot` times the game's own
+`soundVolTweaks` trim: the bedroom clock reads 19% in the room and plays at 3%,
+which is the data's intent rather than a fault. And a programme -- a radio or a
+clock -- is not a voice until it is advanced, so it shows as nothing until the
+first take is queued; the window does that every frame and the tool needed one
+nudge to be representative.
+
+What I should have built three reports ago. The pattern is the same as the
+event log in entry 58 and the recording in entry 64: when the answer is only
+visible from inside the running game, build the thing that shows it rather than
+reasoning about what it must be.

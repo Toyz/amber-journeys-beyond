@@ -3,6 +3,8 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use std::sync::Arc;
+
 use qt::{Cinepak, Ima4Decoder, Movie, TrackKind};
 use qt::rle::Rle;
 
@@ -251,6 +253,29 @@ impl VideoPlayer {
                 self.seek(i);
             }
         }
+    }
+
+    /// The part of the soundtrack belonging to the segment being played.
+    ///
+    /// One film holds all five music box performances, and its soundtrack
+    /// holds all five tunes. Handing the whole track to the mixer plays every
+    /// tune whichever box was opened, which is both wrong and loud enough to
+    /// bury the box's own click.
+    pub fn audio_for_segment(&self) -> Arc<Vec<i16>> {
+        let Some((from, to)) = self.segment else {
+            return Arc::clone(&self.audio);
+        };
+        let channels = self.audio_channels.max(1) as usize;
+        let frames = self.audio.len() / channels;
+        let at = |t: u64| {
+            let seconds = t as f64 / self.timescale.max(1) as f64;
+            ((seconds * self.audio_rate as f64) as usize).min(frames)
+        };
+        let (a, b) = (at(from), at(to));
+        if b <= a {
+            return Arc::new(Vec::new());
+        }
+        Arc::new(self.audio[a * channels..b * channels].to_vec())
     }
 
     pub fn frame(&self) -> &[u8] {

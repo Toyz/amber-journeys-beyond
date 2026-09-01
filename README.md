@@ -207,6 +207,20 @@ failing and why, `click x y` to run the same hit test the window uses, and
 `give`/`use` to put an item in hand. A route can be passed as arguments, so a
 report becomes a one-liner.
 
+## Hearing a room without hearing it
+
+`mix` runs the audio path against a mixer with no output and prints what it is
+holding, so a room that sounds wrong can be examined rather than described:
+
+```
+amber mix extract bedrm_boxes 440 190
+```
+
+It reports the ambient bed with the gain each source actually gets, then what
+each click adds. The gains are the room's `#earShot` level times the game's own
+`soundVolTweaks` trim, which is why a clock that reads 19% in the room plays at
+3%.
+
 ## Tracing
 
 The engine logs nothing unless asked. `AMBER_TRACE` selects topics by name,

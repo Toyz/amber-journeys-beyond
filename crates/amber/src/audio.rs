@@ -481,9 +481,50 @@ mod tests {
 
 pub struct Audio {
     mixer: Arc<Mutex<Mixer>>,
-    // Held to keep the stream alive; dropping it stops playback.
-    _stream: Stream,
+    // Held to keep the stream alive; dropping it stops playback. A silent
+    // mixer has none: it exists so the audio path can be exercised and
+    // reported on without a device, which is the only way to see what a room
+    // is actually asking the mixer for.
+    _stream: Option<Stream>,
     rate: u32,
+}
+
+impl Audio {
+    /// A mixer with no output, for inspecting what a room asks to hear.
+    pub fn silent() -> Audio {
+        Audio {
+            mixer: Arc::new(Mutex::new(Mixer {
+                voices: Vec::new(),
+                rate: 44100,
+                channels: 2,
+                master: 1.0,
+                duck: 1.0,
+                suspended: false,
+            })),
+            _stream: None,
+            rate: 44100,
+        }
+    }
+
+    /// Every voice the mixer is holding, for reporting.
+    pub fn voices(&self) -> Vec<String> {
+        let Ok(mixer) = self.mixer.lock() else {
+            return Vec::new();
+        };
+        mixer
+            .voices
+            .iter()
+            .map(|v| {
+                format!(
+                    "{:<18} gain {:.2} {}{}",
+                    v.name.clone().unwrap_or_else(|| "(unnamed)".into()),
+                    v.gain,
+                    if v.looping { "looping" } else { "one-shot" },
+                    if v.channelled { "" } else { ", off-channel" }
+                )
+            })
+            .collect()
+    }
 }
 
 impl Audio {
@@ -529,7 +570,7 @@ impl Audio {
         stream.play().ok()?;
         Some(Audio {
             mixer,
-            _stream: stream,
+            _stream: Some(stream),
             rate,
         })
     }

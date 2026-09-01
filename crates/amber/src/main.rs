@@ -49,6 +49,8 @@ commands:
                                render one room headlessly
   sfx       <dir> [name]       decode a named sound, or sample many
   walk      <dir> [steps...]   walk the game from the terminal
+  mix       <dir> <room> [x y ...]
+                               report what a room asks the mixer to play
   verify    <dir>              parse everything and report failures"
     );
     ExitCode::FAILURE
@@ -104,6 +106,10 @@ fn main() -> ExitCode {
         "sfx" => cmd_sfx(&dir, args.get(2).map(String::as_str)),
         "walk" => walk::walk(&dir, &args[2..]),
         "verify" => cmd_verify(&dir),
+        "mix" => match args.get(2) {
+            Some(room) => cmd_mix(&dir, room, &args[3..]),
+            None => return usage(),
+        },
         _ => return usage(),
     };
 
@@ -701,8 +707,9 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
                 };
                 let secs = pcm.len() as f32 / (rate.max(1) * channels.max(1) as u32) as f32;
                 println!(
-                    "  {n:<20} {:>9} samples  {rate:>5} Hz  {channels}ch  {secs:>5.1}s  peak {peak}{pinned}",
-                    pcm.len()
+                    "  {n:<20} {:>9} samples  {rate:>5} Hz  {channels}ch  {secs:>5.1}s  peak {peak}  gain {:.2}{pinned}",
+                    pcm.len(),
+                    game.sounds.gain(n)
                 );
                 if peak == 0 {
                     silent += 1;
@@ -717,6 +724,61 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
         }
     }
     println!("{ok} with signal, {silent} silent, {failed} unresolved");
+    Ok(())
+}
+
+/// Reports what a room asks the mixer for, and what it does with a click.
+///
+/// The window is the only place the audio path runs, and the only way to hear
+/// a fault there is to hear it. This runs the same code against a mixer with
+/// no output and prints what it is holding, so "the boxes make no sound" can
+/// be answered rather than guessed at.
+fn cmd_mix(dir: &Path, room: &str, clicks: &[String]) -> Res {
+    let mut game = game::Game::new(dir)?;
+    let target = game
+        .world
+        .resolve(room, None)
+        .ok_or_else(|| format!("no room named {room}"))?;
+    let domain = game.world.nodes[target].domain.clone();
+    game.seed_chapter(&domain);
+    game.jump_to(target);
+
+    let audio = audio::Audio::silent();
+    render::update_ambience(&mut game, Some(&audio));
+    // A radio or clock is a programme of takes queued one at a time, so it
+    // only becomes a voice once it is advanced. The window does that every
+    // frame; here it takes one nudge.
+    if let Some((pcm, rate, channels, gain)) = game.tick_program() {
+        audio.play(None, None, pcm, rate, channels, gain, false, true);
+    }
+    println!("{room}: the bed");
+    for v in audio.voices() {
+        println!("  {v}");
+    }
+
+    let coords: Vec<i32> = clicks.iter().filter_map(|c| c.parse().ok()).collect();
+    for pair in coords.chunks(2) {
+        let [x, y] = pair else { continue };
+        println!("\nclick ({x}, {y})");
+        if game.click(*x, *y).is_none() {
+            println!("  nothing there");
+            continue;
+        }
+        // Run the queue out, ignoring its waits, and play what it asks for.
+        for _ in 0..64 {
+            let effects = game.drain_ready();
+            if effects.is_empty() && !game.effects_busy() {
+                break;
+            }
+            for effect in effects {
+                render::apply_one(&mut game, Some(&audio), &effect);
+            }
+            game.clear_effect_wait();
+        }
+        for v in audio.voices() {
+            println!("  {v}");
+        }
+    }
     Ok(())
 }
 

@@ -663,6 +663,11 @@ impl Game {
         audio
     }
 
+    /// Drops a wait in progress, for a tool with no clock to wait against.
+    pub fn clear_effect_wait(&mut self) {
+        self.effect_wait = None;
+    }
+
     /// Whether the effect queue still has work, including a wait in progress.
     pub fn effects_busy(&self) -> bool {
         !self.pending.is_empty() || self.effect_wait.is_some()
