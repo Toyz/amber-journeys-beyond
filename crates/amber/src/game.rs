@@ -83,6 +83,9 @@ pub struct Game {
     pcm_cache: HashMap<String, Option<Arc<Vec<i16>>>>,
     pcm_meta: HashMap<String, (u32, u16)>,
     /// The movie currently on screen, if the room has one.
+    /// The film currently loaded for the room, by name. A room's film can be
+    /// conditional, so this is what a state change has to be compared against.
+    playing: Option<String>,
     pub player: Option<VideoPlayer>,
 }
 
@@ -101,6 +104,7 @@ impl Game {
             root: root.to_path_buf(),
             chapters: HashMap::new(),
             pending: Vec::new(),
+            playing: None,
             effect_wait: None,
             transition: None,
             puppets: BTreeMap::new(),
@@ -508,8 +512,10 @@ impl Game {
     pub fn start_room_video(&mut self) {
         self.player = None;
         let Some(name) = self.video() else {
+            self.playing = None;
             return;
         };
+        self.playing = Some(name.clone());
         match self.movies.find(&name) {
             Some(path) => {
                 trace!(crate::trace::Topic::Video, "open {name} -> {}", path.display());
@@ -1419,7 +1425,19 @@ impl Game {
             }
         }
         // A move changes which movie is on screen, so reload it either way.
+        //
+        // So can standing still. Which film a room plays is guarded like
+        // anything else -- the psionic bar's waveform is behind
+        // `[#equals: [#BarOnline, 1]]` -- so solving a puzzle can make a film
+        // eligible where a moment ago there was none. Reloading only on a move
+        // meant the bar came online and went on showing nothing, which is
+        // indistinguishable from the puzzle not having worked.
         if outcome.destination.is_some() || outcome.go_back {
+            self.start_room_video();
+        } else if outcome.redraw && !self.effects_busy() && self.video() != self.playing {
+            // Not while a scripted sequence is running: `pushVideo` puts a
+            // film on the same player, and reloading the room's own film
+            // underneath it would cut the sequence off part way.
             self.start_room_video();
         }
         if !outcome.effects.is_empty() {

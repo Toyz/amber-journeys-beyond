@@ -4106,3 +4106,53 @@ Four disabled sprites out of 6360 guards is a rounding error, and it cost a
 puzzle. The pattern is the same as `#greater` in entry 77 and the vacuous
 `#and` before it: a guard I read loosely because the common case was so common,
 and the rare case was the one that meant something.
+
+## 99. A film that only started if you walked
+
+helba set the bar to six, five and eight, pressed RUN, and nothing happened.
+
+Everything in the chain was right by then. The setters were ported, the guard
+fix from the last entry meant the digits were visible, and `walk` showed the
+whole sequence working -- `set baronline = Int(1)`, and the room reporting
+`movie: BPANEL.MOV`.
+
+The window showed nothing, because a room's film was only ever loaded when the
+player moved:
+
+```rust
+// A move changes which movie is on screen, so reload it either way.
+if outcome.destination.is_some() || outcome.go_back {
+    self.start_room_video();
+}
+```
+
+So can standing still. Which film a room plays is guarded like anything else --
+`BPANEL.MOV` sits behind `[#equals: [#BarOnline, 1]]` -- so solving a puzzle can
+make a film eligible where a moment ago there was none, and the player never
+finds out. `video()` had been naming the film correctly the whole time; nothing
+asked it again.
+
+`Game` now remembers which film is loaded and reloads when the room's answer
+changes, but not while a scripted sequence is running: `pushVideo` puts a film
+on the same player, and reloading the room's own underneath it would cut the
+sequence off part way.
+
+### Why the terminal said yes and the window said no
+
+This is the second time this week that the walk and the window disagreed, and
+both times the walk was right and useless. `walk` calls `video()` fresh every
+time it prints a room, so it reported the film the room *would* play; the
+window plays the film the room *did* load. The tool that was supposed to answer
+"does this work" was answering "should this work".
+
+I noticed only because helba told me it still did not work after I had shown
+myself it did. There is a version of this where I insist the walk output proves
+the puzzle is fixed.
+
+The fix for the tooling is the same as entry 96's: `shot` now applies its forced
+flags *before* the room chooses a film, which is what made the difference
+visible headlessly -- with the flags set afterwards it opened the film for the
+default state and reported the sprites for the forced one, quietly answering
+half of each question.
+
+211 tests.

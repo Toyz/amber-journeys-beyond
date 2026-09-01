@@ -634,14 +634,9 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path, force: &[String]) -> Res {
         // The room's own chapter, not whichever one the game opens in.
         let domain = game.node().domain.clone();
         game.seed_chapter(&domain);
-        // Load whatever this room plays, and just as importantly drop the
-        // previous one's movie. Without this the screenshot carries the
-        // startup movie over the top of every room it is asked for, so the
-        // tool answers a different question than the one asked.
-        game.start_room_video();
     }
-    // `flag=value` pairs, applied after the room is entered so they are not
-    // overwritten by the chapter's own seeding. A bare number is an integer
+    // `flag=value` pairs, applied before the room's film is chosen: which
+    // film a room plays can itself be conditional. A bare number is an integer
     // and anything else is a symbol, which is the distinction the schema draws.
     for pair in force {
         let Some((key, value)) = pair.split_once('=') else {
@@ -665,6 +660,11 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path, force: &[String]) -> Res {
 
     const W: u32 = 640;
     const H: u32 = 480;
+    // Load whatever this room plays, and just as importantly drop the previous
+    // one's movie. Without this the screenshot carries the startup movie over
+    // the top of every room it is asked for. It happens after the forced flags
+    // because which film a room plays is itself conditional.
+    game.start_room_video();
     let mut frame = vec![0u32; (W * H) as usize];
     // Let a movie reach a frame with content in it; the opening seconds of
     // most are a fade from black and would make a misleading screenshot. The
