@@ -3750,3 +3750,43 @@ think the rule is: a test that exercises a *module* proves nothing about a
 that each worked.
 
 203 tests. Unported is 14 verbs across 18 call sites.
+
+## 93. Counting what I had not been counting
+
+`verify` says 14 unported verbs across 18 call sites, and I have been reading
+that as "what is left". It is not. It counts verbs named in a room's action
+list, and the last two entries were both handlers that no action list mentions.
+
+So I counted the other kind. `tools/disasm.py --list` now enumerates every
+handler in a movie, which it could not do before -- a movie has several frame
+scripts sharing a name and asking by name returned whichever came first, which
+is how I read Roxy's loader `exitFrame` for ten minutes while looking for its
+scan countdown.
+
+Event handlers across the four chapters:
+
+| | ROXY | MARGARET | EDWIN | BRICE |
+|---|---:|---:|---:|---:|
+| `mouseDown` | 10 | 13 | 2 | 2 |
+| `exitFrame` | 4 | 4 | 3 | 3 |
+| `enterFrame` | 1 | 1 | 1 | 1 |
+| `idle` | 1 | 1 | 1 | 1 |
+| `startMovie` | 1 | 1 | 1 | 1 |
+| `mouseUp` | 1 | | | |
+
+**Fifty-four handlers this engine has never run.** Some are trivial --
+`startMovie` sets a cursor, the `enterFrame`s are debug output. But 27 of them
+are `mouseDown` sprite scripts, and the two I have read so far were Margaret's
+entire chapter opening and the scan unit's whole interface. The interactive
+devices live here: this is where the peek unit's display, the psionic bar's
+panel and the radio's tuner are.
+
+The number I have been quoting was never wrong, it was answering a narrower
+question than it looked like -- which is the fourth time this month, after
+`verify`'s unported tally, the effect coverage, and the `StopLoop` names. I
+have stopped treating that as a coincidence. The shape is always the same: a
+count that is easy to produce stands in for a count that is hard to produce,
+and then gets quoted as though it were the hard one.
+
+Both numbers now, and both said out loud: **14 verbs across 18 call sites, and
+54 event handlers of which 2 are ported.**
