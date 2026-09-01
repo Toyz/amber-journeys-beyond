@@ -1,0 +1,11 @@
+[package]
+name = "amber"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+director = { path = "../director" }
+lingo = { path = "../lingo" }
+minifb = "0.28.0"
+qt = { path = "../qt" }

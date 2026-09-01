@@ -1,0 +1,11 @@
+# Build output
+/target
+
+# Game data. The disc image and its contents are not redistributable and
+# must be supplied by whoever runs this; see README.md.
+/extract
+*.iso
+*.ISO
+
+# Scratch
+/tools/__pycache__
