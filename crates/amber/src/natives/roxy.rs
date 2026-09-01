@@ -877,7 +877,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 ("gain", "BarGain"),
                 ("FM", "BarFM"),
             ];
-            if state.get("BarMode").as_symbol() != Some("setON") {
+            if !state.get("BarMode").is_symbol("setON") {
                 return true;
             }
             let Some(flag) = state.get("BarSelection").as_symbol().and_then(|sel| {
@@ -1082,7 +1082,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 .and_then(Value::as_str)
                 .is_some_and(|o| o.trim_start_matches('#').eq_ignore_ascii_case("toggle"));
             let current = state.get("BT_bias");
-            let off = current.as_symbol() == Some("off");
+            let off = current.is_symbol("off");
 
             if toggle {
                 if off {
@@ -1138,7 +1138,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 .and_then(Value::as_str)
                 .map(|o| o.trim_start_matches('#').to_ascii_lowercase())
                 .unwrap_or_default();
-            let on = state.get("BT_alignmentLeft").as_symbol() != Some("off");
+            let on = !state.get("BT_alignmentLeft").is_symbol("off");
 
             if option == "toggle" {
                 let now = Value::Symbol(if on { "off" } else { "on" }.into());

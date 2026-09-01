@@ -78,6 +78,20 @@ impl Value {
         }
     }
 
+    /// Whether this is the named symbol, ignoring case and a leading `#`.
+    ///
+    /// Lingo compares symbols without regard to case, and the two pressings of
+    /// the disc disagree about it: the PC location table says `bedrm_fadeIn`
+    /// and the Macintosh one says `bedrm_fadein`. An exact comparison works on
+    /// one disc and silently does nothing on the other, which is how
+    /// Margaret's opening ran on the PC data and not on the Mac's.
+    pub fn is_symbol(&self, name: &str) -> bool {
+        self.as_symbol().is_some_and(|s| {
+            s.trim_start_matches('#')
+                .eq_ignore_ascii_case(name.trim_start_matches('#'))
+        })
+    }
+
     pub fn as_list(&self) -> Option<&[Value]> {
         match self {
             Value::List(v) => Some(v),

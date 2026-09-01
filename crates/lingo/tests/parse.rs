@@ -126,3 +126,24 @@ fn a_period_is_part_of_a_name_only_when_a_name_continues() {
     let v = parse_value("[#a, #b]").unwrap();
     assert_eq!(v.as_list().map(<[_]>::len), Some(2));
 }
+
+/// Lingo compares symbols without regard to case, and the two pressings of the
+/// disc disagree: the PC location table says `bedrm_fadeIn`, the Macintosh one
+/// says `bedrm_fadein`. Everything that tests a symbol has to go through this.
+#[test]
+fn symbols_compare_without_regard_to_case() {
+    let v = Value::Symbol("bedrm_fadeIn".into());
+    assert!(v.is_symbol("bedrm_fadein"));
+    assert!(v.is_symbol("BEDRM_FADEIN"));
+    assert!(v.is_symbol("#bedrm_fadeIn"));
+    assert!(!v.is_symbol("bedrm_fadeOut"));
+
+    // A leading hash on either side is the same symbol.
+    assert!(Value::Symbol("#off".into()).is_symbol("off"));
+    assert!(!Value::Symbol("off".into()).is_symbol("on"));
+
+    // Nothing else answers to a symbol.
+    assert!(!Value::String("off".into()).is_symbol("off"));
+    assert!(!Value::Void.is_symbol("off"));
+}
+

@@ -54,6 +54,9 @@ impl SoundBank {
     pub fn new(root: &Path) -> SoundBank {
         let mut files = HashMap::new();
         index_files(root, 0, &mut files);
+        for extra in crate::fallback_roots() {
+            index_files(&extra, 0, &mut files);
+        }
         SoundBank {
             sources: HashMap::new(),
             groups: HashMap::new(),

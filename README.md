@@ -9,9 +9,41 @@ original disc, which you supply yourself.
 
 ## What the original is
 
-The disc is a hybrid Mac/PC CD built with Toast, volume `AMBER_JB`. The
-game is a Director 5 projector (`AMBER_F/AMBER_JB.EXE`) driving four
-chapter movies, one per haunting, plus a hub:
+The game shipped as two separate releases, and neither disc is complete
+on its own.
+
+The **PC release** is one CD: pure ISO9660, volume `AMBER_JB`, 676 files,
+no Apple partition map or HFS volume anywhere. The **Macintosh release**
+is two CDs, `AMBER_A` and `AMBER_B`, as bare HFS volumes with no ISO9660
+track. They are not the same disc pressed two ways.
+
+The differences that matter:
+
+| | PC | Macintosh |
+| --- | --- | --- |
+| Discs | 1 | 2 |
+| Movies on disc | 278 | 283 |
+| Referenced movies that resolve | 191 of 196 | 195 of 196 |
+| Sound files loose on disc | 325 | 183 |
+
+The PC release references five films it does not ship: `40sINTRO.mov`
+(Margaret's opening), `MEewall.mov`, and the three scan-unit films
+`ST-CPU-LED`, `UH-BATHKNOBSCAN-ON1` and `UH-MARGKNOBSCAN-ON1`. Its cast
+entries still point at `C:\AMBER building\AJBDISC1\...`, so it was
+assembled from the two-disc layout and those films were dropped to fit
+one CD. The Macintosh release has all five and is missing only
+`tuner_bg.mov`, which only the PC build uses. Its extra sounds live
+inside its installer rather than loose on the disc, but every sound the
+game actually references resolves on both.
+
+**This port favours the Macintosh release**, and reads the PC disc too.
+Where a platform test appears in the Lingo -- `if gCPU = #Mac` -- the
+Macintosh arm is taken; the movies are `RIFX`, which is the Macintosh
+byte order, and on that build the films carry their own audio where the
+PC build plays it separately.
+
+The game itself is a Director 5 projector (`AMBER_F/AMBER_JB.EXE` on the
+PC) driving four chapter movies, one per haunting, plus a hub:
 
 | Path | Role |
 | --- | --- |
@@ -178,7 +210,33 @@ crates/amber     The engine:
 
 ## Use
 
-Point the tools at a directory holding the disc's contents:
+Point the tools at a directory holding a disc's contents. Because
+neither release is complete, `AMBER_FALLBACK` names further directories
+to fill the gaps -- a `:`-separated list, searched in order after the
+directory given on the command line:
+
+```sh
+# the Macintosh release, with the PC disc filling what it lacks
+AMBER_FALLBACK=extract ./target/release/amber play mac_game
+```
+
+Both indexes are first-match-wins, so the directory on the command line
+always beats a fallback. Nothing is copied and no tree is modified,
+which keeps each release honest about what it actually shipped.
+
+The Macintosh discs are StuffIt-wrapped HFS images; `tools/hfs.py`
+reads them:
+
+```sh
+unar amber_aimage.sit && unar amber_bimage.sit
+python3 tools/hfs.py "AMBER_A*image" list
+python3 tools/hfs.py "AMBER_B*image" extract mac_game
+```
+
+Seven of Roxy's endgame films are 468-byte stubs on disc B and real on
+disc A, so when merging the two take the larger copy.
+
+
 
 ```sh
 cargo build --release

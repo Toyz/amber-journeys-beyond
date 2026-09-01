@@ -32,7 +32,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // has to be solved in one visit -- unless it already has been, in
         // which case the open box is left alone.
         "resetheartbox" => {
-            if state.get("heartBox").as_symbol() == Some("open") {
+            if state.get("heartBox").is_symbol("open") {
                 return true;
             }
             for nail in ["nail_1", "nail_2", "nail_3"] {
@@ -122,7 +122,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             });
             out.redraw = true;
 
-            if NAILS.iter().any(|n| state.get(n).as_symbol() != Some("out")) {
+            if NAILS.iter().any(|n| !state.get(n).is_symbol("out")) {
                 return true;
             }
             // All three out. Three films in a row, then the box.

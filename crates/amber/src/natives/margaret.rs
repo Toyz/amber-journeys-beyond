@@ -302,7 +302,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // The `#volume: 0` on both loops is not a mistake to be corrected:
         // `fadeUpRadio` at the end is what brings them in.
         "exitframe" => {
-            if state.get("currentLocation").as_symbol() != Some("bedrm_fadeIn") {
+            if !state.get("currentLocation").is_symbol("bedrm_fadeIn") {
                 return true;
             }
             // The opening film first; everything below is what happens after.
@@ -408,12 +408,12 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             for (station, at) in RADIO_STATIONS {
                 state.set_all(&format!("gRadioStation_{station}"), vec![Value::Int(at)]);
             }
-            if state.get_all("tunedIn").iter().any(|v| v.as_symbol() == Some("diningRm")) {
+            if state.get_all("tunedIn").iter().any(|v| v.is_symbol("diningRm")) {
                 mark(state, "inBetween", &[264, 268, 272]);
                 mark(state, "bedroom", &[232]);
                 mark(state, "bedroomWarm", &[24, 28, 32]);
                 mark(state, "bedroomCool", &[36, 40, 44]);
-                if state.get("dumbWaiter").as_symbol() == Some("kitchen") {
+                if state.get("dumbWaiter").is_symbol("kitchen") {
                     mark(state, "kitchen", &[256]);
                     mark(state, "kitchenWarm", &[168, 172, 176]);
                     mark(state, "kitchenCool", &[180, 184, 188]);
@@ -452,7 +452,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 .is_some_and(|d| d.trim_start_matches('#').eq_ignore_ascii_case("up"));
 
             let tuned = state.get("tunedIn");
-            if tuned.as_symbol() != Some("inBetween") {
+            if !tuned.is_symbol("inBetween") {
                 state.set_all("gStaticWhere", vec![tuned]);
                 state.set("tunedIn", Value::Symbol("inBetween".into()));
                 for loop_name in ["BRclock", "Kclock", "DRclock", "LRclock", "roaringFire"] {
@@ -1006,5 +1006,25 @@ mod box_tests {
         let mut out = Outcome::default();
         assert!(call("exitframe", &[], &mut s, &mut out));
         assert!(out.effects.is_empty());
+    }
+
+    #[test]
+    fn the_opening_runs_whichever_way_the_disc_spells_the_room() {
+        // The PC location table says `bedrm_fadeIn` and the Macintosh one
+        // says `bedrm_fadein`; the original does not care and neither can we.
+        for spelling in ["bedrm_fadeIn", "bedrm_fadein", "BEDRM_FADEIN"] {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+            s.set_all("currentLocation", vec![Value::Symbol(spelling.into())]);
+            let mut out = Outcome::default();
+            assert!(call("exitframe", &[], &mut s, &mut out));
+            assert!(
+                out.effects.iter().any(|e| matches!(
+                    e,
+                    Effect::GoToRoom { room, .. } if room == "bedrm_margaret"
+                )),
+                "opening did not run for {spelling}"
+            );
+        }
     }
 }

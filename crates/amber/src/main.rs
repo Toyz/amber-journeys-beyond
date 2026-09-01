@@ -25,6 +25,41 @@ mod script;
 mod state;
 mod world;
 
+/// Extra game directories to fall back on, from `AMBER_FALLBACK`.
+///
+/// The game had two releases and neither disc is complete on its own. The
+/// Macintosh release carries five films the PC release references and does not
+/// ship -- Margaret's opening, Roxy's east wall, and the three scan-unit films
+/// -- and the PC release carries `tuner_bg.mov` and a pile of sounds the
+/// Macintosh keeps inside its installer. Both are legitimate; they are just
+/// different pressings.
+///
+/// So rather than merge the two on disc and lose track of which came from
+/// where, a run names one directory and may name others to fall back on:
+///
+/// ```text
+/// AMBER_FALLBACK=extract cargo run --release -- play mac_game
+/// ```
+///
+/// Both indexes are first-match-wins, so the directory given on the command
+/// line always beats a fallback and the fallbacks only fill gaps. Nothing is
+/// copied and neither tree is modified.
+///
+/// Separator is `:`, as a PATH would be.
+pub fn fallback_roots() -> Vec<std::path::PathBuf> {
+    std::env::var("AMBER_FALLBACK")
+        .ok()
+        .into_iter()
+        .flat_map(|v| {
+            v.split(':')
+                .filter(|s| !s.is_empty())
+                .map(std::path::PathBuf::from)
+                .collect::<Vec<_>>()
+        })
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

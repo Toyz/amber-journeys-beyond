@@ -3620,3 +3620,67 @@ MARGARET / bedrm_margaret   [BR-MARG'S BODY]
 196 tests. Four of helba's reports closed in one afternoon, and not one of them
 was a bug in the engine's own logic: three were films the PC disc does not
 carry, and this one was a handler I did not read.
+
+## 91. Favouring the Macintosh release
+
+helba's call, and the right one: the Macintosh release is the more complete
+one, and this port already took the Macintosh arm at every `if gCPU = #Mac` in
+the Lingo. Saying so out loud makes the two consistent.
+
+The obvious move was to copy the five missing films into the PC tree, which is
+what I did first and then undid. It gives one working directory and destroys
+the thing that makes either disc worth having: after the copy, `extract` is no
+longer a PC release, and the next time I want to know what the PC actually
+shipped I have to remember which files I put there.
+
+So instead there is `AMBER_FALLBACK`, a `:`-separated list of further
+directories searched after the one on the command line:
+
+```sh
+AMBER_FALLBACK=extract amber play mac_game
+```
+
+Both file indexes were already first-match-wins -- a chapter's own copy of a
+film is not displaced by an identically named one found later -- so this needed
+one loop in each and nothing else. Every configuration now resolves what it
+should:
+
+```text
+extract   alone              196 referenced, 5 unresolved
+mac_game  alone              196 referenced, 1 unresolved
+mac_game  + extract          196 referenced, 0 unresolved
+extract   + mac_game         196 referenced, 0 unresolved
+```
+
+Neither tree is modified and neither is lying about itself.
+
+### One rule, twelve places
+
+Switching to the Mac data broke Margaret's opening immediately, and the reason
+was mine: the PC location table spells the room `bedrm_fadeIn` and the
+Macintosh one spells it `bedrm_fadein`. My guard compared exactly.
+
+Lingo compares symbols without regard to case. I had been writing
+
+```rust
+state.get("currentLocation").as_symbol() == Some("bedrm_fadeIn")
+```
+
+in **twelve** places, every one of which happened to be right on the PC data
+and wrong in principle. Rather than patch twelve comparisons there is now
+`Value::is_symbol`, which is the rule in one place, and the twelve sites use
+it.
+
+This is the third time this week the same mistake has surfaced -- the whirligig
+tables spell three directions in lower case where the vane spells them in
+upper (entry 85), the `.DXR` filenames differ in case between pressings (entry
+89), and now the room names. Each time I fixed the instance. The rule is that
+**nothing in this game's data is case-sensitive and nothing in the port should
+be either**, and it took three encounters to write a helper instead of a patch.
+
+Also corrected the README, which had said since the beginning that the disc was
+"a hybrid Mac/PC CD built with Toast". Entry 79 disproved that months of notes
+later and I never went back to fix the front page. It now says what there
+actually is: two releases, one disc and two discs, and what each is missing.
+
+198 tests.

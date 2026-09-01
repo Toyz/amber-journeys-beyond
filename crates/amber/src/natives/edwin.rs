@@ -97,7 +97,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // regard to case, so the mismatch never mattered there and would have
         // silently found nothing here.
         "initwhirligig" => {
-            if state.get("Wind").as_symbol() == Some("None") {
+            if state.get("Wind").is_symbol("None") {
                 return true;
             }
             call("disablegust", &[], state, out);
@@ -138,7 +138,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // so a vane turned while the whirligig is still gives the direction
         // the wind picks up in.
         "startwhirligig" => {
-            if state.get("Wind").as_symbol() == Some("None") {
+            if state.get("Wind").is_symbol("None") {
                 return true;
             }
             state.set("showMontage", Value::Int(1));
@@ -231,7 +231,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
 
             state.set_all("weatherVane", vec![Value::Symbol(new.into())]);
-            if state.get("Wind").as_symbol() != Some("None") {
+            if !state.get("Wind").is_symbol("None") {
                 state.set("Wind", Value::Symbol(new.into()));
             }
 

@@ -17,6 +17,9 @@ impl MovieIndex {
     pub fn build(root: &Path) -> MovieIndex {
         let mut by_name = HashMap::new();
         walk(root, 0, &mut by_name);
+        for extra in crate::fallback_roots() {
+            walk(&extra, 0, &mut by_name);
+        }
         MovieIndex { by_name }
     }
 
