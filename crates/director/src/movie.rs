@@ -137,6 +137,70 @@ pub struct Movie {
     pub stage_height: u16,
 }
 
+
+/// Where a cast member's parts are, and which Director wrote it.
+pub(crate) struct CastLayout {
+    pub kind: u32,
+    pub info: std::ops::Range<usize>,
+    pub spec: std::ops::Range<usize>,
+    /// Offset within `spec` of a bitmap's palette reference.
+    pub palette_at: usize,
+}
+
+/// Works out which of the two `CASt` layouts a record uses.
+///
+/// Director 5 writes three `u32`s -- kind, info length, data length -- then the
+/// info block and then the type-specific block. Director 4 writes a `u16` data
+/// length and a `u32` info length, then the type-specific block, then the info
+/// block; it has no kind field at all, because the kind is the first byte of
+/// the type-specific block, followed by a flags byte.
+///
+/// The Macintosh release of Amber is a Director 4 movie and the PC release is
+/// Director 5. Reading only the Director 5 shape turned every cast member on
+/// the Macintosh disc into an unknown type: its first four bytes are the data
+/// length in the high half and the top of the info length in the low half,
+/// which is why they all came out as large round numbers like 1835008.
+///
+/// The two are told apart by which arithmetic accounts for the whole record.
+/// Both are checked and neither is guessed; across Roxy's 2444 members exactly
+/// one of them fits every time.
+pub(crate) fn cast_layout(cd: &[u8], endian: Endian) -> Option<CastLayout> {
+    let read = |at: usize, wide: bool| -> Option<usize> {
+        let mut r = Reader::at(cd, endian, at);
+        Some(if wide { r.u32().ok()? as usize } else { r.u16().ok()? as usize })
+    };
+
+    // Director 5: kind, info length, data length, all wide.
+    if let (Some(kind), Some(info_len), Some(data_len)) =
+        (read(0, true), read(4, true), read(8, true))
+    {
+        if cd.len() == 12 + info_len + data_len {
+            let spec_start = 12 + info_len;
+            return Some(CastLayout {
+                kind: kind as u32,
+                info: 12..12 + info_len,
+                spec: spec_start..spec_start + data_len,
+                palette_at: 0x1a,
+            });
+        }
+    }
+
+    // Director 4: a narrow data length, a wide info length, and the kind
+    // inside the block. Past the kind and its flags byte the bitmap header is
+    // the same as Director 5's, except that it has no `ffff` field before the
+    // palette, so the reference sits two bytes earlier.
+    let (data_len, info_len) = (read(0, false)?, read(2, true)?);
+    if cd.len() == 6 + data_len + info_len {
+        return Some(CastLayout {
+            kind: u32::from(*cd.get(6)?),
+            info: 6 + data_len..6 + data_len + info_len,
+            spec: 8..6 + data_len,
+            palette_at: 0x18,
+        });
+    }
+    None
+}
+
 impl Movie {
     pub fn open(path: impl AsRef<Path>) -> Result<Movie> {
         Movie::from_bytes(std::fs::read(path)?)
@@ -309,22 +373,45 @@ impl Movie {
 
     fn parse_cast_member(&self, number: u32, res: u32) -> Result<CastMember> {
         let cd = self.resource_data(res)?;
-        let mut r = Reader::new(cd, self.endian);
-        let kind = CastKind::from(r.u32()?);
-        let info_len = r.u32()? as usize;
-        let data_len = r.u32()? as usize;
+
+        // Two layouts, and the disc has one of each.
+        //
+        // Director 5 writes three `u32`s -- kind, info length, data length --
+        // then the info block and then the type-specific block. Director 4
+        // writes a `u16` data length and a `u32` info length, then the
+        // type-specific block, then the info block; there is no kind field,
+        // because the kind is the first byte of the type-specific block.
+        //
+        // The Macintosh release of Amber is a Director 4 movie and the PC
+        // release is Director 5. Reading only the Director 5 shape turned
+        // every cast member on the Macintosh disc into an unknown type -- its
+        // first four bytes are the data length in the high half and the top of
+        // the info length in the low half, which is why they all came out as
+        // large round numbers like 1835008 rather than as anything plausible.
+        //
+        // They are told apart by which arithmetic accounts for the whole
+        // record. Both are checked, neither is guessed, and across Roxy's
+        // 2444 members exactly one of them fits.
+        let Some(layout) = cast_layout(cd, self.endian) else {
+            return Err(Error::Unsupported(
+                "cast member matches neither the Director 4 nor the Director 5 layout".into(),
+            ));
+        };
+        let CastLayout {
+            kind,
+            info,
+            spec,
+            palette_at,
+        } = layout;
+        let info = cd.get(info.clone()).unwrap_or(&[]);
+        let spec = cd.get(spec.clone()).unwrap_or(&[]);
+        let kind = CastKind::from(kind);
 
         let mut m = CastMember::empty(number);
         m.kind = kind;
         m.resource = res;
-        m.name = self.cast_member_name(&cd[12..12 + info_len.min(cd.len() - 12)]);
+        m.name = self.cast_member_name(info);
 
-        // The type-specific block follows the info block. For bitmaps it opens
-        // with the row stride and the member's bounding rectangle.
-        let spec_start = 12 + info_len;
-        let spec = cd
-            .get(spec_start..spec_start + data_len)
-            .unwrap_or(&[]);
         // The digital video block ends with a flags byte, of which bit 4 is
         // the loop. Established by comparing members across the whole disc:
         // the four values that occur are 0x22, 0x2a, 0x32 and 0x3a, and the
@@ -357,8 +444,8 @@ impl Movie {
             if spec.len() >= 0x18 {
                 m.bit_depth = spec[0x17];
             }
-            if spec.len() >= 0x1c {
-                let mut s = Reader::at(spec, self.endian, 0x1a);
+            if spec.len() >= palette_at + 2 {
+                let mut s = Reader::at(spec, self.endian, palette_at);
                 m.palette_ref = s.i16().unwrap_or(0);
             }
             // Director omits the depth byte for 1-bit members; infer from stride.
@@ -560,3 +647,67 @@ impl Movie {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod cast_layout_tests {
+    use super::*;
+
+    /// The two records are the same cast member -- Roxy's `O_ENTRY2`, 600 by
+    /// 300 -- as each release actually stores it, trimmed to the header and
+    /// the type-specific block. They are what taught me the difference.
+    #[test]
+    fn the_two_directors_are_told_apart_by_their_arithmetic() {
+        // Director 5: kind, info length, data length, then info, then spec.
+        let mut d5 = Vec::new();
+        d5.extend_from_slice(&1u32.to_be_bytes()); // Bitmap
+        d5.extend_from_slice(&4u32.to_be_bytes()); // info length
+        d5.extend_from_slice(&28u32.to_be_bytes()); // data length
+        d5.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]); // the info block
+        d5.extend_from_slice(&[
+            0x82, 0x58, 0x00, 0x00, 0x00, 0x00, 0x01, 0x2c, 0x02, 0x58, 0x43, 0x0c, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x96, 0x01, 0x2c, 0x00, 0x08, 0xff, 0xff, 0x03, 0x51,
+        ]);
+
+        let l = cast_layout(&d5, Endian::Big).expect("Director 5 record");
+        assert_eq!(l.kind, 1);
+        assert_eq!(&d5[l.info.clone()], &[0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(d5[l.spec.clone()][0..2], [0x82, 0x58]); // the row stride
+        assert_eq!(l.palette_at, 0x1a);
+        assert_eq!(
+            i16::from_be_bytes([d5[l.spec.start + 0x1a], d5[l.spec.start + 0x1b]]),
+            849
+        );
+
+        // Director 4: data length, info length, then the spec -- opening with
+        // the kind and a flags byte -- then the info.
+        let mut d4 = Vec::new();
+        d4.extend_from_slice(&28u16.to_be_bytes()); // data length
+        d4.extend_from_slice(&4u32.to_be_bytes()); // info length
+        d4.extend_from_slice(&[0x01, 0x00]); // kind, flags
+        d4.extend_from_slice(&[
+            0x82, 0x58, 0x00, 0x00, 0x00, 0x00, 0x01, 0x2c, 0x02, 0x58, 0xff, 0xf4, 0xff, 0xf4,
+            0x01, 0x38, 0x02, 0x64, 0x00, 0x96, 0x01, 0x2c, 0x00, 0x08, 0x03, 0x42,
+        ]);
+        d4.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]); // the info block, last
+
+        let l = cast_layout(&d4, Endian::Big).expect("Director 4 record");
+        assert_eq!(l.kind, 1);
+        assert_eq!(&d4[l.info.clone()], &[0xde, 0xad, 0xbe, 0xef]);
+        // The kind and flags are not part of the header the bitmap reader sees.
+        assert_eq!(d4[l.spec.clone()][0..2], [0x82, 0x58]);
+        assert_eq!(l.palette_at, 0x18);
+        assert_eq!(
+            i16::from_be_bytes([d4[l.spec.start + 0x18], d4[l.spec.start + 0x19]]),
+            834
+        );
+    }
+
+    #[test]
+    fn a_record_that_is_neither_is_refused_rather_than_guessed() {
+        // Lengths that account for nothing: the whole point is that a wrong
+        // reading used to sail through and produce an unknown cast type.
+        let junk = vec![0xff; 40];
+        assert!(cast_layout(&junk, Endian::Big).is_none());
+    }
+}
+

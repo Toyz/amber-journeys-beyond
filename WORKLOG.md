@@ -3790,3 +3790,84 @@ and then gets quoted as though it were the hard one.
 
 Both numbers now, and both said out loud: **14 verbs across 18 call sites, and
 54 event handlers of which 2 are ported.**
+
+## 94. Two Directors
+
+helba pointed the window at the Macintosh data and got a black screen. It
+reproduced headlessly on the first try -- `shot mac_game officeentry2` wrote a
+PNG that was pure black while the same room from the PC disc rendered fine, and
+both reported "1 sprites drawn".
+
+The cast listing said what was wrong:
+
+```text
+mac_game/ROXY/ROXY.dxr: 2738 cast slots
+  Unknown(1572864)   178
+  Unknown(1835008)  1222
+  Unknown(1966080)   851
+  Unknown(262144)     21
+  Unknown(65536)      64
+```
+
+Every member an unknown type, and the numbers are the giveaway: 1835008 is
+0x1C0000, a small number sitting in the high half of a word that should have
+held a small number in the low half.
+
+**The Macintosh release is a Director 4 movie and the PC release is Director
+5.** Same `RIFX` byte order, same chunk tags, different `CASt` record:
+
+| | Director 5 | Director 4 |
+|---|---|---|
+| header | kind `u32`, info `u32`, data `u32` | data `u16`, info `u32` |
+| then | info block, then type block | type block, then info block |
+| kind | its own field | first byte of the type block |
+| palette reference | spec + 0x1a | spec + 0x18 |
+
+There is no kind field in Director 4 at all. What I had been reading as the
+kind was the data length in the top half of the word and the top of the info
+length in the bottom.
+
+They are told apart by which arithmetic accounts for the whole record --
+`12 + info + data` against `6 + data + info` -- and across Roxy's 2444 members
+exactly one of them fits, every time, with nothing left over. That is a much
+better test than sniffing a version number, and it is why the decision is a
+pure function with both records from the disc written into its test.
+
+Aligning the same member from both discs is what settled the bitmap header.
+Cast 1590, `O_ENTRY2`, 600 by 300:
+
+```text
+PC   82 58 0000 0000 012c 0258  430c 0000 0000 0000  0096 012c 0008  ffff  0351
+MAC  82 58 0000 0000 012c 0258  fff4 fff4 0138 0264  0096 012c 0008        0342
+```
+
+Identical up to and including the depth byte, and Director 4 has no `ffff`
+field before the palette -- so everything works unchanged once the two-byte
+prefix is skipped, except the palette reference, which sits two bytes earlier.
+
+With that, the Macintosh release reads exactly like the PC one:
+
+```text
+before   rooms: 1320   named rooms: 0
+after    rooms: 1325   named rooms: 1325
+```
+
+Those five rooms and all 1325 names were the embedded copies, which are cast
+members, which is why none of them parsed.
+
+### What is still different
+
+The art is genuinely darker on the Macintosh disc, and not by a constant.
+Margaret's rooms come out at about 0.6 of the PC's mean luminance, which is
+what gamma 1.8 against sRGB's 2.2 does to an image. Roxy's come out at about
+0.2, which is not.
+
+The `BITD` chunks differ -- 168241 bytes against 158518, different hashes --
+so this is different artwork rather than a decode fault, and rendering the
+Macintosh bitmap against the PC's palette produces obvious colour artifacts
+while its own palette produces a clean image. Both discs are being read
+correctly. They just do not contain the same pictures.
+
+Whether Roxy's chapter is *supposed* to be that dark I cannot yet say. The
+obvious reference was helba's Macintosh longplay capture, and I deleted it --
+see the next entry.

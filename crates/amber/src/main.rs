@@ -431,16 +431,33 @@ fn cmd_cast(path: &Path) -> Res {
 fn cmd_export(movie_path: &Path, cast: u32, out: &Path) -> Res {
     let movie = Movie::open(movie_path)?;
     let bmp = movie.bitmap(cast)?;
-    let palettes = movie.palettes();
-    let palette = palettes.first().cloned().unwrap_or_default();
+    // The member names the palette cast it was authored against, and taking
+    // the movie's first palette instead -- as this did -- happens to look
+    // right whenever a chapter's rooms share one, and hides the case where a
+    // member's own reference is being read wrongly.
+    // An override, for asking "is this member's own palette the right one?"
+    // -- which is not a question the renderer can be made to answer.
+    let forced = std::env::var("AMBER_PALETTE").ok().and_then(|v| v.parse::<i16>().ok());
+    let own = movie.palette_for_cast(forced.unwrap_or(bmp.palette_ref));
+    let palette = own
+        .clone()
+        .or_else(|| movie.palettes().first().cloned())
+        .unwrap_or_default();
     let rgba = bmp.to_rgba(&palette, None);
     write_png(out, bmp.width as u32, bmp.height as u32, &rgba)?;
     println!(
-        "wrote {} ({}x{}) from cast {}",
+        "wrote {} ({}x{}) from cast {} {:?}, palette {}{}",
         out.display(),
         bmp.width,
         bmp.height,
-        cast
+        cast,
+        movie.member(cast).and_then(|m| m.name.clone()),
+        forced.unwrap_or(bmp.palette_ref),
+        if own.is_some() {
+            ""
+        } else {
+            " (no such palette member; fell back to the movie's first)"
+        }
     );
     Ok(())
 }
