@@ -291,7 +291,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //   and 45, which carry the animated parts of the puzzles.
         "puppetsprite" => {
             let channel = args.first().and_then(Value::as_int).unwrap_or(0);
-            let on = args.get(1).map_or(true, |v| v.truthy());
+            let on = args.get(1).is_none_or(|v| v.truthy());
             if channel > 0 {
                 out.effects.push(Effect::PuppetSprite {
                     channel: channel as u8,

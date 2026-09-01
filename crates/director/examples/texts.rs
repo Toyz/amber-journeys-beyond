@@ -7,7 +7,7 @@ fn main() {
     println!("-- STXT chunks --");
     for (i, t) in m.texts().iter().enumerate() {
         if t.contains(&needle) {
-            println!("  [{i}] len={} starts: {:?}", t.len(), &t.chars().take(110).collect::<String>());
+            println!("  [{i}] len={} starts: {:?}", t.len(), t.chars().take(110).collect::<String>());
         }
     }
     println!("-- text cast members --");
@@ -22,7 +22,7 @@ fn main() {
                     member.number,
                     member.name,
                     t.len(),
-                    &t.chars().take(110).collect::<String>()
+                    t.chars().take(110).collect::<String>()
                 );
             }
         }

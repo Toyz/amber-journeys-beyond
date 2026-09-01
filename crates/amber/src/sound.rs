@@ -346,11 +346,11 @@ fn load_aiff(d: &[u8]) -> Option<Pcm> {
         b"ima4" => qt::decode_ima4(raw, channels),
         b"NONE" | b"sowt" if bits == 8 => raw.iter().map(|&b| (b as i8 as i16) << 8).collect(),
         b"sowt" => raw
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
             .collect(),
         _ => raw
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|c| i16::from_be_bytes([c[0], c[1]]))
             .collect(),
     };
@@ -390,7 +390,7 @@ fn load_wav(d: &[u8]) -> Option<Pcm> {
     let samples = if bits == 8 {
         raw.iter().map(|&b| ((b as i16) - 128) << 8).collect()
     } else {
-        raw.chunks_exact(2)
+        raw.as_chunks::<2>().0.iter()
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
             .collect()
     };

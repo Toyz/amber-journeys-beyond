@@ -47,7 +47,7 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
     let mut lines: Box<dyn Iterator<Item = String>> = if interactive {
         Box::new(stdin.lock().lines().map_while(Result::ok))
     } else {
-        Box::new(script_steps.to_vec().into_iter())
+        Box::new(script_steps.iter().cloned())
     };
 
     loop {

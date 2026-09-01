@@ -122,7 +122,7 @@ fn parse_track(data: &[u8], start: usize, end: usize) -> Option<Track> {
     } else {
         (
             u32_at(data, mdhd.body + 20),
-            u32::from(u32_at(data, mdhd.body + 24)) as u64,
+            u32_at(data, mdhd.body + 24) as u64,
         )
     };
 
@@ -246,7 +246,7 @@ fn parse_track(data: &[u8], start: usize, end: usize) -> Option<Track> {
                     // what QuickTime means by omitting `stss`.
                     sync: syncs
                         .as_ref()
-                        .map_or(true, |s| s.contains(&(index as u32 + 1))),
+                        .is_none_or(|s| s.contains(&(index as u32 + 1))),
                 });
             }
             offset += len as usize;
@@ -370,8 +370,9 @@ fn parse_chunks(data: &[u8], start: usize, end: usize, sizes: &[u32]) -> (Vec<u6
                 .get(i + 1)
                 .map(|(next, _)| *next as usize - 1)
                 .unwrap_or(offsets.len());
-            for c in (first as usize).saturating_sub(1)..last.min(offsets.len()) {
-                per_chunk[c] = samples;
+            let (lo, hi) = ((first as usize).saturating_sub(1), last.min(offsets.len()));
+            if lo < hi {
+                per_chunk[lo..hi].fill(samples);
             }
         }
     } else if !offsets.is_empty() {
@@ -395,7 +396,7 @@ fn parse_stts(data: &[u8], start: usize, end: usize) -> Vec<u32> {
         let n = u32_at(data, o) as usize;
         let duration = u32_at(data, o + 4);
         // Guard against a corrupt count trying to allocate the world.
-        out.extend(std::iter::repeat(duration).take(n.min(1 << 20)));
+        out.extend(std::iter::repeat_n(duration, n.min(1 << 20)));
     }
     out
 }

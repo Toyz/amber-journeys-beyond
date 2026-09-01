@@ -28,9 +28,9 @@ pub fn decode(member: &CastMember, raw: &[u8]) -> Result<Bitmap> {
     // The stored stride can disagree with the header on 1-bit members, so derive
     // it from the depth and only trust `pitch` when it is at least that wide.
     let min_stride = match member.bit_depth {
-        1 => (width + 7) / 8,
-        2 => (width + 3) / 4,
-        4 => (width + 1) / 2,
+        1 => width.div_ceil(8),
+        2 => width.div_ceil(4),
+        4 => width.div_ceil(2),
         _ => width,
     };
     let stride = (member.pitch as usize).max(min_stride);

@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let f = if animation { anim.frame() } else { dec.frame() };
         let mut hist = std::collections::HashSet::new();
         let mut sum = 0u64;
-        for px in f.chunks_exact(4) {
+        for px in f.as_chunks::<4>().0 {
             hist.insert((px[0], px[1], px[2]));
             sum += px[0] as u64 + px[1] as u64 + px[2] as u64;
         }

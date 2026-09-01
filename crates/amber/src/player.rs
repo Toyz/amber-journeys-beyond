@@ -16,7 +16,9 @@ use qt::rle::Rle;
 /// given the wrong format does not know that is what happened.
 enum Video {
     Cinepak(Cinepak),
-    Animation { rle: Rle, depth: u16 },
+    /// Boxed because an `Rle` is some eight hundred bytes against Cinepak's
+    /// seventy, and every `Video` would otherwise be sized for the larger.
+    Animation { rle: Box<Rle>, depth: u16 },
 }
 
 impl Video {
@@ -113,13 +115,13 @@ impl VideoPlayer {
         let mut player = VideoPlayer {
             decoder: match &video.codec {
                 b"rle " => Video::Animation {
-                    rle: Rle::new(
+                    rle: Box::new(Rle::new(
                         width as usize,
                         height as usize,
                         // An indexed track without a table is a broken file;
                         // a black palette at least keeps the geometry right.
                         video.palette.unwrap_or([[0; 3]; 256]),
-                    ),
+                    )),
                     depth: video.depth,
                 },
                 _ => Video::Cinepak(Cinepak::new(width as usize, height as usize)),
@@ -165,10 +167,7 @@ impl VideoPlayer {
                 return false;
             }
         }
-        let target = match video.sample_at(now) {
-            Some(i) => i,
-            None => 0,
-        };
+        let target = video.sample_at(now).unwrap_or(0);
         if target >= self.frame_count.saturating_sub(1)
             && now > 0
             && now >= video.duration.max(1)

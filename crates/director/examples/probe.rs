@@ -10,6 +10,6 @@ fn main() {
     for (n, name) in d.iter().take(3) {
         let t = m.text(*n);
         println!("  #{n} {name} textlen={:?}", t.as_ref().map(|s| s.len()));
-        if let Some(t) = t { println!("    starts: {:?}", &t.chars().take(90).collect::<String>()); }
+        if let Some(t) = t { println!("    starts: {:?}", t.chars().take(90).collect::<String>()); }
     }
 }

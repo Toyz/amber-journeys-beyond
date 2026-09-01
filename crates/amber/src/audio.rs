@@ -563,7 +563,7 @@ impl Audio {
         let supported = device.default_output_config().ok()?;
         let rate = supported.sample_rate();
         let channels = supported.channels();
-        let config: StreamConfig = supported.clone().into();
+        let config: StreamConfig = supported.into();
 
         let mixer = Arc::new(Mutex::new(Mixer {
             voices: Vec::new(),

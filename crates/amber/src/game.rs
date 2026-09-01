@@ -592,12 +592,12 @@ impl Game {
     /// Takes `&mut self` so the chapter is loaded before its lookup tables are
     /// consulted; a sprite that picks its cast by state needs them on the very
     /// first frame of the room, not the second.
-    pub fn visible(&mut self) -> Vec<(u8, u32, Option<(i32, i32)>, i32)> {
+    pub fn visible(&mut self) -> Vec<StageElement> {
         let domain = self.node().domain.clone();
         self.chapter(&domain);
         let tables = self.chapters.get(&domain).map(|c| &c.tables);
 
-        let mut out: Vec<(u8, u32, Option<(i32, i32)>, i32)> = self
+        let mut out: Vec<StageElement> = self
             .node()
             .sprites
             .iter()
@@ -1088,7 +1088,7 @@ impl Game {
     /// The caller plays it and the programme schedules the following item from
     /// the length of what was just handed over, which keeps the sequence
     /// running without the mixer having to report completions.
-    pub fn tick_program(&mut self) -> Option<(String, Arc<Vec<i16>>, u32, u16, f32)> {
+    pub fn tick_program(&mut self) -> Option<Cue> {
         let program = self.program.as_ref()?;
         if Instant::now() < program.due {
             return None;
@@ -1524,7 +1524,7 @@ impl Game {
             Wait::Until(t) => Instant::now() >= *t,
             // A room with no movie has nothing to wait for; treating that as
             // satisfied stops a missing video from stalling the sequence.
-            Wait::Video => self.player.as_ref().map_or(true, |p| p.finished),
+            Wait::Video => self.player.as_ref().is_none_or(|p| p.finished),
         }
     }
 
@@ -1688,6 +1688,13 @@ struct Program {
     misses: usize,
 }
 
+/// One thing to draw on the stage: its channel, cast member, an override
+/// position when a script has moved it, and its ink.
+pub type StageElement = (u8, u32, Option<(i32, i32)>, i32);
+
+/// A sound a programme wants played: name, samples, rate, channels, gain.
+pub type Cue = (String, Arc<Vec<i16>>, u32, u16, f32);
+
 /// Blits RGBA source pixels onto a BGRA framebuffer, clipped to its bounds.
 /// Draws `src` scaled to `dst_w_out` by `dst_h_out`.
 ///
@@ -1738,6 +1745,7 @@ fn blit_scaled(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn blit(
     dst: &mut [u32],
     dst_w: u32,

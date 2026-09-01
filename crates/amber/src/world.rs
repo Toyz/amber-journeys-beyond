@@ -536,7 +536,7 @@ impl World {
                     seen.insert(number, index);
                     by_name
                         .entry(room.to_ascii_lowercase())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(index);
                     nodes.push(node);
                 }

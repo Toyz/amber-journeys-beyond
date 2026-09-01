@@ -5031,3 +5031,41 @@ The lesson is about the commit, not the code. My habit of staging named paths
 means anything I forget to name stays behind indefinitely and silently. Naming
 paths is still right. Checking `git status` before saying a thread is finished
 is the part I skipped.
+
+## 119. Forty-eight warnings that were never mine
+
+A toolchain update turned on lints this codebase had never been measured
+against, and the gate I have been quoting at the end of every entry -- clippy
+clean -- quietly stopped being true. Forty-eight warnings across twenty-one
+files, none of them in anything I had touched recently.
+
+Forty-one were mechanical and `--fix` applied them. The interesting thing is
+that most were the same observation twice: `chunks_exact(N)` with a constant N
+is now `as_chunks::<N>()`, which returns the complete chunks and the remainder
+separately rather than silently dropping the tail. Same behaviour, but the
+type now says what the old call only did. That pattern is all over the audio
+and bitmap decoders, which is exactly where a silently dropped tail would be
+hard to see.
+
+Seven needed a decision:
+
+- The sample-to-chunk loop in the demuxer walked a range writing one value into
+  each slot. It is a `fill` over a slice, and reads as the assignment it is.
+- `Video::Animation` carried an `Rle` inline, some eight hundred bytes against
+  Cinepak's seventy, so every player was sized for the larger. Boxed.
+- Two tuple types wide enough that clippy stopped reading them got names --
+  `StageElement` and `Cue` -- which is an improvement I should not have needed
+  a lint to make.
+- `blit` takes eight arguments. `blit_scaled` beside it takes ten and has
+  carried an allow since it was written, so `blit` now does too. Threading a
+  surface struct through a hot primitive to satisfy a count is not a trade I
+  want.
+
+The rest were `unwrap_or`, `is_none_or`, `div_ceil` and `repeat_n` standing in
+for hand-written equivalents, all identical in behaviour.
+
+Nothing here changes what the engine does, and I checked rather than assumed:
+258 tests, `verify` unchanged at 1374 sprites and no dangling references, and
+Margaret's walkthrough replays to the same rooms.
+
+Clippy clean again, and this time I know what the number means.

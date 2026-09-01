@@ -6,7 +6,7 @@ fn main() {
         if name.to_ascii_lowercase().starts_with(&want.to_ascii_lowercase()) {
             let t = m.text(n).unwrap_or_default();
             println!("cast #{n} {name} len={}", t.len());
-            println!("{}", &t.chars().take(700).collect::<String>());
+            println!("{}", t.chars().take(700).collect::<String>());
             return;
         }
     }

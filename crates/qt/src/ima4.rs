@@ -47,7 +47,7 @@ impl Ima4Decoder {
         let frames = (packets / channels) * PACKET_SAMPLES;
         let mut out = vec![0i16; frames * channels];
 
-        for (p, packet) in data.chunks_exact(PACKET_BYTES).enumerate() {
+        for (p, packet) in data.as_chunks::<PACKET_BYTES>().0.iter().enumerate() {
             let channel = p % channels;
             let frame_base = (p / channels) * PACKET_SAMPLES;
             if frame_base >= frames {
@@ -84,7 +84,7 @@ pub fn decode_ima4(data: &[u8], channels: u16) -> Vec<i16> {
     // Running predictor per channel, carried between packets.
     let mut carried = vec![0i32; channels];
 
-    for (p, packet) in data.chunks_exact(PACKET_BYTES).enumerate() {
+    for (p, packet) in data.as_chunks::<PACKET_BYTES>().0.iter().enumerate() {
         let channel = p % channels;
         let frame_base = (p / channels) * PACKET_SAMPLES;
         if frame_base >= frames {

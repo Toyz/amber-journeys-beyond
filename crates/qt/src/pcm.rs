@@ -26,11 +26,11 @@ pub fn decode(codec: &[u8; 4], bits: u16, data: &[u8]) -> Vec<i16> {
         // whether it is the 8-bit or the 16-bit form.
         b"raw " | b"NONE" if bits <= 8 => data.iter().map(|&b| unsigned8(b)).collect(),
         b"sowt" => data
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
             .collect(),
         _ => data
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|c| i16::from_be_bytes([c[0], c[1]]))
             .collect(),
     }

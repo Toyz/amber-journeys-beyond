@@ -471,7 +471,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                         "cool" => 3,
                         _ => return true,
                     };
-                    candidates.extend(std::iter::repeat(None).take(padding));
+                    candidates.extend(std::iter::repeat_n(None, padding));
                 }
             } else {
                 // #None and anything unrecognised place no call.

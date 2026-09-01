@@ -332,7 +332,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 if let (Some(a), Effect::PlaySound { name, .. }) = (&audio, &effect) {
                     let gain = game.sounds.gain(name);
                     if let Some((pcm, rate, ch)) = game.sound(name) {
-                        a.play(Some(&name), None, pcm, rate, ch, gain, false, true);
+                        a.play(Some(name), None, pcm, rate, ch, gain, false, true);
                     }
                 }
             }
@@ -600,7 +600,7 @@ pub fn update_ambience(game: &mut Game, audio: Option<&Audio>) {
         let already = a.playing_loops();
 
         for (name, level) in game.ambience() {
-            if already.iter().any(|k| *k == name) {
+            if already.contains(&name) {
                 continue;
             }
             let gain = level * game.sounds.gain(&name);

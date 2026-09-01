@@ -369,7 +369,7 @@ fn split_if(src: &str) -> Option<(String, String)> {
         let before = lower[..*i].chars().last();
         let after = lower[i + 4..].chars().next();
         before.is_some_and(char::is_whitespace)
-            && after.map_or(true, |c| c.is_whitespace())
+            && after.is_none_or(|c| c.is_whitespace())
     })?;
     let cond = src[lower.find("if ")? + 3..then.0].trim().to_string();
     let body = src[then.0 + 4..].trim().to_string();
@@ -393,10 +393,9 @@ fn eval_condition(cond: &str, state: &State) -> Option<bool> {
     // `getState( oStoryteller, #key ) = #value` and its negation.
     let (op, negate) = if let Some(i) = cond.find("<>") {
         (i, true)
-    } else if let Some(i) = cond.find('=') {
-        (i, false)
     } else {
-        return None;
+        let i = cond.find('=')?;
+        (i, false)
     };
     let lhs = eval_arg(&parse_value(cond[..op].trim()).ok()?, state);
     let rhs_text = cond[op + if negate { 2 } else { 1 }..].trim();
@@ -509,7 +508,7 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 if !key.is_empty() {
                     let custom = state.get_all(&key).len() == 1;
                     let setter = format!("set{}", key.trim_start_matches('#')).to_ascii_lowercase();
-                    if custom && crate::natives::call(&setter, &[value.clone()], state, out) {
+                    if custom && crate::natives::call(&setter, std::slice::from_ref(&value), state, out) {
                         trace!(crate::trace::Topic::Script, "{setter}({value:?})");
                     } else {
                         if custom {
