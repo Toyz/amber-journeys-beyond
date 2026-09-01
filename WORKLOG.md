@@ -4500,3 +4500,27 @@ reading. This time the test caught it, which is better. Both tables are now
 written out.
 
 Verbs down from 8 to 7. 243 tests.
+
+## 108. The boat
+
+`setSail`, and it is four lines that reach two rooms away:
+
+```text
+if boatPos = #forward  and windDirection = #E then setState( #boatPosition, #backward )
+if boatPos = #backward and windDirection = #W then setState( #boatPosition, #forward )
+```
+
+The boat goes where the wind sends it and nowhere else. An east wind pushes it
+back, a west wind brings it forward, and any other wind -- or the right wind
+against the wrong position -- does nothing at all. So this is the weather vane
+from the other end: `setWeatherVane` in entry 84 decides which way the boat
+works, and nothing in either handler mentions the other.
+
+Bringing the boat forward while Teddy is waiting is also the only place Teddy
+ends up on the anchor.
+
+Three puzzles wired together through `#Wind` -- the vane sets it, the whirligig
+reads it to pick which film to spin, and the boat reads it to decide which way
+it can move. None of the three knows about the others.
+
+Verbs down to 6.

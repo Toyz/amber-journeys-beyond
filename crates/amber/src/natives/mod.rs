@@ -167,7 +167,7 @@ mod handled_tests {
         // Named deliberately, so this fails loudly when one of them is
         // ported and has to be swapped for another still on the list. A test
         // that could not fail is what entry 81 was about.
-        for name in ["drivethecar", "setsail", "transittoedwin", "forcepalette"] {
+        for name in ["drivethecar", "transittoedwin", "forcepalette", "inittelegrampuzzle"] {
             assert!(!is_handled(name), "{name} reports ported but has no arm");
         }
     }

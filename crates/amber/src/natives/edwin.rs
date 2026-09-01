@@ -162,6 +162,50 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on setSail
+        //   boatPos = getState( #boatPosition )
+        //   windDirection = getState( #Wind )
+        //   if boatPos = #forward and windDirection = #E then
+        //     setState( #boatPosition, #backward ) : startSound #boatMove
+        //   if boatPos = #backward and windDirection = #W then
+        //     setState( #boatPosition, #forward )
+        //     if getState( #teddyLocation ) = #waiting then
+        //       setState( #teddyLocation, #onAnchor )
+        //     startSound #boatMove
+        //   pushVideo : wait #videoStop
+        //
+        // The boat goes where the wind sends it, and only where the wind sends
+        // it: an east wind pushes it back, a west wind brings it forward, and
+        // any other wind does nothing. So this is the weather vane's puzzle
+        // seen from the other end -- `setWeatherVane` decides which way this
+        // works, two rooms away.
+        //
+        // And bringing the boat forward while Teddy is waiting puts Teddy on
+        // the anchor, which is the only place that transition happens.
+        "setsail" => {
+            let forward = state.get("boatPosition").is_symbol("forward");
+            let wind = state.get("Wind");
+
+            if forward && wind.is_symbol("E") {
+                state.set_all("boatPosition", vec![Value::Symbol("backward".into())]);
+            } else if !forward && wind.is_symbol("W") {
+                state.set_all("boatPosition", vec![Value::Symbol("forward".into())]);
+                if state.get("teddyLocation").is_symbol("waiting") {
+                    state.set_all("teddyLocation", vec![Value::Symbol("onAnchor".into())]);
+                }
+            } else {
+                // Becalmed, or the wind is against it.
+                return true;
+            }
+            out.effects.push(Effect::PlaySound {
+                name: "boatMove".into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.redraw = true;
+        }
+
         // on chooseTrack whichDirection
         //   cursorOff
         //   currentLocation = getState( #carLocation )
@@ -1339,5 +1383,35 @@ mod tests {
         let mut left = car_at("enRoute", "A");
         let out = steer(&mut left, "left");
         assert_eq!(segment(&out), Some((450, 900)));
+    }
+
+    #[test]
+    fn the_boat_goes_where_the_wind_sends_it() {
+        let sail = |boat: &str, wind: &str| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+            s.set_all("boatPosition", vec![Value::Symbol(boat.into())]);
+            s.set_all("Wind", vec![Value::Symbol(wind.into())]);
+            s.set_all("teddyLocation", vec![Value::Symbol("waiting".into())]);
+            let mut out = Outcome::default();
+            assert!(call("setsail", &[], &mut s, &mut out));
+            (
+                s.get("boatPosition").as_str().unwrap_or("").to_string(),
+                s.get("teddyLocation").as_str().unwrap_or("").to_string(),
+            )
+        };
+
+        // East pushes it back, west brings it forward.
+        assert_eq!(sail("forward", "E").0, "backward");
+        assert_eq!(sail("backward", "W").0, "forward");
+
+        // Any other wind and it stays where it is.
+        assert_eq!(sail("forward", "W").0, "forward");
+        assert_eq!(sail("backward", "E").0, "backward");
+        assert_eq!(sail("forward", "n").0, "forward");
+
+        // Coming forward with Teddy waiting is what puts him on the anchor.
+        assert_eq!(sail("backward", "W").1, "onAnchor");
+        assert_eq!(sail("forward", "E").1, "waiting");
     }
 }
