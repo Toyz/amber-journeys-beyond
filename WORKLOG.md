@@ -228,3 +228,35 @@ would not land on it.
 
 No audio device is treated as normal rather than fatal, since that is the
 common case over a remote session and the game is playable silently.
+
+## 14. Ambient sound
+
+Scripts name sounds by symbol, never by file. The resolution table turned
+out to live inside `foreground.DATA`, a text cast member holding chapter
+configuration rather than a room, under two keys: `#soundBank` mapping each
+symbol to its source, and `#soundVolTweaks` giving per-sound gain. A source
+is a filename, a `snd ` cast number, or a list of interchangeable takes the
+game varies between.
+
+The audio files are AIFF-C carrying IMA ADPCM, the same codec the movies
+use, or WAV carrying unsigned 8-bit PCM.
+
+**A shape match found the wrong thing.** My first detector looked for a
+property list mentioning `houseHum` and collected 15 entries, none of which
+resolved anything. Every room record also mentions `houseHum`, in its
+ambient mix, so the detector was cheerfully parsing rooms. Matching the key
+name `soundBank` instead took it to 181 symbols, of which 73 of the 91 the
+scripts actually fire now resolve. Worth noting because the failure looked
+like partial success rather than an error: 15 entries is a plausible number
+for a small table.
+
+**A peak of 32768 is not always saturation.** Three decoded loops all
+reported that, which is the value a runaway ADPCM predictor produces and
+which I had spent entry 12 chasing. Here it is simply correct: the sources
+are 8-bit, and `(0 - 128) << 8` is exactly -32768 at full scale. The same
+number means opposite things depending on the source format, so the check
+has to know which it is looking at.
+
+The remaining unresolved symbols are not missing sounds. `#BRradio` and its
+siblings are playlists declared in the state schema - sequences of tunes and
+announcers that cycle - so they need a sequencer rather than a file.

@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use director::{Bitmap, Movie, Palette};
 use lingo::Rect;
@@ -13,6 +14,7 @@ use lingo::Rect;
 use crate::media::MovieIndex;
 use crate::player::VideoPlayer;
 use crate::schema::Schema;
+use crate::sound::{self, SoundBank, Source};
 use crate::script::{self, Effect, Outcome};
 use crate::state::State;
 use crate::world::{Channel, Node, Verb, World};
@@ -46,6 +48,11 @@ pub struct Game {
     /// Effects the last click produced, for the front end to play back.
     pub pending: Vec<Effect>,
     movies: MovieIndex,
+    pub sounds: SoundBank,
+    /// Decoded sounds, keyed by symbol. Effects fire repeatedly, so decoding
+    /// each one once matters more here than it does for the movies.
+    pcm_cache: HashMap<String, Option<Arc<Vec<i16>>>>,
+    pcm_meta: HashMap<String, (u32, u16)>,
     /// The movie currently on screen, if the room has one.
     pub player: Option<VideoPlayer>,
 }
@@ -66,8 +73,19 @@ impl Game {
             chapters: HashMap::new(),
             pending: Vec::new(),
             movies: MovieIndex::build(root),
+            sounds: SoundBank::new(root),
+            pcm_cache: HashMap::new(),
+            pcm_meta: HashMap::new(),
             player: None,
         };
+        // The symbol tables live in the chapter movies, so every chapter has to
+        // be opened once to collect them.
+        for domain in world_domains(&game.world) {
+            if let Some(chapter) = game.chapter(&domain) {
+                let texts = chapter.movie.texts();
+                game.sounds.add_tables(&texts);
+            }
+        }
         game.enter_chapter(Self::FIRST_CHAPTER);
         game.start_room_video();
         Ok(game)
@@ -278,6 +296,78 @@ impl Game {
         }
     }
 
+    /// Decodes a named sound, from a file on the disc or a `snd ` cast member,
+    /// and caches the result. Returns the samples with their rate and channel
+    /// count.
+    pub fn sound(&mut self, symbol: &str) -> Option<(Arc<Vec<i16>>, u32, u16)> {
+        let key = symbol.trim_start_matches('#').to_ascii_lowercase();
+        if !self.pcm_cache.contains_key(&key) {
+            let decoded = self.decode_sound(&key);
+            let (pcm, meta) = match decoded {
+                Some(p) => {
+                    let meta = (p.rate, p.channels);
+                    (Some(Arc::new(p.samples)), meta)
+                }
+                None => (None, (22050, 1)),
+            };
+            self.pcm_cache.insert(key.clone(), pcm);
+            self.pcm_meta.insert(key.clone(), meta);
+        }
+        let samples = self.pcm_cache.get(&key)?.clone()?;
+        let &(rate, channels) = self.pcm_meta.get(&key)?;
+        Some((samples, rate, channels))
+    }
+
+    fn decode_sound(&mut self, key: &str) -> Option<sound::Pcm> {
+        match self.sounds.source(key)?.clone() {
+            // Several takes of the same sound; the game varies between them,
+            // and rotating by a cheap hash keeps that without needing a RNG.
+            Source::Files(takes) => {
+                let pick = takes.len().min(1 + (self.room % takes.len().max(1)));
+                let name = takes.get(pick - 1).or_else(|| takes.first())?;
+                let path = self.sounds.file(name)?.to_path_buf();
+                sound::load(&path)
+            }
+            Source::Cast(number) => {
+                let domain = self.node().domain.clone();
+                let chapter = self.chapter(&domain)?;
+                let s = chapter.movie.sound(number).ok()?;
+                Some(sound::Pcm {
+                    samples: s.samples,
+                    rate: s.sample_rate,
+                    channels: s.channels,
+                })
+            }
+        }
+    }
+
+    /// The ambient loops the current room asks for, as `(symbol, gain)`.
+    ///
+    /// A room declares its mix as `#earShot: [#houseHum: 224, ...]`, levels out
+    /// of 255, and separately places named loops on the `#sound` channel.
+    pub fn ambience(&self) -> Vec<(String, f32)> {
+        let node = self.node();
+        let mut out: Vec<(String, f32)> = node
+            .sprites
+            .iter()
+            .filter(|s| matches!(s.channel, Channel::Sound))
+            .filter(|s| self.state.test(&s.condition))
+            .filter_map(|s| {
+                let name = s.cast_name.as_ref()?.trim_start_matches('#').to_string();
+                let level = s.volume.unwrap_or(255) as f32 / 255.0;
+                Some((name, level))
+            })
+            .collect();
+        for (key, level) in &node.ambience {
+            // The mix keys are the loop names with a volume suffix; the house
+            // hum is the one that is always present.
+            if key == "househum" && *level > 0 {
+                out.push(("houseHum".into(), *level as f32 / 255.0));
+            }
+        }
+        out
+    }
+
     /// Whether a cast member in the current room's chapter decodes to art.
     pub fn has_art(&mut self, cast: u32) -> bool {
         let domain = self.node().domain.clone();
@@ -331,6 +421,12 @@ impl Game {
         }
         self.pending.extend(outcome.effects.iter().cloned());
     }
+}
+
+fn world_domains(world: &World) -> Vec<String> {
+    let mut names: Vec<String> = world.domains.keys().cloned().collect();
+    names.sort();
+    names
 }
 
 /// Blits RGBA source pixels onto a BGRA framebuffer, clipped to its bounds.

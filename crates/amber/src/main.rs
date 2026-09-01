@@ -11,6 +11,7 @@ mod media;
 mod player;
 mod render;
 mod schema;
+mod sound;
 mod script;
 mod state;
 mod world;
@@ -36,6 +37,7 @@ commands:
   play      <dir> [room]       open the game window
   shot      <dir> <room> <out.png>
                                render one room headlessly
+  sfx       <dir> [name]       decode a named sound, or sample many
   verify    <dir>              parse everything and report failures"
     );
     ExitCode::FAILURE
@@ -70,6 +72,7 @@ fn main() -> ExitCode {
             (Some(room), Some(out)) => cmd_shot(&dir, room, Path::new(out)),
             _ => return usage(),
         },
+        "sfx" => cmd_sfx(&dir, args.get(2).map(String::as_str)),
         "verify" => cmd_verify(&dir),
         _ => return usage(),
     };
@@ -163,6 +166,54 @@ fn cmd_info(dir: &Path) -> Res {
     );
     for m in missing.iter().take(8) {
         println!("  missing {m}");
+    }
+
+    // Sound coverage: every symbol the scripts fire, and whether it resolves.
+    {
+        let mut game = game::Game::new(dir)?;
+        let mut wanted: BTreeMap<String, usize> = BTreeMap::new();
+        for i in 0..game.world.nodes.len() {
+            for h in &game.world.nodes[i].hotspots {
+                let mut probe = state::State::new();
+                for e in script::run(&h.actions, &mut probe).effects {
+                    let name = match e {
+                        script::Effect::PlaySound { name, .. } => name,
+                        script::Effect::StartLoop { name, .. } => name,
+                        _ => continue,
+                    };
+                    *wanted.entry(name).or_default() += 1;
+                }
+            }
+            for s in &game.world.nodes[i].sprites {
+                if matches!(s.channel, world::Channel::Sound) {
+                    if let Some(n) = &s.cast_name {
+                        *wanted.entry(n.trim_start_matches('#').to_string()).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let resolved = wanted
+            .keys()
+            .filter(|n| game.sounds.source(n).is_some())
+            .count();
+        println!(
+            "sounds: {} files on disc, {} symbols tabulated, {} of {} referenced resolve",
+            game.sounds.file_count(),
+            game.sounds.len(),
+            resolved,
+            wanted.len()
+        );
+        let unresolved: Vec<&String> = wanted
+            .keys()
+            .filter(|n| game.sounds.source(n).is_none())
+            .collect();
+        for n in unresolved.iter().take(6) {
+            println!("  unresolved {n}");
+        }
+        let missing = game.sounds.missing();
+        if !missing.is_empty() {
+            println!("  {} symbols name a file not on the disc", missing.len());
+        }
     }
 
     let sprites: usize = world.nodes.iter().map(|n| n.sprites.len()).sum();
@@ -364,6 +415,56 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
         game.visible().len(),
         node.hotspots.len()
     );
+    Ok(())
+}
+
+/// Decodes sounds and reports whether they carry signal, which is the check
+/// that a format was actually understood rather than merely parsed.
+fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
+    let mut game = game::Game::new(dir)?;
+
+    let names: Vec<String> = match name {
+        Some(n) => vec![n.to_string()],
+        None => {
+            let mut all: Vec<String> = game
+                .world
+                .nodes
+                .iter()
+                .flat_map(|n| &n.sprites)
+                .filter(|s| matches!(s.channel, world::Channel::Sound))
+                .filter_map(|s| s.cast_name.clone())
+                .map(|n| n.trim_start_matches('#').to_string())
+                .collect();
+            all.sort();
+            all.dedup();
+            all.truncate(12);
+            all
+        }
+    };
+
+    let (mut ok, mut silent, mut failed) = (0, 0, 0);
+    for n in &names {
+        match game.sound(n) {
+            Some((pcm, rate, channels)) => {
+                let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+                let secs = pcm.len() as f32 / (rate.max(1) * channels.max(1) as u32) as f32;
+                println!(
+                    "  {n:<20} {:>9} samples  {rate:>5} Hz  {channels}ch  {secs:>5.1}s  peak {peak}",
+                    pcm.len()
+                );
+                if peak == 0 {
+                    silent += 1;
+                } else {
+                    ok += 1;
+                }
+            }
+            None => {
+                println!("  {n:<20} did not resolve");
+                failed += 1;
+            }
+        }
+    }
+    println!("{ok} with signal, {silent} silent, {failed} unresolved");
     Ok(())
 }
 

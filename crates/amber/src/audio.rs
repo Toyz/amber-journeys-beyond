@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 
-/// One playing sound.
+/// One playing sound. Loops carry the name the scripts know them by, so
+/// `endLoop #houseHum` can stop the right one; one-shots carry none.
 struct Voice {
+    key: Option<String>,
     samples: Arc<Vec<i16>>,
     /// Source channel count, so mono sources feed both outputs.
     channels: u16,
@@ -28,12 +30,14 @@ struct Mixer {
     voices: Vec<Voice>,
     rate: u32,
     channels: u16,
+    master: f32,
 }
 
 impl Mixer {
     fn fill(&mut self, out: &mut [f32]) {
         out.fill(0.0);
         let out_channels = self.channels.max(1) as usize;
+        let master = self.master;
 
         self.voices.retain_mut(|voice| {
             let frames = voice.samples.len() / voice.channels.max(1) as usize;
@@ -60,7 +64,7 @@ impl Mixer {
                         .get((index + 1) * src + sc)
                         .copied()
                         .unwrap_or(voice.samples[index * src + sc]) as f32;
-                    *slot += (a + (b - a) * frac) / 32768.0 * voice.gain;
+                    *slot += (a + (b - a) * frac) / 32768.0 * voice.gain * master;
                 }
                 voice.position += voice.step;
             }
@@ -95,6 +99,7 @@ impl Audio {
             voices: Vec::new(),
             rate,
             channels,
+            master: 1.0,
         }));
 
         let m = Arc::clone(&mixer);
@@ -126,8 +131,12 @@ impl Audio {
     }
 
     /// Queues a sound. `source_rate` is the rate the samples were decoded at.
+    /// A `key` names a loop so it can be stopped later; pass `None` for a
+    /// one-shot. Starting a loop that is already running is a no-op, so a room
+    /// re-entered does not stack a second copy of its ambience.
     pub fn play(
         &self,
+        key: Option<String>,
         samples: Arc<Vec<i16>>,
         source_rate: u32,
         channels: u16,
@@ -140,7 +149,13 @@ impl Audio {
         let Ok(mut mixer) = self.mixer.lock() else {
             return;
         };
+        if let Some(k) = &key {
+            if mixer.voices.iter().any(|v| v.key.as_deref() == Some(k.as_str())) {
+                return;
+            }
+        }
         mixer.voices.push(Voice {
+            key,
             samples,
             channels: channels.max(1),
             position: 0.0,
@@ -150,10 +165,32 @@ impl Audio {
         });
     }
 
+    /// Stops one named loop.
+    pub fn stop(&self, key: &str) {
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.voices.retain(|v| v.key.as_deref() != Some(key));
+        }
+    }
+
     /// Stops everything, used when a room change cuts the previous scene.
     pub fn stop_all(&self) {
         if let Ok(mut mixer) = self.mixer.lock() {
             mixer.voices.clear();
+        }
+    }
+
+    /// Stops every one-shot but leaves ambient loops running, which is what a
+    /// plain room change wants.
+    pub fn stop_oneshots(&self) {
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.voices.retain(|v| v.key.is_some());
+        }
+    }
+
+    /// Scales every voice, for the script-driven duck and restore.
+    pub fn set_master(&self, gain: f32) {
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.master = gain.clamp(0.0, 1.0);
         }
     }
 

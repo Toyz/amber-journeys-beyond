@@ -114,6 +114,11 @@ rediscovered:
   by smallest area, or every click lands on the background.
 - **`pushVideo` usually takes no argument.** The room nominates its movie
   through the sprite it places on the `#video` channel.
+- **Sounds are named by symbol, never by file.** The table resolving them
+  is `#soundBank` inside `foreground.DATA`, a text cast member holding
+  chapter configuration; `#soundVolTweaks` beside it gives per-sound gain.
+  Do not find these tables by shape: every room record mentions `houseHum`
+  in its ambient mix, so a shape match collects rooms instead.
 - **`gCPU` is an authoring-time platform switch** left in the shipped
   data. The `#PC` branches are the more complete ones.
 
@@ -167,7 +172,8 @@ Working:
 
 Not yet done:
 
-- Audio output; sound and ambience are decoded but not played
+- Radio and clock programmes, which are declared as playlists of other
+  sounds and need sequencing rather than lookup
 - Hooking video playback into the renderer; the codecs are done but the
   engine does not yet drive them
 - Cursor art, and the transitions `setTransition` selects

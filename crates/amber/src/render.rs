@@ -7,6 +7,7 @@ use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions};
 
 use crate::audio::Audio;
 use crate::game::Game;
+use crate::script::Effect;
 use crate::world::Verb;
 
 const STAGE_W: usize = 640;
@@ -52,6 +53,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         None => eprintln!("no audio device; running silently"),
     }
     let mut playing_soundtrack = false;
+    let mut ambience_room = usize::MAX;
     eprintln!(
         "starting in {} / {}{}",
         game.node().domain,
@@ -83,6 +85,20 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     let mut last_title = String::new();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        // Ambient loops belong to the room, so they start on arrival and are
+        // left running until a room wants something different.
+        if game.room != ambience_room {
+            ambience_room = game.room;
+            if let Some(a) = &audio {
+                for (name, level) in game.ambience() {
+                    let gain = level * game.sounds.gain(&name);
+                    if let Some((pcm, rate, channels)) = game.sound(&name) {
+                        a.play(Some(name), pcm, rate, channels, gain, true);
+                    }
+                }
+            }
+        }
+
         // A playing movie supplies its own redraws; a static room only needs
         // one after a click.
         if let Some(player) = &mut game.player {
@@ -93,6 +109,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             if !playing_soundtrack {
                 if let Some(a) = &audio {
                     a.play(
+                        None,
                         Arc::clone(&player.audio),
                         player.audio_rate,
                         player.audio_channels,
@@ -152,7 +169,9 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                     if outcome.destination.is_some() || outcome.go_back {
                         if had_movie {
                             if let Some(a) = &audio {
-                                a.stop_all();
+                                // Keep the house ambience across a move; only
+                                // the previous scene's own audio stops.
+                                a.stop_oneshots();
                             }
                         }
                         playing_soundtrack = false;
@@ -160,11 +179,43 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                     if outcome.destination.is_some() || outcome.go_back || outcome.redraw {
                         dirty = true;
                     }
-                    // Effects are collected but not yet played; drain them so
-                    // the queue cannot grow without bound.
-                    for effect in game.pending.drain(..) {
+                    let effects: Vec<Effect> = game.pending.drain(..).collect();
+                    for effect in effects {
                         if std::env::var_os("AMBER_TRACE").is_some() {
                             eprintln!("  effect: {effect:?}");
+                        }
+                        let Some(a) = &audio else { continue };
+                        match effect {
+                            Effect::PlaySound { name, loudness } => {
+                                // The loudness word is a coarse mix hint, not a
+                                // level: quiet lines sit under the ambience.
+                                let scale = match loudness.as_deref() {
+                                    Some("low") => 0.5,
+                                    Some("medium") => 0.75,
+                                    _ => 1.0,
+                                };
+                                let gain = game.sounds.gain(&name) * scale;
+                                if let Some((pcm, rate, ch)) = game.sound(&name) {
+                                    a.play(None, pcm, rate, ch, gain, false);
+                                }
+                            }
+                            Effect::StartLoop { name, volume } => {
+                                let level = volume.unwrap_or(255) as f32 / 255.0;
+                                let gain = level * game.sounds.gain(&name);
+                                if let Some((pcm, rate, ch)) = game.sound(&name) {
+                                    a.play(Some(name), pcm, rate, ch, gain, true);
+                                }
+                            }
+                            Effect::StopLoop { name, .. } => a.stop(&name),
+                            // Fades are not modelled yet; the duck itself is
+                            // what the scripts rely on.
+                            Effect::SuspendSounds { .. } => a.set_master(0.25),
+                            Effect::RestoreSounds { .. } => a.set_master(1.0),
+                            Effect::StopVideo => {
+                                game.player = None;
+                                playing_soundtrack = false;
+                            }
+                            _ => {}
                         }
                     }
                 }
