@@ -190,9 +190,20 @@ impl SoundBank {
             .unwrap_or(1.0)
     }
 
+    /// Resolves a filename from the sound bank against the disc.
+    ///
+    /// The bank's extensions are not reliable: five of Edwin's voice cues are
+    /// listed as `.wav` while the files are `.AIF`. The stem is what
+    /// identifies the sound, so the extension is retried rather than trusted.
     pub fn file(&self, name: &str) -> Option<&Path> {
-        self.files
-            .get(&name.trim().to_ascii_uppercase())
+        let key = name.trim().to_ascii_uppercase();
+        if let Some(p) = self.files.get(&key) {
+            return Some(p.as_path());
+        }
+        let stem = key.rsplit_once('.').map(|(s, _)| s).unwrap_or(&key);
+        ["AIF", "WAV", "AIFF"]
+            .iter()
+            .find_map(|ext| self.files.get(&format!("{stem}.{ext}")))
             .map(PathBuf::as_path)
     }
 

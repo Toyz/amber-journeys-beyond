@@ -194,6 +194,17 @@ impl<'a> Parser<'a> {
                     Value::String(s) => Some(s),
                     _ => None,
                 }
+            } else if self.peek().is_some_and(|c| c.is_ascii_digit()) {
+                // Lingo permits any value as a property key, and the game uses
+                // integer keys for frame-indexed data: a movie's event track
+                // reads `[165: 90, 167: ["assertSound #aCleverCar"]]`, keying
+                // cues to the frame they fire on. Rejecting these fails the
+                // whole enclosing list, which is how one chapter's entire
+                // sound bank was being lost.
+                match self.number()? {
+                    Value::Int(n) => Some(n.to_string()),
+                    _ => None,
+                }
             } else {
                 None
             };
