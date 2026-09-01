@@ -461,6 +461,173 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             });
         }
 
+        // on setDoorWithScanUnit suggestion
+        //   validKnobs = [#None, #kitchenOutside, #kitchenInside,
+        //                 #margaretRmInside, #margaretRmOutside,
+        //                 #bathroomInside, #bathroomOutside, #garageInside,
+        //                 #garageOutside, #boathouseInside, #boatHouseOutside]
+        //   if getPos(validKnobs, suggestion) <> 0 then
+        //     oldValue = getState(#DoorWithScanUnit)
+        //     if suggestion = #None and oldValue <> #None then cue #scanOffKnob
+        //     if suggestion <> #None and oldValue = #None then cue #scanOntoKnob
+        //     setProp(oStoryteller.states, #DoorWithScanUnit, list(suggestion))
+        //
+        // Where the scan unit is clipped. Only the knobs in the list are
+        // accepted; anything else is a mistake the original prints and
+        // ignores.
+        //
+        // The two cues are guarded on crossing to or from #None, so moving the
+        // unit straight from one door to another makes no sound at all -- it
+        // is one click, not an unclip and a clip.
+        "setdoorwithscanunit" => {
+            const KNOBS: [&str; 11] = [
+                "None",
+                "kitchenOutside",
+                "kitchenInside",
+                "margaretRmInside",
+                "margaretRmOutside",
+                "bathroomInside",
+                "bathroomOutside",
+                "garageInside",
+                "garageOutside",
+                "boathouseInside",
+                "boatHouseOutside",
+            ];
+            let Some(knob) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|k| k.trim_start_matches('#').to_string())
+            else {
+                return true;
+            };
+            let Some(valid) = KNOBS.iter().find(|k| k.eq_ignore_ascii_case(&knob)) else {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "setDoorWithScanUnit: {knob} is not a knob"
+                );
+                return true;
+            };
+            let is_none = |s: &str| s.eq_ignore_ascii_case("None");
+            let old = state.get("DoorWithScanUnit");
+            let old = old.as_str().unwrap_or("None");
+
+            if is_none(valid) && !is_none(old) {
+                out.effects.push(Effect::PlaySound {
+                    name: "scanOffKnob".into(),
+                    loudness: None,
+                });
+            } else if !is_none(valid) && is_none(old) {
+                out.effects.push(Effect::PlaySound {
+                    name: "scanOntoKnob".into(),
+                    loudness: None,
+                });
+            }
+            state.set_all("DoorWithScanUnit", vec![Value::Symbol((*valid).into())]);
+            out.redraw = true;
+        }
+
+        // on setPKScanStatus suggestion
+        //   validList = [#Offline, #CantAttach, #Online, #NoResidue, #Wait5min,
+        //                #Wait4min, #Wait3min, #Wait2min, #Wait1min,
+        //                #ReadyForPlayback, #Interrupted, #Preamble]
+        //   if not getPos(validList, suggestion) then alert(...) : return
+        //   currentStatus = getState(#PKscanStatus)
+        //   if suggestion = #Online then
+        //     if getPos([#Wait1min..#Wait5min], currentStatus) then
+        //       gScanFinish = 0 : suggestion = #Interrupted
+        //     if currentStatus = #ReadyForPlayback then suggestion = #ReadyForPlayback
+        //   if suggestion = #Offline then gScanFinish = 0
+        //   if currentStatus = #ReadyForPlayback then
+        //     if suggestion <> #ReadyForPlayback then setState(#PeekDisplay, #None)
+        //     if getPos([#Wait5min..#Wait1min], suggestion) then
+        //       setState(#PeekDisplay, #goodScan5min)
+        //   setProp(oStoryteller.states, #PKscanStatus, list(suggestion))
+        //   if suggestion = #Interrupted and getState(#playerHasPeekUnit) = #carrying then
+        //     setState(#PeekDisplay, #interruptedScan) : peekAlert
+        //
+        // The scan unit's state machine. The two rewrites of `suggestion` are
+        // the whole of it: asking to go online while a scan is counting down
+        // interrupts that scan rather than restarting it, and asking for
+        // anything at all while a result is waiting keeps the result. Between
+        // them the player cannot lose a finished scan by fiddling with the
+        // unit, which is the only thing that would make the puzzle unfair.
+        "setpkscanstatus" => {
+            const VALID: [&str; 12] = [
+                "Offline",
+                "CantAttach",
+                "Online",
+                "NoResidue",
+                "Wait5min",
+                "Wait4min",
+                "Wait3min",
+                "Wait2min",
+                "Wait1min",
+                "ReadyForPlayback",
+                "Interrupted",
+                "Preamble",
+            ];
+            const COUNTING_DOWN: [&str; 5] = [
+                "Wait1min", "Wait2min", "Wait3min", "Wait4min", "Wait5min",
+            ];
+
+            let Some(asked) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|k| k.trim_start_matches('#').to_string())
+            else {
+                return true;
+            };
+            let Some(&wanted) = VALID.iter().find(|v| v.eq_ignore_ascii_case(&asked)) else {
+                // The original raises an alert, which is a message to its
+                // authors rather than to the player.
+                trace!(
+                    crate::trace::Topic::Script,
+                    "setPKScanStatus: {asked} is not a status"
+                );
+                return true;
+            };
+
+            let current = state.get("PKscanStatus");
+            let current = current.as_str().unwrap_or("Offline").to_string();
+            let is = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+            let counting = COUNTING_DOWN.iter().any(|w| is(&current, w));
+
+            let mut settle = wanted;
+            if is(wanted, "Online") {
+                if counting {
+                    state.set("gScanFinish", Value::Int(0));
+                    settle = "Interrupted";
+                }
+                if is(&current, "ReadyForPlayback") {
+                    settle = "ReadyForPlayback";
+                }
+            }
+            if is(settle, "Offline") {
+                state.set("gScanFinish", Value::Int(0));
+            }
+
+            if is(&current, "ReadyForPlayback") {
+                if !is(settle, "ReadyForPlayback") {
+                    state.set("PeekDisplay", Value::Symbol("None".into()));
+                }
+                if COUNTING_DOWN.iter().any(|w| is(settle, w)) {
+                    state.set("PeekDisplay", Value::Symbol("goodScan5min".into()));
+                }
+            }
+
+            state.set_all("PKscanStatus", vec![Value::Symbol(settle.into())]);
+
+            let carrying = state
+                .get("playerHasPeekUnit")
+                .as_str()
+                .is_some_and(|v| v.eq_ignore_ascii_case("carrying"));
+            if is(settle, "Interrupted") && carrying {
+                state.set("PeekDisplay", Value::Symbol("interruptedScan".into()));
+                call("peekalert", &[], state, out);
+            }
+            out.redraw = true;
+        }
+
         // on setScanTime howManyMinutes
         //   gScanFinish = the ticks + howManyMinutes * 3600
         //   setState(oStoryteller, #PeekDisplay, ...)
@@ -476,8 +643,20 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             let minutes = args.first().and_then(Value::as_int).unwrap_or(0).max(0);
             let finish = state.get("gTicks").as_int().unwrap_or(0) + minutes * 3600;
             state.set("gScanFinish", Value::Int(finish));
-            state.set("scanMinutes", Value::Int(minutes));
-            state.set("PKscanStatus", Value::Symbol("Scanning".into()));
+            // The two strings build symbols from the argument: `#goodScan5min`
+            // and `#Wait5min`. I had written `#Scanning` here, which is not one
+            // of the twelve statuses the unit accepts, so `setPKScanStatus`
+            // would have refused it outright once that handler existed.
+            state.set(
+                "PeekDisplay",
+                Value::Symbol(format!("goodScan{minutes}min")),
+            );
+            call(
+                "setpkscanstatus",
+                &[Value::Symbol(format!("Wait{minutes}min"))],
+                state,
+                out,
+            );
             out.go_back = true;
         }
 
@@ -626,5 +805,153 @@ mod tests {
             &mut state,
             &mut out
         ));
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+
+    fn run(handler: &str, arg: &str, setup: &[(&str, &str)]) -> (State, Outcome) {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        for (k, v) in setup {
+            state.set_all(k, vec![Value::Symbol((*v).into())]);
+        }
+        let mut out = Outcome::default();
+        assert!(call(handler, &[Value::Symbol(arg.into())], &mut state, &mut out));
+        (state, out)
+    }
+
+    fn sounds(out: &Outcome) -> Vec<String> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn clipping_the_unit_onto_a_knob_sounds_once() {
+        let (state, out) = run(
+            "setdoorwithscanunit",
+            "kitchenOutside",
+            &[("DoorWithScanUnit", "None")],
+        );
+        assert_eq!(sounds(&out), ["scanOntoKnob"]);
+        assert!(state
+            .get("DoorWithScanUnit")
+            .as_str()
+            .is_some_and(|k| k == "kitchenOutside"));
+    }
+
+    #[test]
+    fn taking_it_off_sounds_the_other_way() {
+        let (_, out) = run(
+            "setdoorwithscanunit",
+            "None",
+            &[("DoorWithScanUnit", "kitchenOutside")],
+        );
+        assert_eq!(sounds(&out), ["scanOffKnob"]);
+    }
+
+    #[test]
+    fn moving_it_between_doors_is_one_click_and_makes_no_sound() {
+        // Both cues are guarded on crossing to or from #None, so a move from
+        // one knob straight to another is silent.
+        let (state, out) = run(
+            "setdoorwithscanunit",
+            "bathroomInside",
+            &[("DoorWithScanUnit", "kitchenOutside")],
+        );
+        assert!(sounds(&out).is_empty());
+        assert!(state
+            .get("DoorWithScanUnit")
+            .as_str()
+            .is_some_and(|k| k == "bathroomInside"));
+    }
+
+    #[test]
+    fn somewhere_that_is_not_a_knob_is_refused() {
+        let (state, _) = run(
+            "setdoorwithscanunit",
+            "theCeiling",
+            &[("DoorWithScanUnit", "None")],
+        );
+        assert!(state
+            .get("DoorWithScanUnit")
+            .as_str()
+            .is_some_and(|k| k == "None"));
+    }
+
+    #[test]
+    fn going_online_during_a_countdown_interrupts_that_scan() {
+        let (state, _) = run("setpkscanstatus", "Online", &[("PKscanStatus", "Wait3min")]);
+        assert!(state
+            .get("PKscanStatus")
+            .as_str()
+            .is_some_and(|s| s == "Interrupted"));
+        assert_eq!(state.get("gScanFinish").as_int(), Some(0));
+    }
+
+    #[test]
+    fn a_finished_scan_survives_being_fiddled_with() {
+        // Asking to go online while a result is waiting keeps the result.
+        // Losing a finished scan by touching the unit is the one thing that
+        // would make the puzzle unfair.
+        let (state, _) = run(
+            "setpkscanstatus",
+            "Online",
+            &[("PKscanStatus", "ReadyForPlayback")],
+        );
+        assert!(state
+            .get("PKscanStatus")
+            .as_str()
+            .is_some_and(|s| s == "ReadyForPlayback"));
+    }
+
+    #[test]
+    fn an_unknown_status_leaves_the_unit_alone() {
+        let (state, _) = run("setpkscanstatus", "Bananas", &[("PKscanStatus", "Offline")]);
+        assert!(state
+            .get("PKscanStatus")
+            .as_str()
+            .is_some_and(|s| s == "Offline"));
+    }
+
+    #[test]
+    fn going_offline_clears_the_deadline() {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        state.set("gScanFinish", Value::Int(99_000));
+        state.set_all("PKscanStatus", vec![Value::Symbol("Wait2min".into())]);
+        let mut out = Outcome::default();
+        call(
+            "setpkscanstatus",
+            &[Value::Symbol("Offline".into())],
+            &mut state,
+            &mut out,
+        );
+        assert_eq!(state.get("gScanFinish").as_int(), Some(0));
+    }
+
+    #[test]
+    fn setting_a_scan_time_asks_for_a_status_the_unit_accepts() {
+        // `#Scanning` is not one of the twelve, and the setter refuses it.
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        let mut out = Outcome::default();
+        call("setscantime", &[Value::Int(5)], &mut state, &mut out);
+        assert!(state
+            .get("PKscanStatus")
+            .as_str()
+            .is_some_and(|s| s == "Wait5min"));
+        assert!(state
+            .get("PeekDisplay")
+            .as_str()
+            .is_some_and(|s| s == "goodScan5min"));
+        assert!(out.go_back);
     }
 }

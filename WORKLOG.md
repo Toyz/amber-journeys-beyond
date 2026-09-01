@@ -2114,3 +2114,51 @@ Nineteen tests over the two decoders. The one that matters is
 `minus_one_ends_the_line_and_not_the_frame`, because that bug decodes the first
 changed line and leaves the rest of the picture standing -- on a mostly-still
 film, almost invisible unless you are looking for it.
+
+## 62. The door tool
+
+helba asked why the scan unit's video and scripts did nothing. The video was
+entry 61 -- it is an Apple Animation movie like a hundred and thirty-two
+others. The scripts were simply not ported, and they were the two largest
+callers left: `setDoorWithScanUnit` at twenty-nine sites and `setPKScanStatus`
+at thirty-six.
+
+`setDoorWithScanUnit` is a list of the eleven knobs the unit may be clipped to
+and two cues, and the cues are the interesting part. Both are guarded on
+crossing to or from `#None`, so moving the unit straight from one door to
+another makes no sound at all. It is one click, not an unclip and a clip, and
+a port that played both would be wrong in a way nobody could point at.
+
+`setPKScanStatus` is the unit's state machine, and it does one thing worth
+naming. It rewrites its own argument twice:
+
+```text
+if suggestion = #Online then
+  if currentStatus is one of the #Wait states then
+    gScanFinish = 0 : suggestion = #Interrupted
+  if currentStatus = #ReadyForPlayback then
+    suggestion = #ReadyForPlayback
+```
+
+Asking to go online during a countdown interrupts that scan rather than
+restarting it, and asking for anything while a result is waiting keeps the
+result. Between them the player cannot lose a finished scan by fiddling with
+the unit, which is the only thing here that would make the puzzle unfair.
+
+Two of my own bugs fell out of writing it. `setScanTime` -- ported back in the
+run of small handlers -- set `#PKscanStatus` to `#Scanning`, which is not one of
+the twelve statuses the unit accepts. Nothing checked, because nothing existed
+to check it; now `setPKScanStatus` refuses it outright. The original builds the
+symbol from its argument, `#Wait5min` and `#goodScan5min`, and I had guessed a
+name rather than reading the two literal fragments it concatenates.
+
+The second is worse. `setScanTime` computes a deadline as `the ticks + minutes
+* 3600`, and I read `the ticks` from a flag called `gTicks` that nothing ever
+wrote. It was zero for the whole session, so every deadline the scan unit set
+was already in the past. The render loop now advances it, sixtieths since
+startup, as Director does.
+
+A hundred tests. The one I would keep if I could keep only one is
+`a_finished_scan_survives_being_fiddled_with`, because that is a rule about
+fairness rather than about a format, and those are the ones a port loses
+silently.

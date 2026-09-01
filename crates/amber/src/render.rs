@@ -91,9 +91,18 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     let mut last_title = String::new();
 
     let mut frames: u64 = 0;
+    let started = std::time::Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
         frames += 1;
         crate::trace::frame(frames);
+
+        // Director's `the ticks` is sixtieths since startup, and the scan
+        // unit's timer is an absolute deadline in them. Never advancing it
+        // left every such deadline in the past.
+        game.state.set(
+            "gTicks",
+            lingo::Value::Int((started.elapsed().as_secs_f64() * 60.0) as i32),
+        );
 
         // A handler's sequence can hold part way through -- suspend, play a
         // film, wait for it, restore -- so the queue is pumped every frame and
