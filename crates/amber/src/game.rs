@@ -172,6 +172,11 @@ impl Game {
                 schema.seed(&mut self.state);
             }
         }
+        // Handlers of the same name differ between chapters -- the door
+        // setters cue different sounds -- so the active chapter has to be
+        // readable from the state a handler is given.
+        self.state
+            .set_all("gChapter", vec![lingo::Value::Symbol(domain.to_string())]);
     }
 
     /// Stops the current movie and moves on if the room has nothing else.

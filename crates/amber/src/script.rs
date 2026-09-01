@@ -405,11 +405,54 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 state.add_item(&key, args[args.len() - 1].clone());
             }
         }
-        "setstate" | "addstate" | "setprop" => {
+        // `setState( oStoryteller, #flag, value )`. The receiver is optional
+        // in the room scripts, so the flag and value are taken from the end.
+        //
+        // A flag whose value list holds more than one setting takes the write
+        // directly: `setState` moves that setting to the head. A flag holding
+        // exactly one is not a value at all -- it declares that a handler named
+        // `set<Flag>` exists, and the original dispatches to it:
+        //
+        //   on setState me, stateVar, suggestion
+        //     if count(valueList) > 1 then ... else
+        //       return value("set" & stateVar & "(" & suggestion & ")")
+        //
+        // That is what the whole `setGrateIsOpen` / `setBarMode` family is for.
+        // When the setter has not been ported the write still happens, so an
+        // unported setter costs its side effects rather than the flag.
+        "setstate" => {
+            if args.len() >= 2 {
+                let key = args[args.len() - 2].as_str().unwrap_or_default().to_string();
+                let value = args[args.len() - 1].clone();
+                if !key.is_empty() {
+                    let custom = state.get_all(&key).len() == 1;
+                    let setter = format!("set{}", key.trim_start_matches('#')).to_ascii_lowercase();
+                    if !custom || !crate::natives::call(&setter, &[value.clone()], state, out) {
+                        state.set(&key, value);
+                    }
+                }
+            }
+        }
+        // `setProp` writes the value list itself rather than going through
+        // `setState`, which is how a custom setter sets its own flag.
+        "setprop" => {
             if args.len() >= 2 {
                 let key = args[args.len() - 2].as_str().unwrap_or_default().to_string();
                 if !key.is_empty() {
-                    state.set(&key, args[args.len() - 1].clone());
+                    match args[args.len() - 1].as_list() {
+                        Some(values) => state.set_all(&key, values.to_vec()),
+                        None => state.set_all(&key, vec![args[args.len() - 1].clone()]),
+                    }
+                }
+            }
+        }
+        // `addState` appends to the list a flag holds; it does not replace the
+        // head the way `setState` does.
+        "addstate" => {
+            if args.len() >= 2 {
+                let key = args[args.len() - 2].as_str().unwrap_or_default().to_string();
+                if !key.is_empty() {
+                    state.add_item(&key, args[args.len() - 1].clone());
                 }
             }
         }

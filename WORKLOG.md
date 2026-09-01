@@ -1703,3 +1703,72 @@ Two of the three tools I reached for lied to me on the way, both in the same
 way: `tools/disasm.py` overwrites `sys.argv` at import, and my first table
 survey crashed on movies with no `Lnam` chunk. Neither is interesting except
 that both failed loudly, which is the only reason this entry is not wrong.
+
+## 55. The setter family, and a table instead of twenty-five ports
+
+Entry 54 ended with the observation that `setState` on a single-valued flag
+dispatches to `set<Flag>(suggestion)`, and that the `setGrateIsOpen` family is
+what that mechanism is for. This is that lead followed.
+
+Fifty-three setters exist across the four movies. One was ported. Sorting them
+by size made the shape obvious before reading any of them: twenty-four sat at
+exactly the same instruction count, which is not a coincidence anyone arranges
+by hand.
+
+The template:
+
+```text
+on set<X>IsOpen suggestion
+  currentState = getState( #X )
+  if suggestion = 0 and currentState = 1 then
+    cue( #<thing>Close )
+    setProp( oStoryteller.states, #X, list(0) )
+    updateDisplay( oPuppeteer )
+  if suggestion = 1 and currentState = 0 then
+    cue( #<thing>Open )
+    setProp( oStoryteller.states, #X, list(1) )
+    updateDisplay( oPuppeteer )
+```
+
+Both arms are guarded on the flag actually changing, so setting a door open
+when it is already open does nothing at all -- no sound, no redraw, no write.
+That is the property that makes these safe to call from anywhere, and it is the
+reason the write has to go through the setter rather than to the flag: the
+guard lives in the setter, not at the call site.
+
+`op03` fell out on the way. It appears where a zero belongs in five unrelated
+places -- `suggestion = 0` here, `getPos(...) = 0` in `inState`, and three
+locals initialised in `adjustLockSettings` -- so it pushes zero.
+
+I did not assume the cue from the handler's name, and it is as well. Twenty-five
+handlers match the template and they differ in which sound they play, so the
+port is a table of `(chapter, handler, opening cue, closing cue)` read out of
+the bytecode. Two entries would have been wrong by any naming rule: Margaret's
+boathouse door and mailbox are *cabinets*, and Brice's boathouse door plays the
+**grate** -- the authors copied `setGrateIsOpen` and never changed the sound.
+Reproducing that is the point. It is what the disc does.
+
+The same flag name means different sounds in different chapters, so a handler
+now has to know which chapter it is running in. `seed_chapter` writes `gChapter`
+alongside the schema, which is the smallest thing that works and is honest
+about being a lookup key rather than game state.
+
+The remaining twenty-eight setters are not the template. They range from four
+instructions to a hundred and sixty, and the large ones branch on where the
+player is standing: Roxy's kitchen cabinet plays one of four sounds depending
+on which door of it is in view. Those stay individual ports.
+
+One bug of my own, caught by the flag's own shape. After wiring the dispatch,
+the bathroom door opened and the exit behind it appeared -- but the flag read
+`[1, 0]` rather than `[1]`. Two elements is the signature of the fallback path:
+my generic setter replaces the list, `setState`'s default write inserts at the
+head. So the dispatch had missed and the write had happened anyway. The handler
+name is built from the flag and the dispatcher matches lower case, and
+`setbathroomDoorIsOpen` is not `setbathroomdoorisopen`. Worth recording that
+the thing which gave it away was not the door -- the door worked -- but a list
+one element longer than it should have been.
+
+Fifty-four tests. The new ones cover the cue table by chapter, the
+does-nothing-when-unchanged guard, and a chapter declining a setter it does not
+have, since answering with another chapter's sound is the failure the table
+invites.
