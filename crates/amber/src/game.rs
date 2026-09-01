@@ -53,6 +53,8 @@ pub struct Game {
     chapters: HashMap<String, Chapter>,
     /// Effects the last click produced, for the front end to play back.
     pub pending: Vec<Effect>,
+    /// What the effect queue is holding for, if anything.
+    effect_wait: Option<Wait>,
     /// Sprite channels a script has taken over, keyed by channel so they
     /// composite in the same back-to-front order as the room's own sprites.
     puppets: BTreeMap<u8, Puppet>,
@@ -95,6 +97,7 @@ impl Game {
             root: root.to_path_buf(),
             chapters: HashMap::new(),
             pending: Vec::new(),
+            effect_wait: None,
             puppets: BTreeMap::new(),
             repeating: None,
             script: Vec::new(),
@@ -400,9 +403,10 @@ impl Game {
                     (0, Some((flag, table))) => {
                         let key = self.state.get(flag);
                         let found = tables.and_then(|t| t.lookup(table, &key));
-                        if found.is_none() && std::env::var_os("AMBER_TRACE_SPRITES").is_some() {
-                            eprintln!(
-                                "  cast lookup miss: {table}[{flag} = {key:?}]                                  (tables loaded: {})",
+                        if found.is_none() {
+                            trace!(
+                                crate::trace::Topic::Sprite,
+                                "cast lookup miss {table}[{flag} = {key:?}], {} tables loaded",
                                 tables.map(|t| t.len()).unwrap_or(0)
                             );
                         }
@@ -420,6 +424,44 @@ impl Game {
             .collect();
         out.sort_by_key(|(ch, _, _)| *ch);
         out
+    }
+
+    /// The effects that are due now, stopping at the first one that waits.
+    ///
+    /// A handler emits its whole sequence in one go -- the mirror message is
+    /// `cursorOff`, `suspendSounds`, `pushVideo`, `wait #videoStop`,
+    /// `restoreSounds`, `trimState` -- and the waits inside it are the timing.
+    /// Draining the queue in one pass applied all six in a single frame, so
+    /// the sounds were suspended and restored in the same instant and the
+    /// video played with nothing sequenced around it. `pump` already honours
+    /// waits between actions; this honours them within one action's effects.
+    pub fn drain_ready(&mut self) -> Vec<Effect> {
+        if let Some(wait) = &self.effect_wait {
+            if !self.wait_satisfied(wait) {
+                return Vec::new();
+            }
+            self.effect_wait = None;
+        }
+
+        let mut ready = Vec::new();
+        while !self.pending.is_empty() {
+            let effect = self.pending.remove(0);
+            if let Some(w) = wait_for(&effect) {
+                // The wait is armed after the effects before it are handed
+                // over, so the video this is waiting on has been started by
+                // the time the wait is first tested.
+                trace!(crate::trace::Topic::Script, "hold on {effect:?}");
+                self.effect_wait = Some(w);
+                break;
+            }
+            ready.push(effect);
+        }
+        ready
+    }
+
+    /// Whether the effect queue still has work, including a wait in progress.
+    pub fn effects_busy(&self) -> bool {
+        !self.pending.is_empty() || self.effect_wait.is_some()
     }
 
     /// Applies an effect that acts on a script-controlled sprite channel.
@@ -483,79 +525,116 @@ impl Game {
     pub fn draw(&mut self, frame: &mut [u32], width: u32, height: u32) {
         frame.fill(0xff00_0000);
 
-        let domain = self.node().domain.clone();
-        for (_, cast, center) in self.visible() {
-            let Some(art) = self.art(&domain, cast) else {
-                continue;
-            };
-            // `#coords` gives where the sprite's registration point lands on
-            // the stage. Without one there is no anchor and the registration
-            // point alone says nothing, so the image is centred instead.
-            let (ox, oy) = match center {
-                Some((cx, cy)) => (
-                    cx - if art.reg_x != 0 { art.reg_x as i32 } else { art.width as i32 / 2 },
-                    cy - if art.reg_y != 0 { art.reg_y as i32 } else { art.height as i32 / 2 },
-                ),
-                None => (
-                    (width as i32 - art.width as i32) / 2,
-                    (height as i32 - art.height as i32) / 2,
-                ),
-            };
-            if std::env::var_os("AMBER_TRACE_SPRITES").is_some() {
-                eprintln!(
-                    "  sprite cast {cast:<6} {}x{} reg=({},{}) coords={:?} -> ({ox},{oy})",
-                    art.width, art.height, art.reg_x, art.reg_y, center
-                );
-            }
-            blit(frame, width, height, &art.rgba, art.width, art.height, ox, oy);
+        // Everything on the stage is one ordered set of sprite channels, and
+        // the numbers come from the game rather than from a guess about which
+        // kind of element belongs on top:
+        //
+        //   * A room writes `#channel: N`, which is an offset from
+        //     `lastScoreSprite`. `setUpGame` sets that to 12, so a room's
+        //     channels 1-10 are really 13-22.
+        //   * Movies live on 44 and 45 -- `refreshVidSprites` forces a redraw
+        //     by flickering the visibility of exactly those two.
+        //   * A script takes a channel with `puppetSprite` and drives it
+        //     directly, at whatever number it names: 30, 39 and 44 are the
+        //     ones the game claims.
+        //
+        // Drawing these as three fixed layers -- plates, then the movie, then
+        // the puppets -- happens to be right until a script claims a channel
+        // below the movie, and then the puppet lands on top of a film it
+        // belongs behind.
+        const SCORE_BASE: u16 = 12;
+        const MOVIE_CHANNEL: u16 = 44;
+
+        enum Layer {
+            /// A cast member from the room or from a puppet channel.
+            Art { cast: u32, at: Option<(i32, i32)> },
+            Movie,
         }
 
-        // The movie draws over the room's plates, not under them. A haunt is
-        // a film of something appearing in a mirror or out on the lake, and
-        // the room it plays in is a full-scene plate; underneath, it is
-        // invisible. The intro, where this was first written, has no plates at
-        // all, so the order it needed could not be observed there.
-        if let Some(player) = &self.player {
-            let centre = self
-                .world
-                .nodes[self.room]
-                .sprites
-                .iter()
-                .find(|s| matches!(s.channel, Channel::Video))
-                .and_then(|s| s.center)
-                .unwrap_or((width as i32 / 2, height as i32 / 2));
-            // The decoder is authoritative: a frame header can disagree with
-            // the container, and it is the decoder that resized its buffer.
-            let (w, h) = player.frame_size();
-            blit(
-                frame,
-                width,
-                height,
-                player.frame(),
-                w,
-                h,
-                centre.0 - w as i32 / 2,
-                centre.1 - h as i32 / 2,
-            );
+        let mut stage: Vec<(u16, Layer)> = Vec::new();
+        for (ch, cast, center) in self.visible() {
+            stage.push((SCORE_BASE + ch as u16, Layer::Art { cast, at: center }));
         }
-
-        // Script-controlled channels sit over the room, in channel order.
-        let domain = self.node().domain.clone();
-        let puppets: Vec<(u8, Puppet)> =
-            self.puppets.iter().map(|(k, v)| (*k, *v)).collect();
-        for (_, puppet) in puppets {
+        if self.player.is_some() {
+            stage.push((MOVIE_CHANNEL, Layer::Movie));
+        }
+        for (ch, puppet) in self.puppets.iter() {
             if puppet.cast == 0 || puppet.hidden {
                 continue;
             }
-            let Some(art) = self.art(&domain, puppet.cast) else {
-                continue;
-            };
-            let (w, h) = (art.width, art.height);
-            let (ox, oy) = match puppet.loc {
-                Some((x, y)) => (x - art.reg_x as i32, y - art.reg_y as i32),
-                None => ((width as i32 - w as i32) / 2, (height as i32 - h as i32) / 2),
-            };
-            blit(frame, width, height, &art.rgba, w, h, ox, oy);
+            stage.push((
+                *ch as u16,
+                Layer::Art {
+                    cast: puppet.cast,
+                    at: puppet.loc,
+                },
+            ));
+        }
+        // A stable sort keeps the room's own order within a channel, which is
+        // how two plates sharing one channel stack.
+        stage.sort_by_key(|(ch, _)| *ch);
+
+        let domain = self.node().domain.clone();
+        let video_centre = self
+            .world
+            .nodes[self.room]
+            .sprites
+            .iter()
+            .find(|s| matches!(s.channel, Channel::Video))
+            .and_then(|s| s.center);
+
+        for (channel, layer) in stage {
+            match layer {
+                Layer::Art { cast, at } => {
+                    let Some(art) = self.art(&domain, cast) else {
+                        continue;
+                    };
+                    // `#coords` gives where the sprite's registration point
+                    // lands on the stage. Without one there is no anchor and
+                    // the registration point alone says nothing, so the image
+                    // is centred instead.
+                    let (ox, oy) = match at {
+                        Some((cx, cy)) => (
+                            cx - if art.reg_x != 0 { art.reg_x as i32 } else { art.width as i32 / 2 },
+                            cy - if art.reg_y != 0 { art.reg_y as i32 } else { art.height as i32 / 2 },
+                        ),
+                        None => (
+                            (width as i32 - art.width as i32) / 2,
+                            (height as i32 - art.height as i32) / 2,
+                        ),
+                    };
+                    trace!(
+                        crate::trace::Topic::Sprite,
+                        "draw ch{channel} cast {cast} {}x{} at ({ox},{oy})",
+                        art.width,
+                        art.height
+                    );
+                    blit(frame, width, height, &art.rgba, art.width, art.height, ox, oy);
+                }
+                Layer::Movie => {
+                    let Some(player) = &self.player else { continue };
+                    // The decoder is authoritative: a frame header can
+                    // disagree with the container, and it is the decoder that
+                    // resized its buffer.
+                    let (w, h) = player.frame_size();
+                    let centre =
+                        video_centre.unwrap_or((width as i32 / 2, height as i32 / 2));
+                    trace!(
+                        crate::trace::Topic::Sprite,
+                        "draw ch{channel} movie {w}x{h} at {centre:?}"
+                    );
+                    blit(
+                        frame,
+                        width,
+                        height,
+                        player.frame(),
+                        w,
+                        h,
+                        centre.0 - w as i32 / 2,
+                        centre.1 - h as i32 / 2,
+                    );
+                }
+            }
         }
     }
 
@@ -787,8 +866,21 @@ impl Game {
             .filter(|s| self.state.test(&s.condition))
             .filter_map(|s| {
                 let name = s.cast_name.as_ref()?.trim_start_matches('#').to_string();
-                let level = s.volume.unwrap_or(255) as f32 / 255.0;
-                Some((name, level))
+                // A sound sprite's `#earShot` is its level, and a negative one
+                // is an instruction to stop rather than a level to play at:
+                //
+                //   sndVolume = getProp(sprite, #earShot)
+                //   if sndVolume < 0 then endLoop( value(castName) )
+                //   else setLoop( value(castName), sndVolume )
+                //
+                // Fifty-six sprites use it that way, to silence a loop in a
+                // room it should not carry into. Passed through as a level it
+                // is a negative gain, which inverts the waveform.
+                let level = s.volume.unwrap_or(255);
+                if level < 0 {
+                    return None;
+                }
+                Some((name, level as f32 / 255.0))
             })
             .collect();
         for (key, level) in &node.ambience {
@@ -956,16 +1048,7 @@ impl Game {
         while !self.script.is_empty() {
             let action = self.script.remove(0);
             let outcome = script::run(std::slice::from_ref(&action), &mut self.state);
-            let hold = outcome.effects.iter().find_map(|e| match e {
-                Effect::WaitTicks(t) => Some(Wait::Until(
-                    Instant::now() + Duration::from_secs_f64(*t as f64 / 60.0),
-                )),
-                Effect::WaitForVideo => Some(Wait::Video),
-                Effect::WaitForSound(_) => Some(Wait::Until(
-                    Instant::now() + Duration::from_millis(250),
-                )),
-                _ => None,
-            });
+            let hold = outcome.effects.iter().find_map(wait_for);
             // Each action's own outcome is applied, not the running total.
             // Applying the accumulation instead re-queued every effect the
             // sequence had produced so far, once more per action, so a list of
@@ -1037,6 +1120,27 @@ fn world_domains(world: &World) -> Vec<String> {
     let mut names: Vec<String> = world.domains.keys().cloned().collect();
     names.sort();
     names
+}
+
+/// The wait an effect asks for, if it is one.
+///
+/// Named so the set stays in one place: `pump` holds between a sequence's
+/// actions and `drain_ready` holds within one action's effects, and the two
+/// disagreeing about what counts as a wait would be invisible until a cutscene
+/// ran at the wrong speed.
+fn wait_for(effect: &Effect) -> Option<Wait> {
+    match effect {
+        Effect::WaitTicks(t) => Some(Wait::Until(
+            Instant::now() + Duration::from_secs_f64(*t as f64 / 60.0),
+        )),
+        Effect::WaitForVideo => Some(Wait::Video),
+        // A sound's real length is not known here, so this is a short hold
+        // rather than a promise.
+        Effect::WaitForSound(_) => {
+            Some(Wait::Until(Instant::now() + Duration::from_millis(250)))
+        }
+        _ => None,
+    }
 }
 
 /// What a part-run script is waiting on.
@@ -1114,6 +1218,43 @@ fn blit(
             }
             let (r, g, b) = (px[0] as u32, px[1] as u32, px[2] as u32);
             dst[(ty as u32 * dst_w + tx as u32) as usize] = 0xff00_0000 | (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exactly_the_three_wait_effects_hold_the_queue() {
+        assert!(wait_for(&Effect::WaitTicks(120)).is_some());
+        assert!(wait_for(&Effect::WaitForVideo).is_some());
+        assert!(wait_for(&Effect::WaitForSound("tumbler".into())).is_some());
+    }
+
+    #[test]
+    fn the_effects_a_cutscene_is_made_of_do_not_hold() {
+        // The mirror message is cursorOff, suspendSounds, pushVideo, wait,
+        // restoreSounds, trimState. Only the wait may stop the queue; if any
+        // of the others did, the sequence would stall part way and the
+        // ambience would stay suspended.
+        for effect in [
+            Effect::CursorOff,
+            Effect::SuspendSounds { fade: true },
+            Effect::PlayVideo(None),
+            Effect::RestoreSounds { fade: true },
+            Effect::StopVideo,
+            Effect::PlaySound {
+                name: "MCALL7".into(),
+                loudness: None,
+            },
+            Effect::StartLoop {
+                name: "houseHum".into(),
+                volume: Some(224),
+            },
+        ] {
+            assert!(wait_for(&effect).is_none(), "{effect:?} should not hold");
         }
     }
 }

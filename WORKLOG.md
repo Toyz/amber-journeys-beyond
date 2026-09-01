@@ -2002,3 +2002,53 @@ Both of these had been in the engine for as long as the queue has existed. The
 event log found them in one run, which is the whole argument for entry 58: the
 duplication was visible in the effect list all along, and I had been reading
 that list for weeks.
+
+## 60. Four bugs in one log
+
+helba pasted a trace of the bathroom mirror haunt. Every line of it was a
+finding.
+
+**`scanLoop -0%`, playing at `gain -0.00`.** A negative gain inverts a
+waveform. The room's sound sprite declares `#earShot: -1`, and I had been
+reading that as a level. `updateDisplay` says otherwise:
+
+```text
+sndVolume = getProp(sprite, #earShot)
+if sndVolume < 0 then endLoop( value(getProp(sprite, #castName)) )
+else                  setLoop( value(getProp(sprite, #castName)), sndVolume )
+```
+
+A negative `#earShot` is an instruction to *stop* that loop, which fifty-six
+sprites use to silence something a room should not carry. I had also had the
+field name wrong in my head for weeks: sound sprites carry `#earShot`, never
+`#volume`, in all two hundred and fifty of them.
+
+**The video drew at the wrong depth.** Three fixed layers -- plates, then the
+movie, then the puppet channels -- which is right only until a script claims a
+channel the movie should sit above. The game supplies the real numbers and I
+had never gone looking for them. A room's `#channel: N` is an offset from
+`lastScoreSprite`, which `setUpGame` sets to 12, so its channels 1-10 are
+really 13-22. Movies live on 44 and 45: `refreshVidSprites` forces QuickTime to
+redraw by flickering the visibility of exactly those two sprites. Puppets take
+whatever channel they name, 30, 39 and 44 being the ones the game claims. The
+stage is now one list sorted by channel, and the movie is at 44 because that is
+where it is, not because a comment said films go on top.
+
+**Every wait inside a handler was ignored.** The mirror message is six effects:
+`cursorOff`, `suspendSounds`, `pushVideo`, `wait #videoStop`, `restoreSounds`,
+`trimState`. `pump` honours a wait *between* actions, but a native handler
+emits its whole sequence as one action, and the render loop drained the queue
+in a single pass. So the ambience was suspended and restored in the same
+instant, and the film played with nothing sequenced around it. The queue now
+stops at the first wait and is pumped every frame rather than only in the frame
+a click arrives. That is why the message did not read as a scene.
+
+**And a silent failure of my own.** Entry 58's sprite tracing never took: the
+replacement I wrote did not match, `str.replace` returns the string unchanged
+when it finds nothing, and I did not check. The old `AMBER_TRACE_SPRITES`
+block sat there through two commits while I believed it was gone. Every
+scripted edit since has an assertion on it now.
+
+Three of these four had been in the engine since the queue existed. helba's
+log showed all of them in one run, which is twice now that the event log has
+paid for itself in a single paste.

@@ -94,6 +94,13 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     while window.is_open() && !window.is_key_down(Key::Escape) {
         frames += 1;
         crate::trace::frame(frames);
+
+        // A handler's sequence can hold part way through -- suspend, play a
+        // film, wait for it, restore -- so the queue is pumped every frame and
+        // not only in the frame a click arrives.
+        if game.effects_busy() {
+            apply_effects(&mut game, audio.as_ref(), &mut dirty, &mut playing_soundtrack);
+        }
         // Ambient loops belong to the room, so they start on arrival and are
         // left running until a room wants something different.
         if game.room != ambience_room {
@@ -321,64 +328,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                     // setState with no updateDisplay, because Director
                     // refreshed the stage on its own. Recomposing is cheap.
                     dirty = true;
-                    let effects: Vec<Effect> = game.pending.drain(..).collect();
-                    for effect in effects {
-                        if std::env::var_os("AMBER_TRACE").is_some() {
-                            eprintln!("  effect: {effect:?}");
-                        }
-                        // Channel effects change what is drawn, not what is
-                        // heard, so they are applied before the audio match.
-                        if game.apply_puppet(&effect) {
-                            dirty = true;
-                            continue;
-                        }
-                        let Some(a) = &audio else { continue };
-                        match effect {
-                            Effect::PlaySound { name, loudness } => {
-                                // The loudness word is a coarse mix hint, not a
-                                // level: quiet lines sit under the ambience.
-                                let scale = match loudness.as_deref() {
-                                    Some("low") => 0.5,
-                                    Some("medium") => 0.75,
-                                    _ => 1.0,
-                                };
-                                let gain = game.sounds.gain(&name) * scale;
-                                if let Some((pcm, rate, ch)) = game.sound(&name) {
-                                    a.play(Some(&name), None, pcm, rate, ch, gain, false);
-                                }
-                            }
-                            Effect::StartLoop { name, volume } => {
-                                let level = volume.unwrap_or(255) as f32 / 255.0;
-                                let gain = level * game.sounds.gain(&name);
-                                if let Some((pcm, rate, ch)) = game.sound(&name) {
-                                    a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true);
-                                }
-                            }
-                            // `pushVideo` was reaching here and being
-                            // discarded, so every montage that plays through it
-                            // showed nothing and the `wait #videoStop` after it
-                            // resolved against whatever movie happened to be
-                            // loaded.
-                            Effect::PlayVideo(ref which) => {
-                                game.play_movie(which.as_deref());
-                                playing_soundtrack = false;
-                                dirty = true;
-                            }
-                            Effect::StopLoop { name, .. } => {
-                                a.stop(&name);
-                                game.stop_program(&name);
-                            }
-                            // Fades are not modelled yet; the duck itself is
-                            // what the scripts rely on.
-                            Effect::SuspendSounds { .. } => a.set_suspended(true),
-                            Effect::RestoreSounds { .. } => a.set_suspended(false),
-                            Effect::StopVideo => {
-                                game.player = None;
-                                playing_soundtrack = false;
-                            }
-                            _ => {}
-                        }
-                    }
+                    apply_effects(&mut game, audio.as_ref(), &mut dirty, &mut playing_soundtrack);
                 }
             }
         }
@@ -407,4 +357,76 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         window.update_with_buffer(&out, STAGE_W, STAGE_H)?;
     }
     Ok(())
+}
+
+/// Applies the effects that are due, honouring the waits between them.
+///
+/// Called once a frame rather than only after a click, because a handler's
+/// sequence can hold: the mirror message suspends the ambience, plays a film,
+/// waits for it to end, and only then restores. Draining the whole queue in
+/// the frame the click arrived ran all of that in one instant.
+fn apply_effects(
+    game: &mut Game,
+    audio: Option<&Audio>,
+    dirty: &mut bool,
+    playing_soundtrack: &mut bool,
+) {
+let effects: Vec<Effect> = game.drain_ready();
+for effect in effects {
+    if std::env::var_os("AMBER_TRACE").is_some() {
+        eprintln!("  effect: {effect:?}");
+    }
+    // Channel effects change what is drawn, not what is
+    // heard, so they are applied before the audio match.
+    if game.apply_puppet(&effect) {
+        *dirty = true;
+        continue;
+    }
+    let Some(a) = audio else { continue };
+    match effect {
+        Effect::PlaySound { name, loudness } => {
+            // The loudness word is a coarse mix hint, not a
+            // level: quiet lines sit under the ambience.
+            let scale = match loudness.as_deref() {
+                Some("low") => 0.5,
+                Some("medium") => 0.75,
+                _ => 1.0,
+            };
+            let gain = game.sounds.gain(&name) * scale;
+            if let Some((pcm, rate, ch)) = game.sound(&name) {
+                a.play(Some(&name), None, pcm, rate, ch, gain, false);
+            }
+        }
+        Effect::StartLoop { name, volume } => {
+            let level = volume.unwrap_or(255) as f32 / 255.0;
+            let gain = level * game.sounds.gain(&name);
+            if let Some((pcm, rate, ch)) = game.sound(&name) {
+                a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true);
+            }
+        }
+        // `pushVideo` was reaching here and being
+        // discarded, so every montage that plays through it
+        // showed nothing and the `wait #videoStop` after it
+        // resolved against whatever movie happened to be
+        // loaded.
+        Effect::PlayVideo(ref which) => {
+            game.play_movie(which.as_deref());
+            *playing_soundtrack = false;
+            *dirty = true;
+        }
+        Effect::StopLoop { name, .. } => {
+            a.stop(&name);
+            game.stop_program(&name);
+        }
+        // Fades are not modelled yet; the duck itself is
+        // what the scripts rely on.
+        Effect::SuspendSounds { .. } => a.set_suspended(true),
+        Effect::RestoreSounds { .. } => a.set_suspended(false),
+        Effect::StopVideo => {
+            game.player = None;
+            *playing_soundtrack = false;
+        }
+        _ => {}
+    }
+}
 }
