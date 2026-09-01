@@ -1887,3 +1887,49 @@ has an entire clock subsystem behind them -- `moveClock`, `touchClock`,
 `#theseClocks` -- none of which is ported. The ticking is driven from there.
 That is a set piece to port, not a bug to fix, and it is the largest unported
 one I have found.
+
+## 58. An event log, and a measurement that was nearly wrong
+
+helba asked for a way to see what the engine is doing. The case for it is the
+list above: nearly every bug found by playing this thing has been the engine
+doing something reasonable for a reason invisible from outside. A guard that
+read as vacuously true. A sprite filtered out before it drew. A setter that
+missed its dispatch and let the fallback write happen anyway -- caught only
+because a flag's list was one element longer than it should have been. Each
+time the fix was quick and the finding was slow, and each time the finding
+started with adding an `eprintln!` and building again.
+
+So: `AMBER_TRACE=room,script,state,sprite,audio,video`, or `all`, to stderr or
+to `AMBER_TRACE_FILE`. Records carry the frame and the room, because what was
+on screen when it happened is the first question every time. Naming a topic
+that does not exist prints the ones that do, because silently tracing nothing
+is the worst possible answer to a typo in a debugging session.
+
+Two details worth keeping. The first record it produced showed
+`setfrontdoorisopen` firing three times for one click, which looked like a bug
+and is not: the walkthrough lists a room's exits by running each hotspot's
+actions against a copy of the state, and `verify` sweeps the whole game the
+same way. Those runs call handlers and write flags exactly as a real click
+does. They are now marked with a leading `~`, because a log that cannot tell a
+speculative run from a real one is worse than no log. The second is that
+seeding a chapter writes several hundred flags at once, which buries everything
+anyone is reading the log for, so the schema announces a count instead.
+
+Then it caught something on its first real outing. Brice seeds thirty-two
+flags; Roxy a hundred. In entry 55 I had put the split at ninety-two
+single-valued against fifteen hundred multi-valued, and fifteen hundred is
+wrong by an order of magnitude -- that number came from a regex sweeping the
+whole movie file and counting every `#name: [...]` it found, in room records
+and cast tables alike, not just the schema. The real figures are 92 and 115.
+
+The ninety-two is right, which is the part worth being uncomfortable about. The
+number I quoted and the number I checked happened to agree on the half that
+mattered, so the conclusion built on it -- that single-valued flags declare a
+custom setter -- stands. It stands by luck. Had the error fallen the other way
+I would have written an entry off a measurement I never questioned, because it
+confirmed something I already believed.
+
+Only the correct figure had reached the log; the bad one existed in a message.
+That is a thin margin, and the lesson is the same one as the palette: a number
+that agrees with what I expect gets no scrutiny, and those are exactly the ones
+that need it.

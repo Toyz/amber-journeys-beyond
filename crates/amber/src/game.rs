@@ -249,7 +249,17 @@ impl Game {
     }
 
     fn move_to(&mut self, room: usize) {
+        let from = self.world.nodes[self.room].name.clone().unwrap_or_default();
         self.room = room;
+        let node = &self.world.nodes[room];
+        crate::trace::room(node.name.as_deref().unwrap_or("?"));
+        trace!(
+            crate::trace::Topic::Room,
+            "enter {} (zone {}, {} hotspots) from {from}",
+            node.name.clone().unwrap_or_default(),
+            node.zone.clone().unwrap_or_else(|| "-".into()),
+            node.hotspots.len()
+        );
         if let Some(name) = self.world.nodes[room].name.clone() {
             self.state
                 .set_all("currentLocation", vec![lingo::Value::Symbol(name)]);
@@ -336,8 +346,14 @@ impl Game {
             return;
         };
         match self.movies.find(&name) {
-            Some(path) => self.player = VideoPlayer::open(path),
-            None => eprintln!("warning: no file for movie {name}"),
+            Some(path) => {
+                trace!(crate::trace::Topic::Video, "open {name} -> {}", path.display());
+                self.player = VideoPlayer::open(path);
+            }
+            None => {
+                trace!(crate::trace::Topic::Video, "no file for movie {name}");
+                eprintln!("warning: no file for movie {name}");
+            }
         }
     }
 

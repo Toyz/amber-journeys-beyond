@@ -207,6 +207,35 @@ failing and why, `click x y` to run the same hit test the window uses, and
 `give`/`use` to put an item in hand. A route can be passed as arguments, so a
 report becomes a one-liner.
 
+## Tracing
+
+The engine logs nothing unless asked. `AMBER_TRACE` selects topics by name,
+comma separated, or `all`:
+
+```
+AMBER_TRACE=room,script amber walk extract Gaz_lockCU "click 293 248"
+AMBER_TRACE=all AMBER_TRACE_FILE=/tmp/run.log amber play extract
+```
+
+| topic | what it records |
+|--------|--------------------------------------------------|
+| room | room changes, with the area and hotspot count |
+| script | handler dispatch, and handlers still unported |
+| state | flag writes: `set`, `add`, `trim` |
+| sprite | sprites that were asked to draw and could not |
+| audio | loops started and stopped, and the mix per room |
+| video | movies opened, and movies with no file |
+
+Records carry the frame and the room, because "what was on screen when this
+happened" is the first question every time. A leading `~` marks a speculative
+run: the walkthrough lists a room's exits by running each hotspot against a
+copy of the state, and `verify` sweeps the whole game the same way. Those calls
+handlers and write flags exactly as a real click does, on a copy that is thrown
+away.
+
+Naming a topic that does not exist reports the ones that do rather than
+silently tracing nothing.
+
 ## State
 
 The game is playable: you can walk the house, open doors, pick things up and

@@ -427,7 +427,15 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 if !key.is_empty() {
                     let custom = state.get_all(&key).len() == 1;
                     let setter = format!("set{}", key.trim_start_matches('#')).to_ascii_lowercase();
-                    if !custom || !crate::natives::call(&setter, &[value.clone()], state, out) {
+                    if custom && crate::natives::call(&setter, &[value.clone()], state, out) {
+                        trace!(crate::trace::Topic::Script, "{setter}({value:?})");
+                    } else {
+                        if custom {
+                            trace!(
+                                crate::trace::Topic::Script,
+                                "{setter} not ported, writing {key} directly"
+                            );
+                        }
                         state.set(&key, value);
                     }
                 }
@@ -584,7 +592,14 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         // timeline stays intact and the engine's report stays honest about
         // what is still missing.
         _ => {
-            if !crate::natives::call(&call.name, &args, state, out) {
+            if crate::natives::call(&call.name, &args, state, out) {
+                trace!(crate::trace::Topic::Script, "{}({args:?})", call.name);
+            } else {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "{}({args:?}) -- not ported",
+                    call.name
+                );
                 out.effects.push(Effect::Native {
                     name: call.name.clone(),
                     args,

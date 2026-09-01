@@ -90,7 +90,10 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     let mut was_down = false;
     let mut last_title = String::new();
 
+    let mut frames: u64 = 0;
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        frames += 1;
+        crate::trace::frame(frames);
         // Ambient loops belong to the room, so they start on arrival and are
         // left running until a room wants something different.
         if game.room != ambience_room {

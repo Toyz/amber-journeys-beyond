@@ -119,8 +119,13 @@ impl Schema {
     /// decide whether a flag is "a list" -- they all are.
     pub fn seed(&self, state: &mut State) {
         for (key, values) in &self.entries {
-            state.set_all(key, values.clone());
+            state.seed_flag(key, values.clone());
         }
+        trace!(
+            crate::trace::Topic::State,
+            "seeded {} flags from the schema",
+            self.entries.len()
+        );
     }
 
     pub fn len(&self) -> usize {

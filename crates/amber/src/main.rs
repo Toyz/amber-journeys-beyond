@@ -4,6 +4,8 @@
 //! the real game data and reports what parsed, which is how the format work is
 //! kept honest.
 
+#[macro_use]
+mod trace;
 mod audio;
 mod casttable;
 mod cursor;
@@ -113,6 +115,7 @@ fn cmd_info(dir: &Path) -> Res {
     let mut missing: BTreeMap<String, usize> = BTreeMap::new();
     for node in &world.nodes {
         for h in &node.hotspots {
+            let _speculative = trace::Probe::begin();
             let mut probe = state::State::new();
             if let Some(dest) = script::run(&h.actions, &mut probe).destination {
                 if world.resolve(&dest, Some(&node.domain)).is_some() {

@@ -203,6 +203,7 @@ fn show(game: &mut Game) {
         if h.actions.is_empty() || !state.test(&h.condition) {
             continue;
         }
+        let _speculative = crate::trace::Probe::begin();
         let mut probe = state.clone();
         let dest = script::run(&h.actions, &mut probe)
             .destination

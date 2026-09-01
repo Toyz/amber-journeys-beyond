@@ -343,9 +343,19 @@ impl Audio {
         };
         if let Some(k) = &key {
             if mixer.voices.iter().any(|v| v.key.as_deref() == Some(k.as_str())) {
+                trace!(crate::trace::Topic::Audio, "loop {k} already playing");
                 return;
             }
         }
+        trace!(
+            crate::trace::Topic::Audio,
+            "play {} gain {gain:.2} {}Hz {}ch {} frames{}",
+            key.clone().unwrap_or_else(|| "(one-shot)".into()),
+            source_rate,
+            channels,
+            samples.len() / channels.max(1) as usize,
+            if looping { " looping" } else { "" }
+        );
         mixer.voices.push(Voice {
             key,
             samples,
@@ -371,6 +381,27 @@ impl Audio {
         let Ok(mut mixer) = self.mixer.lock() else {
             return;
         };
+        if crate::trace::enabled(crate::trace::Topic::Audio) {
+            let dropped: Vec<&str> = mixer
+                .voices
+                .iter()
+                .filter_map(|v| v.key.as_deref())
+                .filter(|k| !wanted.iter().any(|(n, _)| n == k))
+                .collect();
+            if !dropped.is_empty() {
+                trace!(crate::trace::Topic::Audio, "stop {}", dropped.join(", "));
+            }
+            let bed: Vec<String> = wanted
+                .iter()
+                .map(|(n, g)| format!("{n} {:.0}%", g * 100.0))
+                .collect();
+            trace!(
+                crate::trace::Topic::Audio,
+                "bed [{}] total {:.2}",
+                bed.join(", "),
+                wanted.iter().map(|(_, g)| g).sum::<f32>()
+            );
+        }
         mixer.voices.retain(|v| match &v.key {
             Some(k) => wanted.iter().any(|(n, _)| n == k),
             // One-shots are not loops and are left alone.

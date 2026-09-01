@@ -87,8 +87,17 @@ impl State {
             .unwrap_or(&[])
     }
 
-    /// Replaces a flag's whole value list, as seeding from the schema does.
+    /// Replaces a flag's whole value list, as a custom setter does.
     pub fn set_all(&mut self, key: &str, values: Vec<Value>) {
+        trace!(crate::trace::Topic::State, "set {key} = {values:?}");
+        self.props.insert(key.to_ascii_lowercase(), values);
+    }
+
+    /// Writes a flag without announcing it.
+    ///
+    /// Seeding a chapter writes several hundred flags at once, and a trace of
+    /// that buries the handful of writes anyone is reading the log for.
+    pub fn seed_flag(&mut self, key: &str, values: Vec<Value>) {
         self.props.insert(key.to_ascii_lowercase(), values);
     }
 
@@ -126,7 +135,8 @@ impl State {
         // to recognise would then freeze whatever it gates, and a room the
         // player cannot leave is a worse failure than a flag with one extra
         // legal setting.
-        let slot = self.props.entry(key).or_default();
+        trace!(crate::trace::Topic::State, "set {key} = {value:?}");
+        let slot = self.props.entry(key.clone()).or_default();
         match slot.iter().position(|v| v.loosely_eq(&value)) {
             Some(0) => {}
             Some(i) => {
@@ -151,6 +161,7 @@ impl State {
     /// puzzle can never be satisfied.
     pub fn add_item(&mut self, key: &str, item: Value) {
         let key = key.to_ascii_lowercase();
+        trace!(crate::trace::Topic::State, "add {key} += {item:?}");
         let slot = self.props.entry(key).or_default();
         if !slot.iter().any(|v| v.loosely_eq(&item)) {
             slot.push(item);
@@ -166,6 +177,7 @@ impl State {
     /// leaves that list untouched and every haunt repeats for ever.
     pub fn trim_item(&mut self, key: &str, item: &Value) {
         let key = key.to_ascii_lowercase();
+        trace!(crate::trace::Topic::State, "trim {key} -= {item:?}");
         if let Some(items) = self.props.get_mut(&key) {
             items.retain(|i| !i.loosely_eq(item));
         }
