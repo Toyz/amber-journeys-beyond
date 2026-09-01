@@ -15,6 +15,16 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
     // land here; the signature is uniform so the dispatcher stays simple.
     let _ = (args, &out, &state);
     match name {
+        // Every call sits at the end of a close-up's exit:
+        //   stashClick / goTo( #parent, #backOff ) / idle / mouseDown
+        //
+        // `idle` yields to Director and `mouseDown` consumes the click that
+        // is still down, so it does not fire again in the room just returned
+        // to. This engine acts on the release edge and handles one click per
+        // release, so there is no pending event to consume. A no-op here is
+        // the same behaviour by a different route, not a gap.
+        "mousedown" => {}
+
         // on puppetSprite channel, on
         //   Takes a sprite channel away from the score so a script can drive
         //   it, or hands it back. The channels the game claims are 30, 39, 44

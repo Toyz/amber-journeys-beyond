@@ -312,6 +312,26 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             });
         }
 
+        // on setScanTime howManyMinutes
+        //   gScanFinish = the ticks + howManyMinutes * 3600
+        //   setState(oStoryteller, #PeekDisplay, ...)
+        //   setState(oStoryteller, #PKscanStatus, ...)
+        //   goBack
+        //
+        // Starts the scan unit running for a number of minutes and steps back
+        // out of the close-up. Ticks are sixtieths, so 3600 of them is the
+        // minute. The two display strings are built from the argument and are
+        // text this port does not render, so only the timer and the state are
+        // carried over.
+        "setscantime" => {
+            let minutes = args.first().and_then(Value::as_int).unwrap_or(0).max(0);
+            let finish = state.get("gTicks").as_int().unwrap_or(0) + minutes * 3600;
+            state.set("gScanFinish", Value::Int(finish));
+            state.set("scanMinutes", Value::Int(minutes));
+            state.set("PKscanStatus", Value::Symbol("Scanning".into()));
+            out.go_back = true;
+        }
+
         _ => return false,
     }
     true
