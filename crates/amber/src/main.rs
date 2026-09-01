@@ -666,7 +666,7 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
         for step in 0..8 {
             let at = game.program_position();
             match game.tick_program() {
-                Some((pcm, rate, ch, _)) => {
+                Some((_, pcm, rate, ch, _)) => {
                     let secs = pcm.len() as f32 / (rate.max(1) * ch.max(1) as u32) as f32;
                     let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
 
@@ -748,8 +748,8 @@ fn cmd_mix(dir: &Path, room: &str, clicks: &[String]) -> Res {
     // A radio or clock is a programme of takes queued one at a time, so it
     // only becomes a voice once it is advanced. The window does that every
     // frame; here it takes one nudge.
-    if let Some((pcm, rate, channels, gain)) = game.tick_program() {
-        audio.play(None, None, pcm, rate, channels, gain, false, true);
+    if let Some((group, pcm, rate, channels, gain)) = game.tick_program() {
+        audio.play(Some(&group), Some(group.clone()), pcm, rate, channels, gain, false, true);
     }
     println!("{room}: the bed");
     for v in audio.voices() {

@@ -923,7 +923,7 @@ impl Game {
     /// The caller plays it and the programme schedules the following item from
     /// the length of what was just handed over, which keeps the sequence
     /// running without the mixer having to report completions.
-    pub fn tick_program(&mut self) -> Option<(Arc<Vec<i16>>, u32, u16, f32)> {
+    pub fn tick_program(&mut self) -> Option<(String, Arc<Vec<i16>>, u32, u16, f32)> {
         let program = self.program.as_ref()?;
         if Instant::now() < program.due {
             return None;
@@ -958,7 +958,7 @@ impl Game {
             }
         }
         let (samples, rate, channels) = pcm?;
-        Some((samples, rate, channels, gain))
+        Some((group, samples, rate, channels, gain))
     }
 
     /// Decodes one item of a sound group, for callers outside this module.

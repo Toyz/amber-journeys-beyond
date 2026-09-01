@@ -196,12 +196,17 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
 
         // Advance any running programme, queuing its next item as the current
         // one runs out.
-        if let Some((pcm, rate, channels, gain)) = game.tick_program() {
+        if let Some((group, pcm, rate, channels, gain)) = game.tick_program() {
             if let Some(a) = &audio {
-                // A programme's takes are distinct recordings played in turn,
-                // so each is its own one-shot rather than a restart of the
-                // last.
-                a.play(None, None, pcm, rate, channels, gain, false, true);
+                // A take is keyed by the programme it belongs to, not by its
+                // own name: the takes are distinct recordings played in turn,
+                // and what must not happen is two of them at once. The key
+                // also lets a room that no longer wants the radio retire it,
+                // and stops the programme being started again on arrival --
+                // without it, every room change queued another two minute take
+                // until all four channels were radio and nothing else could be
+                // heard.
+                a.play(Some(&group), Some(group.clone()), pcm, rate, channels, gain, false, true);
             }
         }
 

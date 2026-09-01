@@ -2534,3 +2534,45 @@ What I should have built three reports ago. The pattern is the same as the
 event log in entry 58 and the recording in entry 64: when the answer is only
 visible from inside the running game, build the thing that shows it rather than
 reasoning about what it must be.
+
+## 72. The radio ate every channel
+
+helba sent the trace, and it named the fault in three lines:
+
+```text
+[ 85] play (unnamed) gain 0.20 1ch 2697728 frames
+[146] play (unnamed) gain 0.16 1ch 2697728 frames
+[185] no free channel for (unnamed), dropped
+```
+
+Two million six hundred thousand samples is **a hundred and twenty-two
+seconds**. The bedroom radio was starting a fresh two minute take on every room
+change, and none of them ended, so by the third room all four sound channels
+were radio and everything else was refused. The music boxes were not silent:
+they were dropped for want of a channel, which is the mixer doing exactly what
+entry 66 taught it to do.
+
+The cause is that a programme's takes were anonymous. I made them so
+deliberately in entry 66 -- a programme's takes are distinct recordings played
+in turn, and naming them all alike would have folded each into the last and
+played only the first. But anonymous also meant `playing_loops` could not see
+them, so `update_ambience` never knew the radio was already on and started it
+again in every room; and `set_loops` treats an unnamed voice as a one-shot to
+be left alone, so the old takes were never retired.
+
+The right identity is the *programme*, not the take. Keyed by `BRradio`, one
+take plays at a time, a room that no longer wants the radio retires it, and a
+room that still does leaves it running. Two lines that had been fighting each
+other for two entries now agree.
+
+The same shape of bug, found in the same session, in the film's soundtrack:
+also off-channel, also anonymous, also restarted by every music box that began
+a new segment. Five boxes, five copies of the same film's audio. There is one
+film on screen, so there is one of those, and starting another replaces it.
+
+What is worth keeping from this: entry 66 capped the mixer at four channels
+because the game does, and that cap was right. It also turned a leak that had
+been merely wasteful into a fault that silenced the thing the player had just
+clicked. A limit does not create the bug it exposes, but it does decide which
+symptom you get, and "no sound from the boxes" is a much worse clue than "the
+radio is playing four times".

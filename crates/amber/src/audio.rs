@@ -30,7 +30,9 @@ struct Voice {
     /// Whether this voice occupies one of the game's four sound channels.
     ///
     /// A movie's own soundtrack does not: QuickTime plays it outside them, so
-    /// it neither takes a channel nor can be crowded out of one.
+    /// it neither takes a channel nor can be crowded out of one. There is
+    /// exactly one film on screen, so there is exactly one of these, and
+    /// starting another replaces it.
     channelled: bool,
 }
 
@@ -84,6 +86,16 @@ impl Mixer {
             v.gain = gain;
             return;
         }
+        // A film's soundtrack replaces the one before it. It sits outside the
+        // four channels, so nothing else would ever retire it, and it is
+        // started afresh every time a segment begins -- opening five music
+        // boxes in turn would otherwise leave five copies of the same film's
+        // audio running over each other, which is loud enough to bury the
+        // click each box makes.
+        if !channelled {
+            self.voices.retain(|v| v.channelled);
+        }
+
         // A sound that shares a channel with one already speaking is not
         // started; the original gives up rather than finding room.
         if let Some(group) = name.and_then(exclusive_group) {
@@ -752,5 +764,48 @@ mod call_tests {
         assert_eq!(exclusive_group("ECALL12"), Some("ghostCall"));
         assert_eq!(exclusive_group("MCALLBACK"), None);
         assert_eq!(exclusive_group("breakerSwitch"), None);
+    }
+}
+
+#[cfg(test)]
+mod soundtrack_tests {
+    use super::*;
+
+    fn pcm() -> Arc<Vec<i16>> {
+        Arc::new(vec![32767i16; 1 << 16])
+    }
+
+    fn mixer() -> Mixer {
+        Mixer {
+            voices: Vec::new(),
+            rate: 44100,
+            channels: 1,
+            master: 1.0,
+            duck: 1.0,
+            suspended: false,
+        }
+    }
+
+    #[test]
+    fn only_one_film_soundtrack_plays_at_a_time() {
+        // Each music box restarts a segment of the same film, and the
+        // soundtrack is off-channel, so nothing else would ever retire it.
+        let mut m = mixer();
+        for _ in 0..5 {
+            m.start(None, None, pcm(), 1, 1.0, 1.0, false, false);
+        }
+        assert_eq!(m.voices.len(), 1);
+    }
+
+    #[test]
+    fn a_new_soundtrack_does_not_disturb_the_room() {
+        let mut m = mixer();
+        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 0.3, true, true);
+        m.start(Some("snd1box"), None, pcm(), 1, 1.0, 1.0, false, true);
+        m.start(None, None, pcm(), 1, 1.0, 1.0, false, false);
+        m.start(None, None, pcm(), 1, 1.0, 1.0, false, false);
+        assert_eq!(m.voices.len(), 3, "hum, box, and one soundtrack");
+        assert!(m.voices.iter().any(|v| v.name.as_deref() == Some("houseHum")));
+        assert!(m.voices.iter().any(|v| v.name.as_deref() == Some("snd1box")));
     }
 }
