@@ -254,9 +254,12 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                         }
                         playing_soundtrack = false;
                     }
-                    if outcome.destination.is_some() || outcome.go_back || outcome.redraw {
-                        dirty = true;
-                    }
+                    // Any action can change state, and sprite visibility is
+                    // driven by state, so the stage has to recompose. The room
+                    // scripts rely on this: opening the front door is a bare
+                    // setState with no updateDisplay, because Director
+                    // refreshed the stage on its own. Recomposing is cheap.
+                    dirty = true;
                     let effects: Vec<Effect> = game.pending.drain(..).collect();
                     for effect in effects {
                         if std::env::var_os("AMBER_TRACE").is_some() {
