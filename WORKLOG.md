@@ -4866,3 +4866,53 @@ one image next to one mask the ordering is not arguable, and I had never looked
 at them apart.
 
 250 tests.
+
+## 116. The last drive
+
+`driveTheCar` was one of the last two verbs with call sites and no arm, and it
+turned out to be the handler where Edwin's separate puzzles finally meet.
+
+The shape is a track lookup: `#currentTrack` picks a film, the track loop plays
+under it, the film plays, the loop stops. Most tracks have one film named after
+themselves. `#BM` has two, depending on whether Chippy is riding along. `#CM`
+has four, and that is the interesting one:
+
+```
+if currentTrack = #CM then
+  if chippyLocation = #inCar    then film = #CM_missRamp
+  if boatPosition   = #forward  then film = #CM_anchorDown
+  if teddyLocation  = #onAnchor then film = #CM_teddyRescue
+  else                               film = #CM_emptyAnchor
+```
+
+Four sequential `if`s assigning one local, not a chain of `else if`. So the
+**last** match wins, not the first, and that distinction is load-bearing rather
+than incidental: bringing the boat forward is exactly what puts Teddy on the
+anchor, so after a successful rescue both tests are true at once. Read as a
+first-match chain the payoff film never plays and you get the anchor coming
+down forever. I have made this mistake before in this codebase -- entry 108's
+`pushNail` has the same shape -- and it is the sort of thing that produces a
+game which is not obviously broken, merely wrong at the one moment that matters.
+
+The chain it closes runs a long way back: the weather vane sets the wind, the
+wind is what `setSail` reads to decide whether the boat comes forward, the boat
+coming forward drops the anchor with Teddy on it, and `driveTheCar` on the
+middle track of C is where you see the result. Three handlers ported across
+three different sittings, and none of them looked like part of a puzzle on its
+own.
+
+Driving also clears `#waffleTracks`, so the record of where the car has been
+starts again with each journey.
+
+The coverage test failed, which is the correct outcome and worth recording.
+Entry 81's rule is that `an_unported_verb_says_so_too` names the unported verbs
+deliberately, so that porting one breaks the test rather than silently
+weakening it. `drivethecar` was on that list. It broke. The list is now down to
+`inittelegrampuzzle` and `set`.
+
+Separately: clippy has gone from zero warnings to forty-eight, spread over
+twenty-one files and none of them touched today. That is a newer toolchain
+turning on new lints, not a regression, but the gate I have been quoting as
+"zero warnings" is no longer true and I would rather say so than let it drift.
+
+252 tests. Two verbs left.

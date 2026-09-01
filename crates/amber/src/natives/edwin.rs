@@ -206,6 +206,118 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on driveTheCar
+        //   cursorOff
+        //   setWaffleTracks #None
+        //   mList = #alone
+        //   if getState( #chippyLocation ) = #inCar then
+        //     mList = #chippy : loadMultiframes #chipHead
+        //     ... a head clip on sprite 39 at point(454, 365) ...
+        //   currentTrack = getState( #currentTrack )
+        //   if currentTrack = #BM then
+        //     if chippyLocation = #inCar then film = #BM_withChippy else film = #BM
+        //   if currentTrack = #CM then
+        //     if chippyLocation = #inCar   then film = #CM_missRamp
+        //     if boatPosition   = #forward then film = #CM_anchorDown
+        //     if teddyLocation  = #onAnchor then film = #CM_teddyRescue
+        //     else                              film = #CM_emptyAnchor
+        //   ... trackLoop under it, then the film ...
+        //
+        // Setting the car going, and the one place the chapter's puzzles meet.
+        // On the middle track of C the film depends on where the boat is and
+        // whether Teddy is on the anchor -- which is the weather vane's wind,
+        // through `setSail`, arriving three handlers later.
+        //
+        // The tests are sequential `if`s assigning one local, so the **last**
+        // match wins rather than the first: the boat being forward and Teddy
+        // being on the anchor are both true after a successful rescue, and it
+        // is the rescue that plays.
+        //
+        // Driving also clears `#waffleTracks`, so the record of where the car
+        // has been starts again with the journey.
+        "drivethecar" => {
+            out.effects.push(Effect::CursorOff);
+            call("setwaffletracks", &[Value::Symbol("None".into())], state, out);
+
+            let chippy = state.get("chippyLocation").is_symbol("inCar");
+            let track = state.get("currentTrack");
+            let track = track.as_str().unwrap_or_default().trim_start_matches('#');
+
+            let film = if track.eq_ignore_ascii_case("BM") {
+                if chippy { "BM_withChippy" } else { "BM" }
+            } else if track.eq_ignore_ascii_case("CM") {
+                let mut which = "CM_emptyAnchor";
+                if chippy {
+                    which = "CM_missRamp";
+                }
+                if state.get("boatPosition").is_symbol("forward") {
+                    which = "CM_anchorDown";
+                }
+                if state.get("teddyLocation").is_symbol("onAnchor") {
+                    which = "CM_teddyRescue";
+                }
+                which
+            } else {
+                // Every other track has one film, named after itself.
+                track
+            };
+
+            out.effects.push(Effect::StartLoop {
+                name: "trackLoop".into(),
+                volume: Some(120),
+            });
+            out.effects.push(Effect::PlayVideo(Some(film.to_string())));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::StopLoop {
+                name: "trackLoop".into(),
+                fade: false,
+            });
+            out.redraw = true;
+        }
+
+        // on pullOnChippy
+        //   cursorOff
+        //   lsChippyPleas = getProp( oStoryteller.states, #chippyPleas )
+        //   if getPos( lsChippyPleas, #pullMyFinger ) = 2 then
+        //     ... a grunt clip from #chippyGrunts on sprite 44 ...
+        //   else
+        //     trimState( #chippyPleas, #pullMyFinger )
+        //     startSound #puppetFart : wait #soundStop, #puppetFart
+        //     startSound #edwinLaugh : wait #soundStop, #edwinLaugh
+        //
+        // The gag, once. Chippy asks you to pull his finger; you do; he does
+        // the obvious and Edwin laughs. Pulling again gets a grunt, because
+        // `#pullMyFinger` has been taken off his list of things to ask for.
+        //
+        // The guard is not "is it in the list" but "is it *second* in it" --
+        // he only has the joke ready once he has got past whatever he wanted
+        // first, and once it has been used the list shortens and the test
+        // stops matching. Two different ways of saying "already done", in one
+        // handler.
+        "pullonchippy" => {
+            out.effects.push(Effect::CursorOff);
+            let at = state
+                .get_all("chippyPleas")
+                .iter()
+                .position(|p| p.is_symbol("pullMyFinger"));
+            if at == Some(1) {
+                // Second in the list: the joke is ready.
+                state.trim_item("chippyPleas", &Value::Symbol("pullMyFinger".into()));
+                for line in ["puppetFart", "edwinLaugh"] {
+                    out.effects.push(Effect::PlaySound {
+                        name: line.into(),
+                        loudness: None,
+                    });
+                    out.effects.push(Effect::WaitForSound(line.into()));
+                }
+                out.redraw = true;
+            } else {
+                // Anything else and he just grunts.
+                out.effects.push(Effect::PlayVideo(None));
+                out.effects.push(Effect::WaitForVideo);
+            }
+        }
+
         // on chooseTrack whichDirection
         //   cursorOff
         //   currentLocation = getState( #carLocation )
@@ -1413,5 +1525,53 @@ mod tests {
         // Coming forward with Teddy waiting is what puts him on the anchor.
         assert_eq!(sail("backward", "W").1, "onAnchor");
         assert_eq!(sail("forward", "E").1, "waiting");
+    }
+
+    #[test]
+    fn the_middle_of_c_plays_whatever_the_puzzles_have_left() {
+        let film = |chippy: bool, boat: &str, teddy: &str| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+            s.set_all("currentTrack", vec![Value::Symbol("CM".into())]);
+            s.set_all(
+                "chippyLocation",
+                vec![Value::Symbol(if chippy { "inCar" } else { "onShelf" }.into())],
+            );
+            s.set_all("boatPosition", vec![Value::Symbol(boat.into())]);
+            s.set_all("teddyLocation", vec![Value::Symbol(teddy.into())]);
+            let mut out = Outcome::default();
+            assert!(call("drivethecar", &[], &mut s, &mut out));
+            out.effects.iter().find_map(|e| match e {
+                Effect::PlayVideo(Some(n)) => Some(n.clone()),
+                _ => None,
+            })
+        };
+
+        // Nothing done yet.
+        assert_eq!(film(false, "backward", "waiting").as_deref(), Some("CM_emptyAnchor"));
+        // Chippy aboard and the car misses the ramp.
+        assert_eq!(film(true, "backward", "waiting").as_deref(), Some("CM_missRamp"));
+        // The boat brought forward drops the anchor.
+        assert_eq!(film(false, "forward", "waiting").as_deref(), Some("CM_anchorDown"));
+        // And with Teddy on it, the rescue -- the later test wins, which is
+        // what matters, because bringing the boat forward is what puts him
+        // there in the first place and both are true at once.
+        assert_eq!(film(false, "forward", "onAnchor").as_deref(), Some("CM_teddyRescue"));
+    }
+
+    #[test]
+    fn and_every_other_track_has_one_film_named_after_it() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all("currentTrack", vec![Value::Symbol("AL".into())]);
+        s.set_all("waffleTracks", vec![Value::Symbol("a".into())]);
+        let mut out = Outcome::default();
+        assert!(call("drivethecar", &[], &mut s, &mut out));
+        assert!(out
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::PlayVideo(Some(n)) if n == "AL")));
+        // And the record of where the car has been starts again.
+        assert_eq!(s.get("waffleTracks"), Value::Symbol("None".into()));
     }
 }
