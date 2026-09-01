@@ -101,3 +101,28 @@ fn first_entry_wins_for_a_repeated_key() {
     assert_eq!(v.get_int("k"), Some(1));
     assert_eq!(v.get_all("k").len(), 2);
 }
+
+#[test]
+fn symbols_may_contain_a_period() {
+    // The clock tables key on time of day: `#t1`, `#t1.15`, `#t1.30`. Stopping
+    // the name at the period made the whole chunk unparsable, which cost every
+    // state-indexed sprite in that chapter its art.
+    let v = parse_value("[#t1: 635, #t1.15: 636, #t1.30: 637]").unwrap();
+    assert_eq!(v.entries().len(), 3);
+    assert_eq!(v.get_int("t1.15"), Some(636));
+    assert_eq!(v.get_int("t1"), Some(635));
+}
+
+#[test]
+fn a_period_is_part_of_a_name_only_when_a_name_continues() {
+    // The lookahead exists so a period that ends a name cannot run it into
+    // whatever follows. Without it, `#t1.` would absorb the period and the
+    // entry separator would be read one byte late.
+    let v = parse_value("[#a.b: 1, #c: 2]").unwrap();
+    assert_eq!(v.get_int("a.b"), Some(1));
+    assert_eq!(v.get_int("c"), Some(2));
+
+    // A period with nothing name-like after it terminates the symbol.
+    let v = parse_value("[#a, #b]").unwrap();
+    assert_eq!(v.as_list().map(<[_]>::len), Some(2));
+}

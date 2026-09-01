@@ -16,6 +16,7 @@ use crate::inventory::Inventory;
 use crate::media::MovieIndex;
 use crate::presentation::Presentation;
 use crate::player::VideoPlayer;
+use crate::casttable::CastTables;
 use crate::schema::Schema;
 use crate::sound::{self, SoundBank, Source};
 use crate::script::{self, Effect, Outcome};
@@ -37,6 +38,8 @@ struct Chapter {
     palettes: Vec<Palette>,
     art: HashMap<u32, Option<CachedArt>>,
     schema: Option<Schema>,
+    /// Lookup tables for sprites whose cast is chosen by a state flag.
+    tables: CastTables,
 }
 
 pub struct Game {
@@ -138,11 +141,7 @@ impl Game {
             Some((schema.start_location()?.to_string(), ()))
         });
 
-        if let Some(chapter) = self.chapters.get(domain) {
-            if let Some(schema) = &chapter.schema {
-                schema.seed(&mut self.state, &self.world.list_flags);
-            }
-        }
+        self.seed_chapter(domain);
 
         let target = start
             .and_then(|(name, _)| self.world.resolve(&name, Some(domain)))
@@ -150,6 +149,28 @@ impl Game {
             .or_else(|| self.world.domains.get(domain).map(|(s, _)| *s));
         if let Some(t) = target {
             self.room = t;
+        }
+    }
+
+    /// Resolves a lookup-table entry for the current room's chapter.
+    pub fn cast_lookup(&mut self, table: &str, key: &lingo::Value) -> Option<u32> {
+        let domain = self.node().domain.clone();
+        self.chapter(&domain);
+        self.chapters.get(&domain)?.tables.lookup(table, key)
+    }
+
+    /// Writes a chapter's declared starting state into the world state.
+    ///
+    /// Separate from `enter_chapter` because a room can be rendered without
+    /// travelling to it -- the screenshot tool jumps straight to one -- and an
+    /// unseeded chapter reads every flag as void, which for a state-indexed
+    /// sprite means its art resolves to nothing and the room comes up bare.
+    pub fn seed_chapter(&mut self, domain: &str) {
+        self.chapter(domain);
+        if let Some(chapter) = self.chapters.get(domain) {
+            if let Some(schema) = &chapter.schema {
+                schema.seed(&mut self.state);
+            }
         }
     }
 
@@ -215,7 +236,9 @@ impl Game {
             let path = self.root.join(domain).join(format!("{domain}.DXR"));
             let movie = Movie::open(path).ok()?;
             let palettes = movie.palettes();
-            let schema = Schema::from_texts(&movie.texts());
+            let texts = movie.texts();
+            let schema = Schema::from_texts(&texts);
+            let tables = CastTables::from_texts(&texts);
             self.chapters.insert(
                 domain.to_string(),
                 Chapter {
@@ -223,6 +246,7 @@ impl Game {
                     palettes,
                     art: HashMap::new(),
                     schema,
+                    tables,
                 },
             );
         }
@@ -270,7 +294,7 @@ impl Game {
 
     /// True when a room places nothing on the sprite channels. Such rooms are
     /// not blank: they are the ones carried entirely by their movie.
-    pub fn draws_nothing(&self) -> bool {
+    pub fn draws_nothing(&mut self) -> bool {
         self.visible().is_empty()
     }
 
@@ -287,20 +311,42 @@ impl Game {
     }
 
     /// The stage elements that should currently draw, back to front.
-    pub fn visible(&self) -> Vec<(u8, u32, Option<(i32, i32)>)> {
+    ///
+    /// Takes `&mut self` so the chapter is loaded before its lookup tables are
+    /// consulted; a sprite that picks its cast by state needs them on the very
+    /// first frame of the room, not the second.
+    pub fn visible(&mut self) -> Vec<(u8, u32, Option<(i32, i32)>)> {
+        let domain = self.node().domain.clone();
+        self.chapter(&domain);
+        let tables = self.chapters.get(&domain).map(|c| &c.tables);
+
         let mut out: Vec<(u8, u32, Option<(i32, i32)>)> = self
             .node()
             .sprites
             .iter()
             .filter(|s| matches!(s.channel, Channel::Sprite(_)))
-            .filter(|s| s.cast_number > 0)
             .filter(|s| self.state.test(&s.condition))
-            .map(|s| {
+            .filter_map(|s| {
+                let cast = match (s.cast_number, &s.cast_lookup) {
+                    (0, Some((flag, table))) => {
+                        let key = self.state.get(flag);
+                        let found = tables.and_then(|t| t.lookup(table, &key));
+                        if found.is_none() && std::env::var_os("AMBER_TRACE_SPRITES").is_some() {
+                            eprintln!(
+                                "  cast lookup miss: {table}[{flag} = {key:?}]                                  (tables loaded: {})",
+                                tables.map(|t| t.len()).unwrap_or(0)
+                            );
+                        }
+                        found?
+                    }
+                    (n, _) if n > 0 => n,
+                    _ => return None,
+                };
                 let ch = match s.channel {
                     Channel::Sprite(n) => n,
                     _ => 0,
                 };
-                (ch, s.cast_number, s.center)
+                Some((ch, cast, s.center))
             })
             .collect();
         out.sort_by_key(|(ch, _, _)| *ch);

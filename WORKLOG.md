@@ -1573,3 +1573,133 @@ comment so the next reader sees the two branches agree.
 44 tests, up from 7. The point is not the number. It is that each one names a
 failure that actually happened, so the file reads as a list of things this
 engine is now known not to do.
+
+## 54. Every flag is a list
+
+The lock was the errand; the state model was what it turned up.
+
+`tryToOpenGrate` gave up the combination without a fight -- it builds
+`list(getState(#lock_A), getState(#lock_B), getState(#lock_C))` and compares it
+against `list(3, 2, 1)`, and `adjustLockSettings` checks the same three wheels
+again on the way out. The digit range came from the arithmetic rather than from
+any declaration: `(x + 11) mod 10` going up and `(x + 9) mod 10` going down, so
+the wheels run 0-9 and wrap. The schema declares each wheel as `[6]` and says
+nothing about a range, which is why entry 52 could not find one.
+
+`op08` I checked before using it. Twenty-four uses across the four chapters,
+every one with a small constant on the right, and several followed by `+ 1` --
+the 1-based-index idiom, `getAt(list, (i mod 5) + 1)`. Integer division would
+index off the end of a five-element list; modulo is forced.
+
+Then the wheels did not draw. The sprite's `#castNum` is not a number:
+
+```text
+[#castName: "B_GZ_LOCK_A.frame", #castNum: [#lock_A, #lock_A_digits], ...]
+```
+
+A state flag and the name of a lookup table. Read as an integer it yields
+nothing, and `cast_number > 0` filtered the sprite out. Fifty-eight sprites are
+written this way, across three of the four chapters, and every one of them had
+been invisible since the beginning: the lock wheels, Margaret's four clocks,
+Roxy's entire bar-tuning panel, the AMBERVISION monitor, the nails in the
+heart. Not one of them ever appeared in a screenshot I took, and I never
+noticed, because a room that draws its backplate looks like a room.
+
+The tables are `STXT` chunks. Each chapter ships two copies, one written
+against cast names and one with the names already resolved to numbers, and the
+resolved copy is the one worth having. My first recogniser demanded that every
+top-level entry be a keyed list of integers, which threw away Roxy's chunk --
+it mixes tables with plain frame lists -- and I had to widen it to collect
+entry by entry, excluding room records and the schema by name first. Room
+records are the awkward case: `#earShot: [#houseHum: 224, ...]` is a keyed list
+of integers by any structural test.
+
+Margaret's chunk failed for a different reason. Her clocks key on time of day,
+`#t1`, `#t1.15`, `#t1.30`, and my parser stopped a symbol at the period. One
+character, and every state-indexed sprite in the chapter lost its art.
+
+Fifty-seven of the fifty-eight then resolved. The last was the bedroom radio,
+whose `#tunedIn` I had classified as a pool because eleven rooms test it with
+`#includes`. Seeded as a pool it holds a list, and a list indexes nothing.
+
+Rather than guess again I read `updateDisplay` in AMBERHUB, which is where the
+mechanism actually lives:
+
+```text
+assignedCast = getProp(sprite, #castNum)
+if not integerp(assignedCast) then
+  triggerVar = getAt(assignedCast, 1)
+  frameStack = getaProp(oPuppeteer.frames, getAt(assignedCast, 2))
+  if voidp(frameStack) then alert(...) : return
+  if triggerVar = #AMBERVISION and getState(#AMBERVISION) <> #on then
+    assignedCast = getaProp(frameStack, #off)
+  else
+    assignedCast = getaProp(frameStack, getState(triggerVar))
+```
+
+`table[state[flag]]`, which is what I had implemented, plus one special case
+for the monitor being switched off. The original alerts when the lookup fails,
+and the radio's guard is `#always`, so the original cannot be reaching that
+lookup with a list in hand.
+
+So I read the accessors, and the model is not what I built:
+
+```text
+on getState me, stateVar
+  return getAt( getProp(me.states, stateVar), 1 )
+
+on setState me, stateVar, suggestion
+  valueList = getProp(me.states, stateVar)
+  if count(valueList) > 1 then
+    oldPos = getPos(valueList, suggestion)
+    if oldPos then addAt(valueList, 1, suggestion)
+                   deleteAt(valueList, oldPos + 1)
+                   return #OK
+    else return #badValue
+  else
+    return value("set" & stateVar & "(" & suggestion & ")")
+```
+
+Every flag holds a list. The head is the current value; the tail is the other
+settings it may legally take. Writing one moves it to the front -- nothing is
+replaced, nothing is lost -- and a value the list does not already hold is
+refused outright. What I had modelled as three kinds of flag is one kind seen
+from three angles: a scalar is a one-element list, an enumeration is a list
+whose head is the current choice, and a pool is a list nothing reads the head
+of. `#tunedIn` is all three at once, which is exactly why guessing failed.
+
+`derive_list_flags` is gone. It existed to decide which flags "were lists", a
+question with no answer because they all are. The heuristic had been wrong in
+both directions and I had already patched it once this session, tightening it
+from `#includes` usage to mutation -- which was a better guess and still a
+guess. Fifty-eight of fifty-eight resolve now.
+
+Two smaller things fell out of the same reading. `addState`, `trimState` and
+`inState` are `append`, `deleteAt` and `getPos <> 0` on that list, which is
+what entries 50 and 53 had arrived at from the failure and then from a test;
+seeing them in the bytecode is the first time they have been confirmed rather
+than inferred. And the `count == 1` branch of `setState` calls
+`set<StateVar>(suggestion)` -- the ninety-two single-valued flags are not
+values at all, they are declarations that a custom setter exists, which is what
+the whole `setBalconyDoorIsOpen` / `setBarMode` / `setGrateIsOpen` family is
+for. Forty-six of them I have already ported one at a time without knowing they
+were a family.
+
+One deliberate divergence. The original answers `#badValue` and leaves the flag
+alone when a write is not in its declared list; I insert at the front instead.
+A write this engine fails to recognise would otherwise freeze whatever it
+gates, and a room the player cannot leave is a worse failure than a flag with
+one extra setting.
+
+The lock itself is now the smallest part of it. `adjustLockSettings` writes the
+wheel and the art follows, because the sprite reads the flag; the original only
+touches the sprite directly to show the motion-blur frame between two
+settings, which this engine does not need. It is also the first user of the
+held-mouse repeat built in entry 52 -- a click turns one notch, a hold spins.
+Dialling 3-2-1 and clicking the lock opens the grate and puts the player on
+`Gaz_TrapdoorCU` with the way to the shrine open.
+
+Two of the three tools I reached for lied to me on the way, both in the same
+way: `tools/disasm.py` overwrites `sys.argv` at import, and my first table
+survey crashed on movies with no `Lnam` chunk. Neither is interesting except
+that both failed loudly, which is the only reason this entry is not wrong.

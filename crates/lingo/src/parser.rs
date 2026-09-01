@@ -70,6 +70,17 @@ impl<'a> Parser<'a> {
         while let Some(c) = self.peek() {
             if c.is_ascii_alphanumeric() || c == b'_' {
                 self.pos += 1;
+            } else if c == b'.'
+                && self
+                    .src
+                    .get(self.pos + 1)
+                    .is_some_and(u8::is_ascii_alphanumeric)
+            {
+                // Margaret's clocks key their art by time of day as `#t1.15`,
+                // `#t1.30` and so on, so a period is part of the name. The
+                // lookahead keeps a period that ends a name -- before a `]` or
+                // a separator -- from being swallowed into it.
+                self.pos += 1;
             } else {
                 break;
             }

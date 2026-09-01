@@ -5,6 +5,7 @@
 //! kept honest.
 
 mod audio;
+mod casttable;
 mod cursor;
 mod game;
 mod inventory;
@@ -381,6 +382,50 @@ fn cmd_export(movie_path: &Path, cast: u32, out: &Path) -> Res {
 
 /// Renders one room to a PNG without opening a window, so the compositor can be
 /// exercised in a terminal or in CI.
+/// Reports whether every state-indexed sprite can find its art.
+///
+/// These sprites resolve `table[state[flag]]` at draw time, so a table that
+/// fails to load or a flag seeded outside the table's keys costs the sprite
+/// silently: it simply does not draw, which is how all 58 of them went missing
+/// without anything reporting a failure.
+fn verify_cast_lookups(dir: &Path) -> Res {
+    let mut game = game::Game::new(dir)?;
+    let domains: Vec<String> = game.world.domains.keys().cloned().collect();
+    for d in &domains {
+        game.seed_chapter(d);
+    }
+
+    let (mut resolved, mut missing) = (0usize, 0usize);
+    let mut misses: BTreeMap<String, usize> = BTreeMap::new();
+    for i in 0..game.world.nodes.len() {
+        game.room = i;
+        let lookups: Vec<(String, String)> = game.world.nodes[i]
+            .sprites
+            .iter()
+            .filter_map(|s| s.cast_lookup.clone())
+            .collect();
+        if lookups.is_empty() {
+            continue;
+        }
+        let drawn = game.visible().len();
+        let _ = drawn;
+        for (flag, table) in lookups {
+            let key = game.state.get(&flag);
+            if game.cast_lookup(&table, &key).is_some() {
+                resolved += 1;
+            } else {
+                missing += 1;
+                *misses.entry(format!("{table}[{flag} = {key:?}]")).or_default() += 1;
+            }
+        }
+    }
+    println!("state-indexed sprites: {resolved} resolve, {missing} do not");
+    for (what, n) in misses.iter().take(12) {
+        println!("  {n:>3}  {what}");
+    }
+    Ok(())
+}
+
 fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
     let mut game = game::Game::new(dir)?;
     // "start" renders wherever the game actually opens, which is the case worth
@@ -390,6 +435,9 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
             .world
             .resolve(room, None)
             .ok_or_else(|| format!("no room named {room}"))?;
+        // The room's own chapter, not whichever one the game opens in.
+        let domain = game.node().domain.clone();
+        game.seed_chapter(&domain);
         // Load whatever this room plays, and just as importantly drop the
         // previous one's movie. Without this the screenshot carries the
         // startup movie over the top of every room it is asked for, so the
@@ -443,13 +491,13 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
     }
     write_png(out, W, H, &rgba)?;
 
+    let drawn = game.visible().len();
     let node = game.node();
     println!(
-        "{} / {} -> {}  ({} sprites drawn, {} hotspots)",
+        "{} / {} -> {}  ({drawn} sprites drawn, {} hotspots)",
         node.domain,
         node.name.clone().unwrap_or_default(),
         out.display(),
-        game.visible().len(),
         node.hotspots.len()
     );
     Ok(())
@@ -544,6 +592,7 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
 }
 
 fn cmd_verify(dir: &Path) -> Res {
+    verify_cast_lookups(dir)?;
     let world = World::load(dir)?;
     let mut unhandled: BTreeMap<String, usize> = BTreeMap::new();
     let mut effects: BTreeMap<String, usize> = BTreeMap::new();

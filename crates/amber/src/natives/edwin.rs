@@ -79,8 +79,8 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 return true;
             }
 
-            let pool = match state.get("distantPleas") {
-                Value::List(items) => items,
+            let pool = match state.get_all("distantPleas") {
+                items if !items.is_empty() => items.to_vec(),
                 // Before the pool is seeded, the chapter's own list applies.
                 _ => (1..=8)
                     .map(|n| Value::Symbol(format!("help{n}")))

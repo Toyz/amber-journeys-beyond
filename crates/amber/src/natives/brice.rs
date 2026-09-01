@@ -135,11 +135,10 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             else {
                 return true;
             };
-            let down = |st: &State, b: &str| match st.get("panelGuess") {
-                Value::List(items) => items
+            let down = |st: &State, b: &str| {
+                st.get_all("panelGuess")
                     .iter()
-                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(b))),
-                _ => false,
+                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(b)))
             };
 
             if down(state, &button) {
@@ -163,6 +162,111 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 state.set("controlPanel", Value::Symbol("closed".into()));
                 out.destination = Some("basement_doorGadgets".into());
                 out.transition = Some("backOff".into());
+            }
+        }
+
+        // on adjustLockSettings whichDigit, upOrDown
+        //   cursorOff
+        //   digitStack = getProp( oPuppeteer.frames, #lock_<X>_digits )
+        //   ... find the sprite showing one of those casts ...
+        //   startTimer
+        //   repeat while stillDown() and the ticks exceed lagTime
+        //     wait #soundStop, #tumbler : soundEffect #tumbler
+        //     set the castNum of sprite digitSprite to getProp(digitStack, #spin)
+        //     updateStage : wait 4 ticks
+        //     currentSetting = getState( #lock_<X> )
+        //     if upOrDown = #up   then newSetting = (currentSetting + 11) mod 10
+        //     if upOrDown = #down then newSetting = (currentSetting + 9)  mod 10
+        //     setProp( oStoryteller.states, #lock_<X>, list(newSetting) )
+        //     wait #soundStop, #tumbler
+        //     set the castNum of sprite digitSprite to getProp(digitStack, newSetting)
+        //     updateStage : lagTime = lagTime + 40
+        //   if getState(#lock_A) <> 3 then return
+        //   if getState(#lock_B) <> 2 then return
+        //   if getState(#lock_C) <> 1 then return
+        //   soundEffect #grateUnlock
+        //
+        // The wheels run 0-9 and wrap, which the `+11` and `+9` before the
+        // `mod 10` say without ever naming a range: the schema declares each
+        // wheel with a single value, so the range is not stated anywhere else.
+        //
+        // The sprite is not driven here. Each wheel's `#castNum` is
+        // `[#lock_A, #lock_A_digits]`, so writing the flag is what changes the
+        // art; the original only touches the sprite directly to show the
+        // motion-blur frame between two settings.
+        "adjustlocksettings" => {
+            let Some(wheel) = args.first().and_then(Value::as_str).and_then(|d| {
+                match d.trim_start_matches('#').to_ascii_lowercase().as_str() {
+                    "a_digit" => Some("lock_A"),
+                    "b_digit" => Some("lock_B"),
+                    "c_digit" => Some("lock_C"),
+                    _ => None,
+                }
+            }) else {
+                return true;
+            };
+            let up = args
+                .get(1)
+                .and_then(Value::as_str)
+                .is_some_and(|d| d.trim_start_matches('#').eq_ignore_ascii_case("up"));
+
+            let current = state.get(wheel).as_int().unwrap_or(0);
+            let stepped = (current + if up { 11 } else { 9 }).rem_euclid(10);
+            // `setProp( oStoryteller.states, #lock_A, list(newSetting) )`: the
+            // original replaces the wheel's whole value list rather than going
+            // through `setState`, so the wheel holds exactly one digit.
+            state.set_all(wheel, vec![Value::Int(stepped)]);
+
+            out.effects.push(Effect::PlaySound {
+                name: "tumbler".into(),
+                loudness: None,
+            });
+            out.redraw = true;
+            // A click turns one notch; holding the button spins the wheel.
+            out.repeat_while_held = true;
+
+            // The combination, checked here as well as in `tryToOpenGrate`, so
+            // the lock answers as soon as the last wheel lands on it.
+            if [("lock_A", 3), ("lock_B", 2), ("lock_C", 1)]
+                .iter()
+                .all(|(k, want)| state.get(k).as_int() == Some(*want))
+            {
+                out.effects.push(Effect::PlaySound {
+                    name: "grateUnlock".into(),
+                    loudness: None,
+                });
+            }
+        }
+
+        // on tryToOpenGrate
+        //   currentCombination = list( getState(#lock_A), getState(#lock_B), getState(#lock_C) )
+        //   if currentCombination = list(3, 2, 1) then
+        //     if getState(#currentLocation) <> #gaz_trapdoorCU then
+        //       goTo( #gaz_trapdoorCU, #backOff )
+        //     setState( #grateIsOpen, 1 )
+        //   else
+        //     failureSounds = [#dammit, #dammit, #dammit]
+        //     soundEffect getAt( failureSounds, random(count(failureSounds)) )
+        //
+        // The combination is 3-2-1. The failure list holds the same symbol
+        // three times, so the roll picks between three identical sounds: the
+        // authors left room for variants they never recorded, and reproducing
+        // the roll costs nothing.
+        "trytoopengrate" => {
+            let solved = [("lock_A", 3), ("lock_B", 2), ("lock_C", 1)]
+                .iter()
+                .all(|(k, want)| state.get(k).as_int() == Some(*want));
+
+            if solved {
+                state.set("grateIsOpen", Value::Int(1));
+                out.destination = Some("gaz_trapdoorCU".into());
+                out.transition = Some("backOff".into());
+            } else {
+                let _ = roll(state, 3);
+                out.effects.push(Effect::PlaySound {
+                    name: "dammit".into(),
+                    loudness: None,
+                });
             }
         }
 

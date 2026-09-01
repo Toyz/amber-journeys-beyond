@@ -196,6 +196,9 @@ pub struct Hotspot {
 pub struct Sprite {
     pub cast_name: Option<String>,
     pub cast_number: u32,
+    /// `(state flag, lookup table)` when the sprite picks its art by state
+    /// rather than naming a fixed cast number. See `casttable`.
+    pub cast_lookup: Option<(String, String)>,
     pub channel: Channel,
     pub condition: Cond,
     /// Centre point on the 640x480 stage. Director positions by registration
@@ -245,6 +248,19 @@ impl Node {
                     .filter(|n| !n.eq_ignore_ascii_case("no assigned cast"))
                     .map(str::to_owned),
                 cast_number: s.get_int("castNum").unwrap_or(0).max(0) as u32,
+                // `#castNum: [#lock_A, #lock_A_digits]` names a state flag and
+                // the table to index with it. Read as an integer this yields
+                // nothing, so the sprite silently never drew.
+                cast_lookup: match s.get("castNum").and_then(Value::as_list) {
+                    Some([flag, table]) => match (flag.as_str(), table.as_str()) {
+                        (Some(f), Some(t)) => Some((
+                            f.trim_start_matches('#').to_ascii_lowercase(),
+                            t.trim_start_matches('#').to_ascii_lowercase(),
+                        )),
+                        _ => None,
+                    },
+                    _ => None,
+                },
                 channel: s.get("channel").map(Channel::parse).unwrap_or(Channel::None),
                 condition: s.get("showIF").map(Cond::parse).unwrap_or(Cond::Always),
                 center: s.get("coords").and_then(Value::as_point),
@@ -347,13 +363,6 @@ pub struct World {
     pub nodes: Vec<Node>,
     /// Chapter name -> the range of `nodes` it owns.
     pub domains: HashMap<String, (usize, usize)>,
-    /// Flags the game treats as lists rather than as single values.
-    ///
-    /// Derived from use: a flag that has items trimmed from it, or that is
-    /// tested with `#includes` or `#lacks`, holds a list. The schema writes a
-    /// pool and an enumeration of legal settings identically, so nothing in it
-    /// distinguishes them.
-    pub list_flags: std::collections::HashSet<String>,
     /// Room name -> every room carrying that name, built by joining each
     /// chapter's name table to its room records on the cast number.
     ///
@@ -516,11 +525,9 @@ impl World {
             domains.insert(dir.to_string(), (start, nodes.len()));
         }
 
-        let list_flags = derive_list_flags(&nodes);
         Ok(World {
             nodes,
             domains,
-            list_flags,
             by_name,
         })
     }
@@ -534,47 +541,6 @@ impl World {
     }
 }
 
-/// Collects the flags the rooms treat as lists.
-fn derive_list_flags(nodes: &[Node]) -> std::collections::HashSet<String> {
-    let mut out = std::collections::HashSet::new();
-    for node in nodes {
-        for h in &node.hotspots {
-            walk_cond(&h.condition, &mut out);
-            for action in &h.actions {
-                // `trimState( #list, #item )` names the list first.
-                let lower = action.to_ascii_lowercase();
-                if let Some((_, rest)) = lower.split_once("trimstate(") {
-                    if let Some(first) = rest.split(',').next() {
-                        let name = first.trim().trim_start_matches('#').trim();
-                        if !name.is_empty() {
-                            out.insert(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        for sprite in &node.sprites {
-            walk_cond(&sprite.condition, &mut out);
-        }
-    }
-    out
-}
-
-/// Notes every list-testing condition in a tree.
-fn walk_cond(cond: &Cond, out: &mut std::collections::HashSet<String>) {
-    match cond {
-        Cond::Includes { key, .. } | Cond::Lacks { key, .. } => {
-            out.insert(key.to_ascii_lowercase());
-        }
-        Cond::Not(inner) => walk_cond(inner, out),
-        Cond::And(parts) | Cond::Or(parts) => {
-            for p in parts {
-                walk_cond(p, out);
-            }
-        }
-        _ => {}
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -670,10 +636,7 @@ mod tests {
         let inc = cond("[#includes: [#hauntsRemaining, #gazebo2]]");
         let lacks = cond("[#lacks: [#hauntsRemaining, #gazebo2]]");
         let mut s = State::new();
-        s.set(
-            "hauntsRemaining",
-            Value::List(vec![Value::Symbol("gazebo2".into())]),
-        );
+        s.set_all("hauntsRemaining", vec![Value::Symbol("gazebo2".into())]);
         assert!(s.test(&inc) && !s.test(&lacks));
         s.trim_item("hauntsRemaining", &Value::Symbol("gazebo2".into()));
         assert!(!s.test(&inc) && s.test(&lacks));

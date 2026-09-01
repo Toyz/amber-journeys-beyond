@@ -8,13 +8,38 @@ use crate::world::Cond;
 
 /// The mutable half of a save file.
 ///
-/// Amber keeps its progress in one flat property list on a Lingo object the
-/// scripts call `oStoryteller`, addressed by symbol. Conditions read the same
-/// store that actions write, so a single map is enough to model it faithfully.
+/// Amber keeps its progress in one property list on a Lingo object the scripts
+/// call `oStoryteller`, addressed by symbol. Every flag holds a *list*, and the
+/// current value is its first element -- the game's own accessors say so
+/// exactly:
+///
+/// ```text
+/// on getState me, stateVar
+///   return getAt( getProp(me.states, stateVar), 1 )
+///
+/// on setState me, stateVar, suggestion
+///   valueList = getProp(me.states, stateVar)
+///   if count(valueList) > 1 then
+///     oldPos = getPos(valueList, suggestion)
+///     if oldPos then addAt(valueList, 1, suggestion)
+///                    deleteAt(valueList, oldPos + 1)
+/// ```
+///
+/// So a flag's list is at once its current value and the set of settings it may
+/// legally take, and writing one moves it to the front rather than replacing
+/// anything. That single shape covers what looked like three separate kinds of
+/// flag: a scalar is a one-element list, an enumeration is a list whose head is
+/// the current choice, and a pool is a list nothing reads the head of.
+///
+/// Modelling flags as scalars-or-lists instead, with the list ones guessed from
+/// how they were used, got `#tunedIn` wrong: it is tested with `#includes` in
+/// eleven rooms, so it looked like a pool, but a sprite indexes its art by it
+/// and wanted the head.
 #[derive(Clone, Default, Debug)]
 pub struct State {
     /// Flags, lower-cased keys to match Lingo's case-insensitive symbols.
-    props: BTreeMap<String, Value>,
+    /// Each holds its whole value list; element 0 is the current setting.
+    props: BTreeMap<String, Vec<Value>>,
     /// Everything the player is carrying.
     inventory: Vec<String>,
     /// The item currently held over the scene, if any.
@@ -41,12 +66,30 @@ impl State {
                     .map(|i| Value::Symbol(i.clone()))
                     .collect(),
             ),
+            // `getState` is `getAt(list, 1)`: the head is the current value.
             _ => self
                 .props
                 .get(&key)
+                .and_then(|v| v.first())
                 .cloned()
                 .unwrap_or(Value::Void),
         }
+    }
+
+    /// Every setting a flag holds, head first.
+    ///
+    /// The head is the current value; the rest are the other settings it may
+    /// take, or -- for a pool like `#hauntsRemaining` -- what is left in it.
+    pub fn get_all(&self, key: &str) -> &[Value] {
+        self.props
+            .get(&key.to_ascii_lowercase())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Replaces a flag's whole value list, as seeding from the schema does.
+    pub fn set_all(&mut self, key: &str, values: Vec<Value>) {
+        self.props.insert(key.to_ascii_lowercase(), values);
     }
 
     /// Keeps the `playerHas<Item>` flag in step with what is carried.
@@ -62,7 +105,7 @@ impl State {
     /// `#usedUp` once consumed, still applies afterwards and is not disturbed.
     fn sync_possession(&mut self, item: &str, held: bool) {
         let key = format!("playerhas{}", item.to_ascii_lowercase());
-        self.props.insert(key, Value::Int(held as i32));
+        self.props.insert(key, vec![Value::Int(held as i32)]);
     }
 
     pub fn set(&mut self, key: &str, value: Value) {
@@ -76,7 +119,22 @@ impl State {
             };
             return;
         }
-        self.props.insert(key, value);
+        // `setState` moves the suggestion to the head of the list, keeping the
+        // rest as the settings the flag may still take. A value the list does
+        // not already hold is inserted rather than refused: the original answers
+        // `#badValue` and leaves the flag alone, but a write this engine fails
+        // to recognise would then freeze whatever it gates, and a room the
+        // player cannot leave is a worse failure than a flag with one extra
+        // legal setting.
+        let slot = self.props.entry(key).or_default();
+        match slot.iter().position(|v| v.loosely_eq(&value)) {
+            Some(0) => {}
+            Some(i) => {
+                slot.remove(i);
+                slot.insert(0, value);
+            }
+            None => slot.insert(0, value),
+        }
     }
 
     /// Drops a flag entirely; a missing flag reads back as `Void` and so fails
@@ -93,15 +151,9 @@ impl State {
     /// puzzle can never be satisfied.
     pub fn add_item(&mut self, key: &str, item: Value) {
         let key = key.to_ascii_lowercase();
-        match self.props.get_mut(&key) {
-            Some(Value::List(items)) => {
-                if !items.iter().any(|i| i.loosely_eq(&item)) {
-                    items.push(item);
-                }
-            }
-            _ => {
-                self.props.insert(key, Value::List(vec![item]));
-            }
+        let slot = self.props.entry(key).or_default();
+        if !slot.iter().any(|v| v.loosely_eq(&item)) {
+            slot.push(item);
         }
     }
 
@@ -114,14 +166,14 @@ impl State {
     /// leaves that list untouched and every haunt repeats for ever.
     pub fn trim_item(&mut self, key: &str, item: &Value) {
         let key = key.to_ascii_lowercase();
-        if let Some(Value::List(items)) = self.props.get_mut(&key) {
+        if let Some(items) = self.props.get_mut(&key) {
             items.retain(|i| !i.loosely_eq(item));
         }
     }
 
     /// Every flag currently set, for inspection from the walkthrough.
-    pub fn entries(&self) -> impl Iterator<Item = (&String, &Value)> {
-        self.props.iter()
+    pub fn entries(&self) -> impl Iterator<Item = (&String, &[Value])> {
+        self.props.iter().map(|(k, v)| (k, v.as_slice()))
     }
 
     pub fn inventory(&self) -> &[String] {
@@ -177,11 +229,15 @@ impl State {
         }
     }
 
+    #[cfg(test)]
+    fn list_has_pub(&self, key: &str, value: &Value) -> bool {
+        self.list_has(key, value)
+    }
+
+    /// `inState` is `getPos(list, item) <> 0`, so membership is tested against
+    /// the flag's whole list rather than only its head.
     fn list_has(&self, key: &str, value: &Value) -> bool {
-        match self.get(key) {
-            Value::List(items) => items.iter().any(|i| i.loosely_eq(value)),
-            other => other.loosely_eq(value),
-        }
+        self.get_all(key).iter().any(|i| i.loosely_eq(value))
     }
 }
 
@@ -198,16 +254,15 @@ mod tests {
         // list. Removing the flag named by the second argument instead left
         // the pool untouched, so every haunt repeated for ever.
         let mut s = State::new();
-        s.set(
+        s.set_all(
             "hauntsRemaining",
-            Value::List(vec![
+            vec![
                 Value::Symbol("gazebo1".into()),
                 Value::Symbol("gazebo2".into()),
-            ]),
+            ],
         );
         s.trim_item("hauntsRemaining", &Value::Symbol("gazebo2".into()));
-        let left = s.get("hauntsRemaining");
-        let items = left.as_list().expect("still a list");
+        let items = s.get_all("hauntsRemaining");
         assert_eq!(items.len(), 1);
         assert!(items[0].loosely_eq(&Value::Symbol("gazebo1".into())));
     }
@@ -220,8 +275,7 @@ mod tests {
         s.add_item("panelGuess", Value::Symbol("A1".into()));
         s.add_item("panelGuess", Value::Symbol("B2".into()));
         s.add_item("panelGuess", Value::Symbol("A1".into())); // already there
-        let held = s.get("panelGuess");
-        assert_eq!(held.as_list().unwrap().len(), 2, "no duplicates, both kept");
+        assert_eq!(s.get_all("panelGuess").len(), 2, "no duplicates, both kept");
     }
 
     #[test]
@@ -229,7 +283,62 @@ mod tests {
         let mut s = State::new();
         s.add_item("k", Value::Symbol("x".into()));
         s.trim_item("k", &Value::Symbol("x".into()));
-        assert!(s.get("k").as_list().unwrap().is_empty());
+        assert!(s.get_all("k").is_empty());
+    }
+
+    #[test]
+    fn a_flag_reads_back_as_the_head_of_its_list() {
+        // `getState` is `getAt(list, 1)`. A flag's list is at once its current
+        // setting and the settings it may take, which is why `#tunedIn` can be
+        // tested for membership in eleven rooms and still index a sprite's art
+        // by its head.
+        let mut s = State::new();
+        s.set_all(
+            "tunedIn",
+            vec![
+                Value::Symbol("bedroom".into()),
+                Value::Symbol("kitchen".into()),
+                Value::Symbol("inBetween".into()),
+            ],
+        );
+        assert!(s.get("tunedIn").loosely_eq(&Value::Symbol("bedroom".into())));
+        assert_eq!(s.get_all("tunedIn").len(), 3);
+    }
+
+    #[test]
+    fn writing_a_flag_moves_that_setting_to_the_head() {
+        // `setState` does `addAt(list, 1, x)` then `deleteAt(list, oldPos + 1)`,
+        // so the other settings survive the write and only the order changes.
+        let mut s = State::new();
+        s.set_all(
+            "tunedIn",
+            vec![
+                Value::Symbol("bedroom".into()),
+                Value::Symbol("kitchen".into()),
+                Value::Symbol("inBetween".into()),
+            ],
+        );
+        s.set("tunedIn", Value::Symbol("kitchen".into()));
+        assert!(s.get("tunedIn").loosely_eq(&Value::Symbol("kitchen".into())));
+        assert_eq!(s.get_all("tunedIn").len(), 3, "nothing is lost by a write");
+        assert!(s.list_has_pub("tunedIn", &Value::Symbol("bedroom".into())));
+    }
+
+    #[test]
+    fn a_pool_keeps_its_membership_after_the_head_is_written() {
+        // The two operations have to coexist: `#hauntsRemaining` is trimmed as
+        // haunts are used up while still answering `#includes`.
+        let mut s = State::new();
+        s.set_all(
+            "hauntsRemaining",
+            vec![
+                Value::Symbol("lake".into()),
+                Value::Symbol("gazebo".into()),
+            ],
+        );
+        s.trim_item("hauntsRemaining", &Value::Symbol("lake".into()));
+        assert!(!s.list_has_pub("hauntsRemaining", &Value::Symbol("lake".into())));
+        assert!(s.list_has_pub("hauntsRemaining", &Value::Symbol("gazebo".into())));
     }
 
     #[test]

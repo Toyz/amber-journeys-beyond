@@ -111,13 +111,15 @@ impl Schema {
     /// `list_valued`, which the caller derives from how the game uses them
     /// rather than from anything the schema says, because the schema writes
     /// both shapes identically.
-    pub fn seed(&self, state: &mut State, list_valued: &HashSet<String>) {
+    /// Writes each flag's declared list into the state as it stands.
+    ///
+    /// The declared list is the flag's value: its head is the initial setting
+    /// and the rest are the settings it may take, which is the same shape the
+    /// game's own `getState` and `setState` work in. Nothing here needs to
+    /// decide whether a flag is "a list" -- they all are.
+    pub fn seed(&self, state: &mut State) {
         for (key, values) in &self.entries {
-            if list_valued.contains(&key.to_ascii_lowercase()) {
-                state.set(key, Value::List(values.clone()));
-            } else if let Some(initial) = values.first() {
-                state.set(key, initial.clone());
-            }
+            state.set_all(key, values.clone());
         }
     }
 

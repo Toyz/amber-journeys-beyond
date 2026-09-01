@@ -169,9 +169,9 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             };
             state.set("ghostCallVol", Value::Int(volume));
 
-            let remaining = state.get("ghostsRemaining");
-            let present = |who: &str| match &remaining {
-                Value::List(items) => items.iter().any(|i| {
+            let remaining = state.get_all("ghostsRemaining").to_vec();
+            let present = |who: &str| match remaining.as_slice() {
+                items if !items.is_empty() => items.iter().any(|i| {
                     i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(who))
                 }),
                 // Before the list is seeded every ghost is still to be dealt
@@ -289,12 +289,10 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             } else {
                 "mirrorMessage"
             };
-            let pending = match state.get("hauntsRemaining") {
-                Value::List(items) => items
-                    .iter()
-                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(haunt))),
-                _ => false,
-            };
+            let pending = state
+                .get_all("hauntsRemaining")
+                .iter()
+                .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(haunt)));
             if !pending {
                 return true;
             }
@@ -348,11 +346,11 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // which shows when either of those does not hold: between them the two
         // paths cover every case and never both fire.
         "assertedwinghost" => {
-            let pending = |key: &str, item: &str| match state.get(key) {
-                Value::List(items) => items
+            let pending = |key: &str, item: &str| {
+                state
+                    .get_all(key)
                     .iter()
-                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(item))),
-                _ => false,
+                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(item)))
             };
             let carrying = state.get("playerHasCrowbar").as_int().unwrap_or(0) != 0;
             if !pending("hauntsRemaining", "lakeGhost2")
