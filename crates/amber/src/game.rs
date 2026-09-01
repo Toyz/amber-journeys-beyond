@@ -24,6 +24,7 @@ use crate::state::State;
 use crate::world::{Channel, Node, Verb, World};
 
 /// A decoded image ready to blit, cached so a room revisit costs nothing.
+#[derive(Clone)]
 struct CachedArt {
     rgba: Vec<u8>,
     width: u32,
@@ -1277,6 +1278,76 @@ impl Game {
     pub fn has_art(&mut self, cast: u32) -> bool {
         let domain = self.node().domain.clone();
         self.art(&domain, cast, false).is_some()
+    }
+
+    /// Draws the game's own cursor for `verb` at `(x, y)`.
+    ///
+    /// Returns false when there is no art to draw -- a system cursor, or a
+    /// chapter whose movie does not carry the pair -- so the caller can fall
+    /// back to a drawn shape rather than leaving the player with no pointer.
+    pub fn draw_cursor(
+        &mut self,
+        frame: &mut [u32],
+        width: u32,
+        height: u32,
+        verb: Option<crate::world::Verb>,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        let holding = self.state.item_in_use().map(str::to_string);
+        let Some(id) = crate::cursor::id_for(verb, holding.as_deref()) else {
+            return false;
+        };
+        let Some((image, mask)) = crate::cursor::casts_for(id) else {
+            return false;
+        };
+        let domain = self.node().domain.clone();
+        // Both halves, and both have to be there: a cursor drawn without its
+        // mask is a black square.
+        let Some(art) = self.art(&domain, image, false).cloned() else {
+            return false;
+        };
+        let Some(shape) = self.art(&domain, mask, false).cloned() else {
+            return false;
+        };
+
+        // The hot spot is the middle. Director stores one per cursor and this
+        // does not read it yet; for a diamond, an arrow and a lens the centre
+        // is close enough to click with, and being wrong by a few pixels is
+        // visible only if you look for it.
+        // A Macintosh cursor is sixteen by sixteen. These members are stored
+        // eighteen or nineteen square and the pair does not even agree with
+        // itself -- the forward cursor is a 19 image against an 18 mask -- so
+        // the last rows and columns are something other than the picture,
+        // most likely the hot spot. Cropping to sixteen leaves an arrow, a
+        // viewfinder and a diamond; not cropping leaves those with a fringe of
+        // speckle down two sides.
+        const CURSOR: u32 = 16;
+        let (w, h) = (
+            art.width.min(shape.width).min(CURSOR),
+            art.height.min(shape.height).min(CURSOR),
+        );
+        let (ox, oy) = (x - w as i32 / 2, y - h as i32 / 2);
+        for row in 0..h {
+            for col in 0..w {
+                let (px, py) = (ox + col as i32, oy + row as i32);
+                if px < 0 || py < 0 || px >= width as i32 || py >= height as i32 {
+                    continue;
+                }
+                let i = ((row * shape.width + col) * 4) as usize;
+                // The mask says which pixels exist; the image says their
+                // colour. A one-bit member decodes to black and white, so the
+                // test is simply which of the two it landed on.
+                if shape.rgba.get(i).copied().unwrap_or(0) < 128 {
+                    continue;
+                }
+                let j = ((row * art.width + col) * 4) as usize;
+                let lit = art.rgba.get(j).copied().unwrap_or(0) >= 128;
+                frame[(py as u32 * width + px as u32) as usize] =
+                    if lit { 0xffff_ffff } else { 0xff00_0000 };
+            }
+        }
+        true
     }
 
     /// Draws the inventory bar over the stage.

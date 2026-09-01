@@ -1,15 +1,115 @@
 //! Cursor drawing.
 //!
-//! The game's own cursors are 1-bit image and mask pairs at cast 2500 onward,
-//! indexed as `2500 + (cursorID - 6000) * 2`, and which cursor a verb uses is
-//! decided in `castCursor` and its callers rather than in the room data. Until
-//! those are decoded, the shapes here stand in: what matters for playing is
-//! that the pointer says what a click will do.
+//! The game's cursors are its own art, not shapes drawn here. `setUpGame` in
+//! the hub movie builds a table called `YugoCursors` mapping a cursor's name to
+//! an id, and `castCursor` turns an id into a pair of cast members:
 //!
-//! Cursors are drawn into the framebuffer rather than handed to the window,
-//! so they scale with the stage and need no platform cursor support.
+//! ```text
+//! image = 2500 + (id - 6000) * 2
+//! mask  = image + 1
+//! ```
+//!
+//! Two one-bit members: the image says black or white and the mask says which
+//! of its pixels are drawn at all, which is how a Macintosh cursor has always
+//! worked.
+//!
+//! ```text
+//! browse 6018   left 6012     right 6006    forward 6001
+//! examine 6024  up 6111       down 6112     pointer 6100
+//! back 3003     noCursor 128  nextPage 6110
+//! rotateLeft 6119             rotateRight 6109
+//! ```
+//!
+//! And an item in hand has its own cursor -- the scan unit, the crowbar, the
+//! weedkiller -- so the pointer is the thing being carried rather than an arrow
+//! with the thing implied. Those are in the same table, keyed by item name.
+//!
+//! Two ids fall outside the arithmetic: `#back` at 3003 and `#noCursor` at 128
+//! are system cursors rather than cast members, and the second of those is how
+//! the game hides the pointer.
+//!
+//! Cursors are drawn into the framebuffer rather than handed to the window, so
+//! they scale with the stage and need no platform cursor support.
 
 use crate::world::Verb;
+
+/// `YugoCursors`, from `setUpGame` in the hub movie.
+///
+/// The ids below 6000 are system cursors and have no cast behind them:
+/// `#back` is 3003 and `#noCursor` is 128.
+pub const YUGO_CURSORS: [(&str, i32); 22] = [
+    ("browse", 6018),
+    ("left", 6012),
+    ("right", 6006),
+    ("forward", 6001),
+    ("back", 3003),
+    ("examine", 6024),
+    ("up", 6111),
+    ("down", 6112),
+    ("pointer", 6100),
+    ("noCursor", 128),
+    ("WeedKiller", 6102),
+    ("ScanDevice", 6103),
+    ("Oscillator", 6108),
+    ("Headgear", 6107),
+    ("BedroomKey", 6106),
+    ("Crowbar", 6105),
+    ("Videotape", 6104),
+    ("None", 6100),
+    ("PeekUnit", 6100),
+    ("nextPage", 6110),
+    ("rotateRight", 6109),
+    ("rotateLeft", 6119),
+];
+
+/// The cast members an id names: the image, then its mask.
+///
+/// From `castCursor`, which is four lines and the whole of the mapping.
+pub fn casts_for(id: i32) -> Option<(u32, u32)> {
+    if id < 6000 {
+        // A system cursor, with no art on the disc.
+        return None;
+    }
+    let image = 2500 + (id - 6000) * 2;
+    Some((image as u32, image as u32 + 1))
+}
+
+/// The cursor a verb asks for, by name in the table above.
+pub fn name_for(verb: Option<Verb>, holding: Option<&str>) -> &'static str {
+    // Something in hand replaces the pointer with itself, whatever the region
+    // underneath would otherwise have asked for.
+    if let Some(item) = holding {
+        if let Some((name, _)) = YUGO_CURSORS
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(item))
+        {
+            return name;
+        }
+    }
+    match verb {
+        Some(Verb::Forward) => "forward",
+        Some(Verb::Left) => "left",
+        Some(Verb::Right) => "right",
+        Some(Verb::Up) => "up",
+        Some(Verb::Down) => "down",
+        Some(Verb::Examine) => "examine",
+        Some(Verb::Pointer) => "pointer",
+        Some(Verb::NextPage) => "nextPage",
+        Some(Verb::RotateLeft) => "rotateLeft",
+        Some(Verb::RotateRight) => "rotateRight",
+        Some(Verb::ItemInUse) => "pointer",
+        Some(Verb::Browse) | None => "browse",
+    }
+}
+
+/// The id a verb asks for.
+pub fn id_for(verb: Option<Verb>, holding: Option<&str>) -> Option<i32> {
+    let want = name_for(verb, holding);
+    YUGO_CURSORS
+        .iter()
+        .find(|(n, _)| *n == want)
+        .map(|(_, id)| *id)
+}
 
 /// Colour of the cursor body and its outline, chosen to stay legible over both
 /// the bright exteriors and the very dark interiors.
@@ -127,3 +227,49 @@ pub fn outline(frame: &mut [u32], w: i32, h: i32, r: lingo::Rect, colour: u32) {
         put(frame, w, h, r.right - 1, y, colour);
     }
 }
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+
+    /// `castCursor` is four lines and the whole of the mapping:
+    /// `2500 + (id - 6000) * 2` for the image and one past it for the mask.
+    #[test]
+    fn an_id_names_a_pair_of_casts() {
+        assert_eq!(casts_for(6000), Some((2500, 2501)));
+        assert_eq!(casts_for(6001), Some((2502, 2503))); // forward
+        assert_eq!(casts_for(6018), Some((2536, 2537))); // browse
+        assert_eq!(casts_for(6024), Some((2548, 2549))); // examine
+    }
+
+    /// Two entries in the table are system cursors with no art behind them:
+    /// `#back` at 3003 and `#noCursor` at 128, which is how the game hides the
+    /// pointer. Running those through the arithmetic would ask for a cast
+    /// below 2500, which is somebody else's picture.
+    #[test]
+    fn and_a_system_cursor_names_none() {
+        assert_eq!(casts_for(3003), None);
+        assert_eq!(casts_for(128), None);
+    }
+
+    #[test]
+    fn a_verb_asks_for_its_own_cursor() {
+        assert_eq!(id_for(Some(Verb::Forward), None), Some(6001));
+        assert_eq!(id_for(Some(Verb::Examine), None), Some(6024));
+        assert_eq!(id_for(Some(Verb::Browse), None), Some(6018));
+        // Nothing under the pointer is the browse cursor too: the game covers
+        // whole rooms with a browse region and means nothing in particular.
+        assert_eq!(id_for(None, None), Some(6018));
+    }
+
+    #[test]
+    fn but_something_in_hand_replaces_it() {
+        // Carrying the scan unit, the pointer *is* the scan unit, whatever
+        // the region underneath would have asked for.
+        assert_eq!(id_for(Some(Verb::Forward), Some("ScanDevice")), Some(6103));
+        assert_eq!(id_for(Some(Verb::Examine), Some("Crowbar")), Some(6105));
+        // And an item with no cursor of its own leaves the verb's alone.
+        assert_eq!(id_for(Some(Verb::Forward), Some("nosuchthing")), Some(6001));
+    }
+}
+

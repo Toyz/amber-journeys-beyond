@@ -408,7 +408,12 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         }
         if let Some((mx, my)) = pos {
             let verb = game.hotspot_at(mx, my).map(|(v, _)| v);
-            cursor::draw(&mut out, STAGE_W as i32, STAGE_H as i32, mx, my, verb);
+            // The game's own art first; the drawn shapes are what is left when
+            // a cursor is a system one -- `#back` and `#noCursor` have no cast
+            // behind them -- so the player is never without a pointer.
+            if !game.draw_cursor(&mut out, STAGE_W as u32, STAGE_H as u32, verb, mx, my) {
+                cursor::draw(&mut out, STAGE_W as i32, STAGE_H as i32, mx, my, verb);
+            }
         }
         window.update_with_buffer(&out, STAGE_W, STAGE_H)?;
     }

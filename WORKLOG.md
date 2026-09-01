@@ -4703,3 +4703,63 @@ them to send a recording. Then I asked twice more.
 Producing the evidence is not the same as looking at it. I have a headless
 renderer specifically so I can see what the player sees, and I used it to
 generate an image and then reasoned about what the image probably contained.
+
+## 113. The real cursors
+
+helba asked when I wanted to do the cursors. Now, as it turns out: the whole
+mapping is two handlers and one table, and the art has been decodable since the
+bitmap work in entry 94.
+
+`setUpGame` in the hub movie builds `YugoCursors`:
+
+```text
+browse 6018   left 6012     right 6006    forward 6001
+examine 6024  up 6111       down 6112     pointer 6100
+back 3003     noCursor 128  nextPage 6110
+rotateLeft 6119             rotateRight 6109
+WeedKiller 6102  ScanDevice 6103  Oscillator 6108  Headgear 6107
+BedroomKey 6106  Crowbar 6105     Videotape 6104
+```
+
+and `castCursor` turns an id into a pair of cast members:
+
+```text
+image = 2500 + (id - 6000) * 2
+mask  = image + 1
+```
+
+Two one-bit members: the image says black or white, the mask says which of its
+pixels exist. Cropped to sixteen square they are an arrow for forward, a
+viewfinder with an X through it for examine, and a diamond for browse -- and
+they have been sitting in the movie the whole time behind shapes I drew by
+hand.
+
+Three things worth keeping.
+
+**An item in hand replaces the cursor with itself.** The last seven entries in
+that table are inventory items, so carrying the scan unit makes the pointer the
+scan unit, whatever region it is over. That is a nicer piece of interface than
+the arrow-plus-implied-item I had.
+
+**Two ids are not cast members at all.** `#back` is 3003 and `#noCursor` is
+128, both below the 6000 the arithmetic assumes; they are system cursors, and
+the second is how the game hides the pointer. Running those through
+`2500 + (id - 6000) * 2` asks for a cast below 2500, which is somebody else's
+picture entirely. The drawn shapes stay as the fallback for exactly those.
+
+**The members are not sixteen square.** They are eighteen or nineteen, and a
+pair does not even agree with itself -- forward is a 19 image against an 18
+mask. Whatever the extra rows are, most likely the hot spot, they are not the
+picture: drawn uncropped every cursor wears a fringe of speckle down two sides.
+
+Not done: the hot spot itself. Director stores one and this centres instead, so
+a click lands within a few pixels of where the art points. Worth reading
+properly, but not before it is the thing that costs someone a puzzle.
+
+There is also a smaller finding from looking: the Macintosh disc has files
+called `ROXY cursors` and `MARGARET cursors` which extract as **zero bytes**.
+They are resource-fork-only, and `tools/hfs.py` reads the data fork alone. The
+cursors do not need them -- the casts are in the movie -- but any other
+resource-fork file on that disc is invisible to me, and I had not noticed.
+
+250 tests.
