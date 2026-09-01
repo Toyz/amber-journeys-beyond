@@ -294,6 +294,67 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             });
         }
 
+        // on chippyCries howLoud
+        //   if getState(oStoryteller, #chippyFreed) = 1 then exit
+        //   volDesired = 90, or louder when howLoud is #loud
+        //   highRoll = 2, or 6 when howLoud is #loud
+        //   if random(6) <= highRoll then
+        //     pleaList = getProp(oStoryteller, #distantPleas)
+        //     newPlea = getAt(pleaList, 1)
+        //     soundEffect(newPlea, volDesired)
+        //     wait #soundStop, newPlea
+        //     nextPlea = getLast(pleaList)
+        //     setState(oStoryteller, #distantPleas, nextPlea)
+        //
+        // Chippy calls for help from somewhere out of sight until freed, and
+        // the roll makes it occasional except when the script asks for #loud,
+        // where 6 of 6 means it always sounds.
+        //
+        // The last two lines are ambiguous and this port does not follow them
+        // literally. `getLast` is not defined as a handler in any of the five
+        // movies, so it is Lingo's built-in, which returns the last element
+        // rather than a list. Taken at face value the pool of eight pleas is
+        // replaced by a single symbol after the first cry and nothing can be
+        // indexed from it again, leaving Chippy silent for the rest of the
+        // chapter. The pool is rotated instead, which is what a pool of eight
+        // consumed one at a time is evidently for. Flagged because it is a
+        // judgement, not a reading.
+        "chippycries" => {
+            if state.get("chippyFreed").as_int() == Some(1) {
+                return true;
+            }
+            let loud = args
+                .first()
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.trim_start_matches('#').eq_ignore_ascii_case("loud"));
+            let (volume, threshold) = if loud { (255, 6) } else { (90, 2) };
+            if roll(state, 6) > threshold {
+                return true;
+            }
+
+            let pool = match state.get("distantPleas") {
+                Value::List(items) => items,
+                // Before the pool is seeded, the chapter's own list applies.
+                _ => (1..=8)
+                    .map(|n| Value::Symbol(format!("help{n}")))
+                    .collect(),
+            };
+            let Some(plea) = pool.first().and_then(Value::as_str).map(str::to_owned) else {
+                return true;
+            };
+
+            out.effects.push(Effect::PlaySound {
+                name: plea.clone(),
+                loudness: Some(if loud { "high".into() } else { "low".into() }),
+            });
+            out.effects.push(Effect::WaitForSound(plea));
+            let _ = volume;
+
+            let mut rotated = pool;
+            rotated.rotate_left(1);
+            state.set("distantPleas", Value::List(rotated));
+        }
+
         // Preload hints for the laptop's animated controls; the engine decodes
         // on demand, so there is nothing to prepare.
         "loadmultiframes" | "purgemultiframes" => {}

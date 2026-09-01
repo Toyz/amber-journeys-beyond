@@ -1086,3 +1086,32 @@ the expected code from memory rather than reading it first. Each time the
 guard refused rather than writing a mangled file, and each time reading the
 function took ten seconds. The assertion is doing work I should not be
 needing it to do.
+
+## 38. Chippy, and a line I chose not to follow literally
+
+`chippyCries` was the last of the big handlers at 70 call sites. Chippy calls
+for help from out of sight until freed, and the roll makes it occasional:
+`random(6) <= 2` normally, and `<= 6` when the script asks for `#loud`, which
+always sounds.
+
+Its last two lines are the interesting part.
+
+  nextPlea = getLast(pleaList)
+  setState(oStoryteller, #distantPleas, nextPlea)
+
+`getLast` is not defined as a handler in any of the five movies, so it is
+Lingo's built-in, which returns the last element of a list rather than a list.
+Read literally, the pool of eight pleas is replaced by a single symbol after
+the first cry, nothing can be indexed out of it again, and Chippy falls silent
+for the rest of the chapter.
+
+I could not settle which the original did, and the two readings are not
+symmetric. Following it literally produces behaviour that is obviously broken
+across seventy call sites; rotating the pool produces what a list of eight
+consumed one at a time is evidently for. I rotated, and said so in the code,
+because this is a judgement rather than a reading and the next person should
+be able to see that it was made.
+
+Native handlers fall from 51 distinct over 258 call sites to 50 over 188. The
+three biggest handlers in the game - ghostCalls, chippyCries and the laptop
+pair - are now done, and what remains is a long tail of puzzle machinery.
