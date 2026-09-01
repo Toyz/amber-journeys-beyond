@@ -86,6 +86,13 @@ pub struct Outcome {
     pub credits: bool,
     /// Timeline of audio, video and pacing effects, in script order.
     pub effects: Vec<Effect>,
+    /// Re-run this action while the button stays down.
+    ///
+    /// Director's dials spin for as long as `stillDown` reports the mouse
+    /// held, polling inside the handler. This engine acts on the release edge,
+    /// so the handler takes one step and asks to be run again, which the front
+    /// end does on an interval until the button comes up.
+    pub repeat_while_held: bool,
     /// Statements we could not parse at all, kept for diagnostics.
     pub unhandled: Vec<String>,
 }

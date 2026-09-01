@@ -53,6 +53,8 @@ pub struct Game {
     /// Sprite channels a script has taken over, keyed by channel so they
     /// composite in the same back-to-front order as the room's own sprites.
     puppets: BTreeMap<u8, Puppet>,
+    /// The hotspot to re-run while the button is held, and when next to do it.
+    repeating: Option<(Vec<String>, Instant)>,
     /// Actions still to run from the current hotspot, and what they are
     /// waiting on. In-world animation depends on this: a switch sets a flag,
     /// redraws so the movie appears, waits for it to finish, then clears the
@@ -91,6 +93,7 @@ impl Game {
             chapters: HashMap::new(),
             pending: Vec::new(),
             puppets: BTreeMap::new(),
+            repeating: None,
             script: Vec::new(),
             waiting: None,
             movies: MovieIndex::build(root),
@@ -762,9 +765,37 @@ impl Game {
                 .clone()
         };
         // A click abandons whatever the previous one was still waiting on.
-        self.script = actions;
+        self.script = actions.clone();
         self.waiting = None;
-        Some(self.pump())
+        let outcome = self.pump();
+        // A dial asks to keep turning; the first repeat waits out the lag the
+        // original spends before it starts spinning.
+        self.repeating = outcome
+            .repeat_while_held
+            .then(|| (actions, Instant::now() + Duration::from_millis(400)));
+        Some(outcome)
+    }
+
+    /// Notes whether the button is still down, and re-runs the held action
+    /// when its interval comes round.
+    ///
+    /// The first repeat waits longer than the rest, which is what the original
+    /// does with its lag timer: a single click turns one notch, and holding
+    /// spins.
+    pub fn tick_held(&mut self, held: bool) -> Option<Outcome> {
+        if !held {
+            self.repeating = None;
+            return None;
+        }
+        let (actions, due) = self.repeating.as_ref()?;
+        if Instant::now() < *due {
+            return None;
+        }
+        let actions = actions.clone();
+        let outcome = script::run(&actions, &mut self.state);
+        self.apply(&outcome);
+        self.repeating = Some((actions, Instant::now() + Duration::from_millis(120)));
+        Some(outcome)
     }
 
     /// True while a script is part-way through, so the caller keeps pumping.

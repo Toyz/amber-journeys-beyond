@@ -266,6 +266,24 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
 
         // Act on the release edge, so a click cannot fire twice.
         let down = window.get_mouse_down(MouseButton::Left);
+        // A dial that asked to keep turning does so while the button is held.
+        if let Some(outcome) = game.tick_held(down) {
+            if outcome.redraw || outcome.destination.is_some() {
+                dirty = true;
+            }
+            for effect in outcome.effects {
+                if game.apply_puppet(&effect) {
+                    dirty = true;
+                    continue;
+                }
+                if let (Some(a), Effect::PlaySound { name, .. }) = (&audio, &effect) {
+                    let gain = game.sounds.gain(name);
+                    if let Some((pcm, rate, ch)) = game.sound(name) {
+                        a.play(None, pcm, rate, ch, gain, false);
+                    }
+                }
+            }
+        }
         if was_down && !down {
             if let Some((x, y)) = pos {
                 // The bar sits over the stage, so it gets first refusal on a

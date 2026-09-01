@@ -1493,3 +1493,28 @@ steps with the underwater loop brought up between them and faded out on
 arrival, so the movement is carried by the sound rather than the picture -
 which is worth knowing, because if the loop fails to resolve the scene reads
 as a plain cut.
+
+## 52. Held-mouse repeat
+
+The dials spin for as long as `stillDown` reports the button held, polling
+inside the handler. This engine acts on the release edge, so instead of
+inverting that, a handler takes one step and sets `repeat_while_held`; the
+front end re-runs the same action on an interval until the button comes up.
+The first repeat waits longer than the rest, which is what the original does
+with its lag timer: a click turns one notch and a hold spins.
+
+That covers 16 call sites across the lock, the algorithm dials, the bar
+settings and the car.
+
+`adjustLockSettings` still is not ported, and the mechanism was not the last
+thing it needed. Each wheel is `#lock_A`, `#lock_B`, `#lock_C`, and the schema
+declares each with a single value rather than a range, so what a digit may be
+is not stated where the other flags state it. The combination check is not in
+Brice's room data either, so the test that opens the lock is somewhere I have
+not found.
+
+Building the input model and then not using it reads like wasted work, and it
+is worth saying why it is not. The blocker was named from the outside, by
+counting handlers that call `stillDown`; the digit range and the solve check
+are only visible from inside the handler. Two different unknowns, and only one
+of them was the one I had measured.
