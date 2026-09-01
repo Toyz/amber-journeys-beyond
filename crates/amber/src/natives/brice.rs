@@ -22,6 +22,50 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // The original rolls a die so the swarm is only sometimes heard. The
         // roll is reproduced rather than firing every time, because the
         // intermittency is the effect.
+        // on keyholeComments
+        //   if inState( #utterancesRemaining, #someTrouble )
+        //     then assertSound #someTrouble
+        //     else assertSound #concernedCitizen
+        //
+        // Looking through the keyhole. The first time he suspects trouble;
+        // after that he is only a concerned citizen. The fallback is itself an
+        // `assertSound`, so it too is said once and the third look is silent.
+        "keyholecomments" => {
+            let first = state
+                .get_all("utterancesRemaining")
+                .iter()
+                .any(|v| v.is_symbol("someTrouble"));
+            let line = if first { "someTrouble" } else { "concernedCitizen" };
+            super::assert_sound(line, None, state, out);
+        }
+
+        // on windowHints
+        //   if inState( #utterancesRemaining, #herWindow ) then
+        //     assertSound #herWindow
+        //     wait #soundStop, #herWindow
+        //     wait 60
+        //     assertSound #tellMeSomething
+        //   else
+        //     assertSound #nicePattern
+        //
+        // Two remarks in a row the first time -- he notices the window is
+        // hers, pauses a second, and then asks it to tell him something --
+        // and one about the pattern thereafter.
+        "windowhints" => {
+            let first = state
+                .get_all("utterancesRemaining")
+                .iter()
+                .any(|v| v.is_symbol("herWindow"));
+            if first {
+                super::assert_sound("herWindow", None, state, out);
+                out.effects.push(Effect::WaitForSound("herWindow".into()));
+                out.effects.push(Effect::WaitTicks(60));
+                super::assert_sound("tellMeSomething", None, state, out);
+            } else {
+                super::assert_sound("nicePattern", None, state, out);
+            }
+        }
+
         // on setConservatoryDoorIsOpen suggestion
         //   currentState = getState( #conservatoryDoorIsOpen )
         //   cursorOff : currentLoc = getState( #currentLocation )
@@ -740,5 +784,48 @@ mod tests {
         // this is faithful rather than fixed.
         assert!(loops("Cons_CenterS", 0, 1).contains(&"stop outsideLoop".to_string()));
         assert!(!loops("Cons_CenterS", 1, 0).contains(&"start outsideLoop".to_string()));
+    }
+
+    // -- what he says at the window and the keyhole -------------------------
+
+    fn brice_with(lines: &[&str]) -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("BRICE".into())]);
+        s.set_all(
+            "utterancesRemaining",
+            lines.iter().map(|l| Value::Symbol((*l).into())).collect(),
+        );
+        s
+    }
+
+    fn said(state: &mut State, verb: &str) -> Vec<String> {
+        let mut out = Outcome::default();
+        assert!(call(verb, &[], state, &mut out));
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_keyhole_has_a_first_look_and_a_second() {
+        let mut s = brice_with(&["someTrouble", "concernedCitizen"]);
+        assert_eq!(said(&mut s, "keyholecomments"), ["someTrouble"]);
+        assert_eq!(said(&mut s, "keyholecomments"), ["concernedCitizen"]);
+        // And a third, which is silence: the fallback is an utterance too.
+        assert!(said(&mut s, "keyholecomments").is_empty());
+    }
+
+    #[test]
+    fn the_window_gets_two_remarks_the_first_time() {
+        let mut s = brice_with(&["herWindow", "tellMeSomething", "nicePattern"]);
+        assert_eq!(
+            said(&mut s, "windowhints"),
+            ["herWindow", "tellMeSomething"]
+        );
+        assert_eq!(said(&mut s, "windowhints"), ["nicePattern"]);
     }
 }

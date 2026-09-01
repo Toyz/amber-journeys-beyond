@@ -20,13 +20,83 @@ mod shared;
 
 use lingo::Value;
 
-use crate::script::Outcome;
+use crate::script::{Effect, Outcome};
 use crate::state::State;
 
 /// Runs a named handler, returning false when it is not implemented yet.
 ///
 /// `args` are already evaluated. Effects the handler produces are appended to
 /// `out` so they interleave with the calling script's own timeline.
+/// Says a line, if it has not been said before.
+///
+/// ```text
+/// on assertSound whichSound
+///   if not inState( #utterancesRemaining, whichSound ) then return
+///   if whichSound = #thoseBees and inState( #utterancesRemaining, #youBees )
+///     then return
+///   sndDelay = getaProp( [#handwriting: 120], whichSound )
+///   if voidp( sndDelay ) then sndDelay = 60
+///   wait sndDelay
+///   <play whichSound>
+///   trimState( #utterancesRemaining, whichSound )
+/// ```
+///
+/// Not a synonym for `soundEffect`, which is how it was read for a long time:
+/// **a line is said once, ever**. One not in `#utterancesRemaining` is not
+/// said at all, and saying it takes it out.
+///
+/// That matters because the same remark is placed in many rooms --
+/// `assertSound #victoryGarden` appears in seven of Margaret's -- because it
+/// is one observation the player might happen upon anywhere.
+///
+/// Lives here rather than in `script.rs` because the comment handlers call it
+/// too, and two copies of a rule this quiet would drift.
+pub(super) fn assert_sound(
+    line: &str,
+    loudness: Option<String>,
+    state: &mut State,
+    out: &mut Outcome,
+) {
+    let pending = |state: &State, want: &str| {
+        state
+            .get_all("utterancesRemaining")
+            .iter()
+            .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(want)))
+    };
+    let line = line.trim_start_matches('#');
+    if !pending(state, line) {
+        return;
+    }
+    // Brice's bees have an order: he does not remark on whose bees they are
+    // before remarking on them at all. Edwin's chapter carries the same test
+    // against lines it does not have, which is a paste rather than a rule.
+    if line.eq_ignore_ascii_case("thoseBees") && pending(state, "youBees") {
+        return;
+    }
+
+    // The beat before speaking. Sixty ticks, with one exception per chapter --
+    // and Edwin's goes the other way, because `#windControl` is a shout.
+    let chapter = state.get("gChapter");
+    let chapter = chapter.as_str().unwrap_or_default();
+    let beat = match (chapter, line) {
+        (c, l) if c.eq_ignore_ascii_case("MARGARET") && l.eq_ignore_ascii_case("victoryGarden") => 120,
+        (c, l) if c.eq_ignore_ascii_case("EDWIN") && l.eq_ignore_ascii_case("windControl") => 15,
+        (c, l) if c.eq_ignore_ascii_case("BRICE") && l.eq_ignore_ascii_case("handwriting") => 120,
+        _ => 60,
+    };
+    out.effects.push(Effect::WaitTicks(beat));
+    out.effects.push(Effect::PlaySound {
+        name: line.to_string(),
+        loudness,
+    });
+    // Taken out now rather than after the pause, where the original does it.
+    // The original blocks on its wait, so a second call for the same line
+    // later in the same list finds it already gone; deferring the trim in an
+    // engine that queues its waits would let the line speak twice. The cost is
+    // a guard read during the pause seeing it spent, which nothing does.
+    state.trim_item("utterancesRemaining", &Value::Symbol(line.to_string()));
+}
+
 /// Whether a verb has a Rust handler in any chapter.
 ///
 /// Worth having as its own question. An unported verb still parses, still
@@ -97,7 +167,7 @@ mod handled_tests {
         // Named deliberately, so this fails loudly when one of them is
         // ported and has to be swapped for another still on the list. A test
         // that could not fail is what entry 81 was about.
-        for name in ["choosetrack", "drivethecar", "carcomments", "windowhints"] {
+        for name in ["choosetrack", "drivethecar", "setsail", "transittoedwin"] {
             assert!(!is_handled(name), "{name} reports ported but has no arm");
         }
     }

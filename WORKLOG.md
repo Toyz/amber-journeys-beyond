@@ -4370,3 +4370,40 @@ that a guard read during the pause sees the line already spent, which nothing
 in the game does. That trade is in the comment.
 
 233 tests.
+
+## 105. What they say, and how often
+
+The three comment handlers, now that `assertSound` means what it means.
+
+`keyholeComments` is two lines and the whole design of the thing:
+
+```text
+if inState( #utterancesRemaining, #someTrouble )
+  then assertSound #someTrouble
+  else assertSound #concernedCitizen
+```
+
+The first look through the keyhole, Brice suspects trouble; after that he is
+only a concerned citizen. And the *fallback is itself an `assertSound`*, so the
+third look is silent. Two remarks and then he stops, without anything counting
+anything -- the utterance list is the counter.
+
+`windowHints` gives two remarks in a row the first time: he notices the window
+is hers, waits for that line to finish, pauses another second, and asks it to
+tell him something. Afterwards he says the pattern is nice.
+
+`carComments` works down a list. Chippy wants to go home; failing that he will
+settle for going anywhere; failing that it is a joy ride. Separately he
+mentions he cannot see out. The one guard is that Chippy has to actually be in
+the car -- he does not narrate a journey he is not on.
+
+The shared rule moved to `natives::assert_sound`, because these handlers call
+it and `script.rs` dispatches it, and two copies of something this quiet would
+have drifted apart inside a week.
+
+The tests read like the game: `the_keyhole_has_a_first_look_and_a_second`, and
+then a third that is silence.
+
+Verbs down from 14 to 11.
+
+236 tests.

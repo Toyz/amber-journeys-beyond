@@ -692,43 +692,9 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         //
         // Roxy has no `assertSound` at all and her rooms never call it.
         "assertsound" => {
-            let Some(line) = name_arg(0) else { return };
-            let pending = |state: &State, want: &str| {
-                state
-                    .get_all("utterancesRemaining")
-                    .iter()
-                    .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(want)))
-            };
-            if !pending(state, &line) {
-                return;
+            if let Some(line) = name_arg(0) {
+                crate::natives::assert_sound(&line, name_arg(1), state, out);
             }
-            // Brice's bees have an order: he does not remark on them being
-            // his until he has remarked on them at all. Edwin's chapter
-            // carries the same test against lines it does not have, which is
-            // a copy rather than a rule, and costs nothing either way.
-            if line.eq_ignore_ascii_case("thoseBees") && pending(state, "youBees") {
-                return;
-            }
-
-            // One line per chapter takes longer, or in Edwin's case much less.
-            let beat = match state.get("gChapter").as_str().unwrap_or_default() {
-                c if c.eq_ignore_ascii_case("MARGARET") && line.eq_ignore_ascii_case("victoryGarden") => 120,
-                c if c.eq_ignore_ascii_case("EDWIN") && line.eq_ignore_ascii_case("windControl") => 15,
-                c if c.eq_ignore_ascii_case("BRICE") && line.eq_ignore_ascii_case("handwriting") => 120,
-                _ => 60,
-            };
-            out.effects.push(Effect::WaitTicks(beat));
-            out.effects.push(Effect::PlaySound {
-                name: line.clone(),
-                loudness: name_arg(1),
-            });
-            // Taken out now rather than after the wait, which is where the
-            // original does it. The original blocks, so a second `assertSound`
-            // for the same line later in the same list sees it already gone
-            // and stays quiet; deferring the trim would let it speak twice.
-            // The cost is that a guard read during the pause sees the line
-            // already spent, which nothing in the game does.
-            state.trim_item("utterancesRemaining", &Value::Symbol(line));
         }
         "soundeffect" | "startsound" | "playsting" => {
             if let Some(n) = name_arg(0) {

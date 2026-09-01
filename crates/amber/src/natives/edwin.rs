@@ -162,6 +162,45 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on carComments
+        //   if getState( #chippyLocation ) <> #inCar then return
+        //   if inState( #utterancesRemaining, #homeEdwin ) then thisComment = #homeEdwin
+        //   else if inState( #utterancesRemaining, #letsGo ) then thisComment = #letsGo
+        //   else thisComment = #joyRide
+        //   assertSound thisComment
+        //   wait #soundStop
+        //   if inState( #utterancesRemaining, #iCantSee ) then assertSound #iCantSee
+        //
+        // Chippy in the car, working down a list: first he wants to go home,
+        // then he settles for going anywhere, and after that it is a joy ride.
+        // Then, separately, he mentions that he cannot see out.
+        //
+        // Nothing is said at all unless Chippy is actually in the car, which
+        // is the one guard: he does not narrate a journey he is not on.
+        "carcomments" => {
+            if !state.get("chippyLocation").is_symbol("inCar") {
+                return true;
+            }
+            let pending = |state: &State, want: &str| {
+                state
+                    .get_all("utterancesRemaining")
+                    .iter()
+                    .any(|v| v.is_symbol(want))
+            };
+            let line = if pending(state, "homeEdwin") {
+                "homeEdwin"
+            } else if pending(state, "letsGo") {
+                "letsGo"
+            } else {
+                "joyRide"
+            };
+            super::assert_sound(line, None, state, out);
+            out.effects.push(Effect::WaitForSound(line.into()));
+            if pending(state, "iCantSee") {
+                super::assert_sound("iCantSee", None, state, out);
+            }
+        }
+
         // on setCarLocation suggestion
         //   validSuggestions = [#inStorage, #standingBy, #enRoute,
         //                       #hub_main, #hub_A, #hub_B, #hub_C]
@@ -927,5 +966,42 @@ mod tests {
             &mut out
         ));
         assert_eq!(s.get("carLocation"), Value::Symbol("standingBy".into()));
+    }
+
+    #[test]
+    fn chippy_only_narrates_a_journey_he_is_on() {
+        let make = |where_: &str, lines: &[&str]| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+            s.set_all("chippyLocation", vec![Value::Symbol(where_.into())]);
+            s.set_all(
+                "utterancesRemaining",
+                lines.iter().map(|l| Value::Symbol((*l).into())).collect(),
+            );
+            s
+        };
+        let said = |s: &mut State| {
+            let mut out = Outcome::default();
+            assert!(call("carcomments", &[], s, &mut out));
+            out.effects
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::PlaySound { name, .. } => Some(name.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Not in the car: nothing at all.
+        let mut out_of_car = make("onShelf", &["homeEdwin", "letsGo"]);
+        assert!(said(&mut out_of_car).is_empty());
+
+        // In the car, he works down the list and mentions the view once.
+        let mut s = make("inCar", &["homeEdwin", "letsGo", "iCantSee"]);
+        assert_eq!(said(&mut s), ["homeEdwin", "iCantSee"]);
+        assert_eq!(said(&mut s), ["letsGo"]);
+        // Everything spent, and he falls through to the joy ride -- which he
+        // does not have, so he says nothing.
+        assert!(said(&mut s).is_empty());
     }
 }
