@@ -3021,3 +3021,95 @@ instead of clearing it. That is luck, not judgement, and it is the second time
 this project a warning I skimmed past was pointing at something real.
 
 150 tests, clippy clean.
+
+## 82. One bit in the opcode table
+
+I have been deferring six verbs for the better part of this port with the same
+excuse each time -- "numeric literals resolve unreliably through the name
+table" -- and treating it as a property of the bytecode. It was a one-line bug
+in my own disassembler.
+
+Director's opcodes pair up on their low six bits: the same operation appears
+once with a one-byte operand and once with two. `0x45`/`0x85` is the symbol
+push. `0x41`/`0x81` is the integer push. I had `0x81` sitting in the symbol
+set, so every integer over 127 was being looked up in the name table and
+printed as whatever symbol happened to live at that index.
+
+Which is how `initRadioDial` came to appear to build a table out of
+`#propList`, `#snd3`, `#snd5` and `#startSound`, and how the radio's dial
+limit read as
+
+```text
+if gRadioDial < #snd5
+```
+
+I stared at that and concluded the tooling could not resolve names in this
+movie. The right conclusion was that it should not have been resolving names
+there at all.
+
+The counts are not subtle, and I could have run them at any point in the last
+month:
+
+| opcode | operands | out of range for the name table |
+|--------|---------:|--------------------------------:|
+| `0x81` |      630 |                             221 |
+| `0x85` |     2302 |                               1 |
+
+and the commonest `0x81` values are 1000, 255, 500, 300, 200, 256 and 1024.
+Nobody's name table is 3999 entries long.
+
+Before changing anything I diffed all 41 already-ported handlers under both
+versions of the tool. **None of them changed** -- they deal in small integers
+and real symbols, so the bug never touched them. That was worth five minutes
+to establish rather than assume; it is the difference between a tooling fix and
+a re-audit of everything built on top of it.
+
+What it unblocks, immediately:
+
+```text
+on radioDial upOrDown
+  if getState( #tunedIn ) <> #inBetween then
+    if not voidp( gStaticWhere ) then gStaticWhere = getState( #tunedIn )
+    setState( #tunedIn, #inBetween )
+    endLoop #BRclock : endLoop #Kclock : endLoop #DRclock
+    endLoop #LRclock : endLoop #roaringFire
+    idle
+    set the visible of sprite 44 = 1
+  if upOrDown = #up then
+    if gRadioDial < 240 then gRadioDial = gRadioDial + 4
+  else
+    if gRadioDial > 3   then gRadioDial = gRadioDial - 4
+  set the movieTime of sprite 45 = gRadioDial
+  patchPalette
+  repeat while mouseDown ...
+```
+
+So the dial is a movie scrubbed by hand: sixty-one positions, four ticks apart,
+and turning it drops whatever station you were on and stops the room's clock
+and fire loops with it.
+
+`initRadioDial` builds the map the dial is read against -- each station's
+position, and the warm and cool bands either side of it where the signal is
+coming in or going out:
+
+```text
+gStaticMarkers = [ #bedroomWarm: [0, 4, 8], #bedroomCool: [12, 16, 20],
+                   #diningRmWarm: [48, 52, 56], ... #inBetween: [216, 220, 224] ]
+```
+
+with one branch I did not expect: **where the kitchen station sits on the dial
+depends on where the dumb waiter is.** If it is down in the kitchen the station
+is at 248 with its bands at 120-140; otherwise it is at 256 with its bands up
+at 168-188. The kitchen radio is heard through the dumb waiter shaft, and
+moving the shaft moves the station. That is the sort of detail that only exists
+because somebody cared, and it would have stayed invisible behind `#snd3`.
+
+The lesson is not about Director. I had a symptom I could reproduce on demand,
+a cheap measurement that would have localised it, and I chose instead to write
+the same caveat into my notes six times. The caveat was load-bearing: it kept
+five verbs off the list for weeks.
+
+`op03` is still unidentified. In context it is certainly a push of the integer
+zero -- `#bedroomWarm: [<op03>, 4, 8]` against `#bedroomCool: [12, 16, 20]`
+admits nothing else -- but "certainly in context" is exactly the reasoning that
+got me here, so it stays printed as an unknown until I can count it.

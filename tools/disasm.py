@@ -19,8 +19,19 @@ CALLS = {0x1e, 0x1f, 0x46, 0x56, 0x57, 0x63, 0x66, 0x86, 0x97, 0xa3, 0xa6}
 # background rate.
 GLOBAL_GET = {0x49, 0x89}
 GLOBAL_SET = {0x4f}
-# Symbol and property names, also from the movie's name table.
-NAMED = {0x85, 0x45, 0x81}
+# Symbol and property names, from the movie's name table.
+#
+# 0x81 used to be in here, which was wrong and quietly poisoned every handler
+# that mentions a number over 127. Opcodes pair as (1-byte operand, 2-byte
+# operand) on the low six bits: 0x45/0x85 is the symbol push, and 0x41/0x81 is
+# the integer push. Reading 0x81 as a name turned `if gRadioDial < 240` into
+# `if gRadioDial < #snd5`.
+#
+# The counts settle it. Of 630 0x81 operands across the four chapters, 221 are
+# larger than the name table has entries, and the commonest values are 1000,
+# 255, 500, 300, 200, 256 and 1024. Of 2302 0x85 operands, exactly one is out
+# of range.
+NAMED = {0x85, 0x45}
 # Comparisons feed a conditional jump 73-99% of the time; 0x12 is almost never
 # preceded by a push, taking two comparison results instead, which is what a
 # logical combinator looks like. Arithmetic is preceded by pushes and followed
@@ -131,7 +142,7 @@ def disasm(path, want):
                     txt = f"loop back -> {o - arg}" if arg is not None else "loop back"
                 elif op == 0x01:
                     txt = "return"
-                elif op == 0x41:
+                elif op in (0x41, 0x81):
                     txt = f"push int {arg}"
                 elif arg is not None:
                     txt = f"op{op:02x} {arg}"
