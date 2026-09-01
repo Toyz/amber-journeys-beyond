@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 
 /// An integer rectangle, as written by Lingo's `rect(l, t, r, b)`.
 ///
@@ -32,8 +31,13 @@ impl Rect {
 
 /// A parsed Lingo literal.
 ///
-/// Property lists keep insertion-independent ordering via `BTreeMap` because the
-/// game only ever addresses them by key, and a sorted map makes diffs stable.
+/// Property lists are association lists, not maps: Lingo permits the same key
+/// more than once and the game relies on it. A compound guard is written as
+/// `[#and: [#equals: [a, b], #equals: [c, d]]]`, two entries under one key, and
+/// 247 of the 381 compound guards in this game take that form. Storing them in
+/// a map drops one clause of each and silently weakens the condition, which is
+/// how a locked door comes to open. Entries are therefore kept in order, with
+/// duplicates preserved, and lookup returns the first match as Lingo does.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Value {
     Void,
@@ -47,8 +51,8 @@ pub enum Value {
     Rect(Rect),
     /// A linear list: `[a, b, c]`.
     List(Vec<Value>),
-    /// A property list: `[#key: value, ...]`.
-    Props(BTreeMap<String, Value>),
+    /// A property list: `[#key: value, ...]`, in source order, duplicates kept.
+    Props(Vec<(String, Value)>),
 }
 
 impl Value {
@@ -95,11 +99,34 @@ impl Value {
         }
     }
 
-    /// Looks up a property, ignoring case as Lingo does.
+    /// Looks up a property, ignoring case as Lingo does. With a repeated key
+    /// the first entry wins, which is Lingo's own behaviour.
     pub fn get(&self, key: &str) -> Option<&Value> {
+        let key = key.to_ascii_lowercase();
         match self {
-            Value::Props(m) => m.get(&key.to_ascii_lowercase()),
+            Value::Props(entries) => entries.iter().find(|(k, _)| *k == key).map(|(_, v)| v),
             _ => None,
+        }
+    }
+
+    /// Every entry under a key, in order. Compound guards need all of them.
+    pub fn get_all(&self, key: &str) -> Vec<&Value> {
+        let key = key.to_ascii_lowercase();
+        match self {
+            Value::Props(entries) => entries
+                .iter()
+                .filter(|(k, _)| *k == key)
+                .map(|(_, v)| v)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// All entries of a property list, in source order.
+    pub fn entries(&self) -> &[(String, Value)] {
+        match self {
+            Value::Props(entries) => entries,
+            _ => &[],
         }
     }
 

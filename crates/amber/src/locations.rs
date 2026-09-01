@@ -38,7 +38,7 @@ impl LocationTable {
             let Ok(Value::Props(areas)) = parse_value(trimmed) else {
                 continue;
             };
-            for rooms in areas.values() {
+            for (_, rooms) in &areas {
                 let Value::Props(rooms) = rooms else { continue };
                 for (name, triple) in rooms {
                     if let Some([a, b, c]) = triple.as_list() {

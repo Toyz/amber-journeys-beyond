@@ -546,6 +546,12 @@ impl Game {
         Some(outcome)
     }
 
+    /// Applies an outcome from outside the click path, used by the
+    /// walkthrough so it exercises the same movement code as the game.
+    pub fn apply_outcome(&mut self, outcome: &Outcome) {
+        self.apply(outcome);
+    }
+
     fn apply(&mut self, outcome: &Outcome) {
         if outcome.go_back {
             if let Some(prev) = self.history.pop() {

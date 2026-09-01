@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::value::{Rect, Value};
@@ -174,11 +173,13 @@ impl<'a> Parser<'a> {
         }
         if self.eat(b':') {
             self.expect(b']')?;
-            return Ok(Value::Props(BTreeMap::new()));
+            return Ok(Value::Props(Vec::new()));
         }
 
         let mut list = Vec::new();
-        let mut props: BTreeMap<String, Value> = BTreeMap::new();
+        // Kept as a list of pairs so a repeated key survives; Lingo allows it
+        // and the game's compound guards depend on it.
+        let mut props: Vec<(String, Value)> = Vec::new();
         let mut is_props = false;
 
         loop {
@@ -206,7 +207,7 @@ impl<'a> Parser<'a> {
                 is_props = true;
                 self.pos += 1; // consume ':'
                 let v = self.value()?;
-                props.insert(key.unwrap().to_ascii_lowercase(), v);
+                props.push((key.unwrap().to_ascii_lowercase(), v));
             } else {
                 if is_props {
                     return self.err("mixed list and property entries");

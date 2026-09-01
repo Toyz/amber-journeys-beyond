@@ -108,68 +108,74 @@ pub enum Cond {
 }
 
 impl Cond {
-    /// Builds a condition from the `[#op: [key, value]]` shape. Unrecognised
-    /// operators degrade to `Always` so a stray key cannot make a room
-    /// unreachable.
+    /// Builds a condition from the `[#op: [key, value]]` shape.
+    ///
+    /// A compound guard nests as `[#and: [#equals: [a, b], #equals: [c, d]]]`,
+    /// where the operand is itself a property list carrying one entry per
+    /// clause, and the same operator may appear more than once. Reading that
+    /// operand as a linear list finds nothing and yields an empty `And`, which
+    /// is vacuously true, so every compound guard in the game passed. Both
+    /// clauses have to be read out of the entries.
+    ///
+    /// Unrecognised operators degrade to `Always` so a stray key cannot make a
+    /// room unreachable.
     pub fn parse(v: &Value) -> Cond {
-        let Value::Props(map) = v else {
-            return Cond::Always;
-        };
-        let Some((op, operand)) = map.iter().next() else {
+        let entries = v.entries();
+        let Some((op, operand)) = entries.first() else {
             return Cond::Always;
         };
 
-        let pair = || -> (String, Value) {
-            match operand.as_list() {
-                Some([k, val]) => (
+        // The operand of a comparison is a `[state key, expected value]` pair.
+        let pair = |val: &Value| -> (String, Value) {
+            match val.as_list() {
+                Some([k, v]) => (
                     k.as_str().unwrap_or_default().to_ascii_lowercase(),
-                    val.clone(),
+                    v.clone(),
                 ),
                 _ => (String::new(), Value::Void),
             }
         };
 
+        let leaf = |op: &str, operand: &Value| -> Cond {
+            let (key, value) = pair(operand);
+            match op {
+                "equals" if key == "always" => Cond::Always,
+                "equals" => Cond::Equals { key, value },
+                "less" => Cond::Less { key, value },
+                "includes" => Cond::Includes { key, value },
+                "lacks" => Cond::Lacks { key, value },
+                // `#not` wraps a bare operand pair rather than a nested
+                // condition, so rebuild it as a negated equality.
+                "not" => Cond::Not(Box::new(Cond::Equals { key, value })),
+                _ => Cond::Always,
+            }
+        };
+
         match op.as_str() {
-            "equals" => {
-                let (key, value) = pair();
-                if key == "always" {
-                    Cond::Always
-                } else {
-                    Cond::Equals { key, value }
-                }
-            }
-            "less" => {
-                let (key, value) = pair();
-                Cond::Less { key, value }
-            }
-            "includes" => {
-                let (key, value) = pair();
-                Cond::Includes { key, value }
-            }
-            "lacks" => {
-                let (key, value) = pair();
-                Cond::Lacks { key, value }
-            }
-            // `#not` wraps a bare operand pair rather than a nested condition,
-            // so rebuild it as a negated equality.
-            "not" => {
-                let (key, value) = pair();
-                Cond::Not(Box::new(Cond::Equals { key, value }))
-            }
             "and" | "or" => {
                 let parts: Vec<Cond> = operand
-                    .as_list()
-                    .unwrap_or_default()
+                    .entries()
                     .iter()
-                    .map(Cond::parse)
+                    .map(|(inner_op, inner)| match inner_op.as_str() {
+                        "and" | "or" => Cond::parse(&Value::Props(vec![(
+                            inner_op.clone(),
+                            inner.clone(),
+                        )])),
+                        other => leaf(other, inner),
+                    })
                     .collect();
+                // An operator with no readable clauses would otherwise be
+                // vacuously true, which is the failure this replaced.
+                if parts.is_empty() {
+                    return Cond::Always;
+                }
                 if op == "and" {
                     Cond::And(parts)
                 } else {
                     Cond::Or(parts)
                 }
             }
-            _ => Cond::Always,
+            other => leaf(other, operand),
         }
     }
 }

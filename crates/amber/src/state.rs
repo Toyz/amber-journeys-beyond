@@ -65,6 +65,11 @@ impl State {
         self.props.remove(&key.to_ascii_lowercase());
     }
 
+    /// Every flag currently set, for inspection from the walkthrough.
+    pub fn entries(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.props.iter()
+    }
+
     pub fn inventory(&self) -> &[String] {
         &self.inventory
     }

@@ -12,6 +12,7 @@ mod natives;
 mod player;
 mod render;
 mod schema;
+mod walk;
 mod sound;
 mod script;
 mod state;
@@ -39,6 +40,7 @@ commands:
   shot      <dir> <room> <out.png>
                                render one room headlessly
   sfx       <dir> [name]       decode a named sound, or sample many
+  walk      <dir> [steps...]   walk the game from the terminal
   verify    <dir>              parse everything and report failures"
     );
     ExitCode::FAILURE
@@ -74,6 +76,7 @@ fn main() -> ExitCode {
             _ => return usage(),
         },
         "sfx" => cmd_sfx(&dir, args.get(2).map(String::as_str)),
+        "walk" => walk::walk(&dir, &args[2..]),
         "verify" => cmd_verify(&dir),
         _ => return usage(),
     };

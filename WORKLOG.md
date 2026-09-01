@@ -693,3 +693,44 @@ lies is worse than one that breaks.
 The patch attempt also failed safe: I asserted the code I meant to replace
 was present, and it was not, because I had misremembered an error message.
 The script refused rather than writing a mangled file.
+
+## 25. The guard bug, found from a precise repro
+
+helba reported walking out the front door, round the back, and straight
+through the kitchen's rear door, which should have been locked. That route
+was exact enough to trace, and the fault was not in that door at all.
+
+Compound guards nest as `[#and: [#equals: [a, b], #equals: [c, d]]]`. Two
+things were wrong with how that was read.
+
+The property list was stored in a `BTreeMap`, and both clauses are keyed
+`#equals`, so the second silently replaced the first. Lingo property lists
+are association lists and permit repeated keys; the game relies on it. 247 of
+the 381 compound guards in the data take that form.
+
+Worse, the `#and` branch read its operand with `as_list()`, but the operand is
+a property list, not a linear one. That returned nothing, so every compound
+guard became `And([])` - and an empty `all()` is true. **Every `#and` and
+`#or` guard in the game was passing unconditionally.**
+
+The fix was to model property lists as ordered pairs with duplicates kept, and
+to read compound operands out of their entries. The kitchen door now blocks,
+and its full guard reads as it should: the scan device on the knob and the
+door state together.
+
+The scale shows up elsewhere too. Sprites visible at the initial state fell
+from 1489 to 1374: 115 sprites were being drawn because their `#showIF`
+passed vacuously. Nothing had looked wrong, because a room with too much in
+it still renders.
+
+### A CLI, because a bug you cannot re-run is a bug you cannot fix
+
+helba could not reproduce the route without the window. There is now
+`amber walk`, which steps through rooms in the terminal, prints the exits
+that are live under the current state, and takes a `blocked` command listing
+the hotspots that exist but whose guards currently fail, with the guard
+printed. Routes can be passed as arguments so a repro is a one-liner.
+
+That command is what confirmed the fix, and it would have found this bug
+weeks earlier than the renderer did. Worth building the instrument before
+needing it, not after.
