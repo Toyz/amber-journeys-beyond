@@ -355,6 +355,83 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             state.set("distantPleas", Value::List(rotated));
         }
 
+        // on snowBlind
+        //   startSound #borderGust
+        //   fadeToMontage 1 / 2 / 1 / 0
+        //   nearTheHouse = (getState(#currentLocation) = #ice_border_N1)
+        //   goBack
+        //   if nearTheHouse then assertSound #cantSeeTheHouse
+        //
+        // Walking out onto the ice whites out, turns the player round, and
+        // draws a remark when it happens within sight of the house. The four
+        // montage steps are the white-out and its recovery.
+        "snowblind" => {
+            out.effects.push(Effect::PlaySound {
+                name: "borderGust".into(),
+                loudness: None,
+            });
+            for step in [1, 2, 1, 0] {
+                out.effects.push(Effect::FadeToMontage(step));
+            }
+            let near = state
+                .get("currentLocation")
+                .as_str()
+                .is_some_and(|l| l.eq_ignore_ascii_case("ice_border_N1"));
+            out.go_back = true;
+            if near {
+                out.effects.push(Effect::PlaySound {
+                    name: "cantSeeTheHouse".into(),
+                    loudness: None,
+                });
+            }
+        }
+
+        // on iceAnchorComments
+        //   if getState(#boatPosition) = #backward then
+        //     if getState(#teddyLocation) = #onAnchor then #meTeddy
+        //     else #iSeeAnchor
+        //   assertSound thisComment : wait #soundStop
+        //
+        // With the boat facing the wrong way there is nothing to say, and the
+        // handler falls through to sounding an unset comment, which is
+        // silence.
+        "iceanchorcomments" => {
+            let facing_back = state
+                .get("boatPosition")
+                .as_str()
+                .is_some_and(|p| p.eq_ignore_ascii_case("backward"));
+            if !facing_back {
+                return true;
+            }
+            let on_anchor = state
+                .get("teddyLocation")
+                .as_str()
+                .is_some_and(|l| l.eq_ignore_ascii_case("onAnchor"));
+            let line = if on_anchor { "meTeddy" } else { "iSeeAnchor" };
+            out.effects.push(Effect::PlaySound {
+                name: line.into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::WaitForSound(line.into()));
+        }
+
+        // on waterAnchorComments
+        //   if getState(#teddyLocation) = #waiting then #iSeeAnchor
+        //   else #meTeddy
+        //   assertSound thisComment : wait #soundStop
+        "wateranchorcomments" => {
+            let waiting = state
+                .get("teddyLocation")
+                .as_str()
+                .is_some_and(|l| l.eq_ignore_ascii_case("waiting"));
+            let line = if waiting { "iSeeAnchor" } else { "meTeddy" };
+            out.effects.push(Effect::PlaySound {
+                name: line.into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::WaitForSound(line.into()));
+        }
+
         // Preload hints for the laptop's animated controls; the engine decodes
         // on demand, so there is nothing to prepare.
         "loadmultiframes" | "purgemultiframes" => {}

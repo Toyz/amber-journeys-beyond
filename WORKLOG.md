@@ -1115,3 +1115,22 @@ be able to see that it was made.
 Native handlers fall from 51 distinct over 258 call sites to 50 over 188. The
 three biggest handlers in the game - ghostCalls, chippyCries and the laptop
 pair - are now done, and what remains is a long tail of puzzle machinery.
+
+## 39. The tail begins
+
+Three of the small handlers, taken together because they share a shape:
+read a state key, choose a line, sound it, wait for it to finish.
+
+`snowBlind`, at 26 call sites the largest of the remainder, is the white-out
+on the ice: a gust, four montage steps out and back, the player turned round,
+and a remark if it happened within sight of the house. The two anchor
+handlers pick between two lines on the boat's facing and where Teddy is.
+
+`iceAnchorComments` has a detail worth keeping. When the boat faces the wrong
+way the handler never assigns its local at all and then sounds it unset,
+which in Lingo is silence. The port returns early instead of sounding an empty
+name, which is the same behaviour by a clearer route; sounding a void would
+have meant a lookup failure in the engine rather than a deliberate nothing.
+
+Native handlers fall from 50 distinct over 188 call sites to 47 over 155. From
+438 sites when the bytecode work began, that is nearly two thirds retired.
