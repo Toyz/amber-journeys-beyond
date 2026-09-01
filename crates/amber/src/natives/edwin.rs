@@ -233,6 +233,45 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             state.set("carolsEnabled", Value::Int(1));
         }
 
+        // on enterBubbleChamber
+        //   cursorOff
+        //   if gCPU = #PC then setLoop #underWater, <loud>
+        //   fadeToMontage 1
+        //   if gCPU = #PC then setLoop #underWater, 120
+        //   fadeToMontage 2
+        //   if gCPU = #PC then setLoop #underWater, 80
+        //   setState(oStoryteller, #showMontage, ...)
+        //   goTo #te_bubbleChamber, #forward
+        //   if gCPU = #PC then endLoop #underWater, #fadeOut
+        //   set a flag on sprite 44 from #horsePower
+        //   hold until the mouse is pressed, then wait 120
+        //
+        // Going down into the bubble chamber. The descent is two montage steps
+        // with the underwater loop brought up between them and faded out on
+        // arrival, so the sound carries the movement rather than the picture.
+        "enterbubblechamber" => {
+            out.effects.push(Effect::CursorOff);
+            // The loop is brought up, then eased back as the descent settles.
+            for (step, volume) in [(1, 160), (2, 120)] {
+                out.effects.push(Effect::StartLoop {
+                    name: "underWater".into(),
+                    volume: Some(volume),
+                });
+                out.effects.push(Effect::FadeToMontage(step));
+            }
+            out.effects.push(Effect::StartLoop {
+                name: "underWater".into(),
+                volume: Some(80),
+            });
+            out.destination = Some("te_bubbleChamber".into());
+            out.transition = Some("forward".into());
+            out.effects.push(Effect::StopLoop {
+                name: "underWater".into(),
+                fade: true,
+            });
+            out.effects.push(Effect::WaitTicks(120));
+        }
+
         _ => return false,
     }
     true

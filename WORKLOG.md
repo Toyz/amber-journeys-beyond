@@ -1469,3 +1469,27 @@ Two thirds of the remainder needs nothing that does not already exist. The
 blocked quarter is one capability again - a puppet channel that can hold a
 digital video member rather than a bitmap - and it covers the whirligig, the
 radio dial and the car.
+
+## 51. Two more capabilities, named rather than worked around
+
+`adjustLockSettings` stopped the batch. It scans the sprite channels to find
+the digit it is adjusting, starts a timer, and then spins the wheel for as
+long as `stillDown` says the button is held. This engine acts on the release
+edge and has no notion of a button being held, so there is nothing to poll.
+
+Rather than port a lock that turns one notch per click and call it done, I
+counted what else wants the same thing:
+
+  polls the held mouse    4 handlers, 16 sites
+  does not               29 handlers, 64 sites
+
+So the remaining 77 sites now have two named blockers rather than a vague
+sense of difficulty: 16 want a held-mouse input model and 24 want a movie on
+a puppet channel. Both are engine work of a few hours that unblocks a group,
+and neither is discovered by porting handlers one at a time until one refuses.
+
+`enterBubbleChamber` went in from the clear group. The descent is two montage
+steps with the underwater loop brought up between them and faded out on
+arrival, so the movement is carried by the sound rather than the picture -
+which is worth knowing, because if the loop fails to resolve the scene reads
+as a plain cut.
