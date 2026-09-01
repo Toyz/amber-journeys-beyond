@@ -435,3 +435,53 @@ Locals, arguments, globals and properties are not separated - 0x4c and 0x52
 are the obvious pair to chase, being the second and sixth most common
 operand opcodes and sitting just under the literal threshold. Nothing is
 decompiled, and the 66 handlers remain unimplemented.
+
+## 19. Slots, and the first readable handler
+
+Handler records carry offsets to their argument and local-variable name
+lists. Parsing those was the step that grounded everything else, because the
+names that came out are unmistakably real: `setGrateIsOpen(suggestion)` with
+a local `currentState`, `setGammaLevel(desiredLevel)` with `currentLevel`,
+`pNum` and `i`, `castCursor(cursorID)` with `whichCursor` and `cMask`. Loop
+counters and meaningful parameter names are not what a wrong parse produces.
+
+Slots are eight bytes wide, and three opcodes address them for every use in
+the corpus:
+
+  0x4b   push argument        1033 uses
+  0x4c   push local           5393 uses
+  0x52   set local            2577 uses
+
+The read-to-write ratio between 0x4c and 0x52 is about two to one, which is
+what reading variables more often than writing them looks like.
+
+`0x4b` needed disambiguating, because "operand is a multiple of eight and
+under some count" describes both an argument reference and a literal one,
+and it had scored highly as both. The separation is in the violations rather
+than the fits: across the corpus `0x4b` never once exceeds its handler's
+argument count, and does exceed the literal count nine times. Every opcode in
+this group is decided the same way, by the single bound it never breaks while
+breaking all the others.
+
+### The first handler that reads
+
+With calls, argument lists, literals, arguments and locals identified, a
+disassembly of `setGrateIsOpen` comes out as code: read the current state
+with `getState`, compare it against the suggestion passed in, and on a
+difference call `setProp` and then `updateDisplay`. That is precisely the
+shape a door-state setter should have, and it is the family the wrong-scene
+bug from entry 11 belongs to.
+
+The output reading as sense is itself the check. Wrong opcode attributions do
+not produce a coherent handler; they produce plausible-looking noise, which
+is a distinction this project has had to learn twice.
+
+The literal pool also preserves the developers' debug strings, left in the
+shipped build.
+
+### Still not done
+
+The arithmetic and comparison opcodes are unidentified, and so are globals
+and properties, though `0x49` and `0x85` are clearly those two from context.
+Nothing is translated to source yet and the 66 handlers remain
+unimplemented.
