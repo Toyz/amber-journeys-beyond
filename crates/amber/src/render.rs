@@ -154,13 +154,13 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                         let single = game.sounds.group_items(&name).first().map(|s| s.to_string());
                         if let Some(item) = single {
                             if let Some((pcm, rate, ch)) = game.group_sound_public(&name, &item) {
-                                a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true);
+                                a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true, true);
                             }
                         }
                         continue;
                     }
                     if let Some((pcm, rate, channels)) = game.sound(&name) {
-                        a.play(Some(&name), Some(name.clone()), pcm, rate, channels, gain, true);
+                        a.play(Some(&name), Some(name.clone()), pcm, rate, channels, gain, true, true);
                     }
                 }
             }
@@ -206,7 +206,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                         };
                         let gain = game.sounds.gain(&name) * scale;
                         if let Some((pcm, rate, ch)) = game.sound(&name) {
-                            a.play(Some(&name), None, pcm, rate, ch, gain, false);
+                            a.play(Some(&name), None, pcm, rate, ch, gain, false, true);
                         }
                     }
                     Effect::StopVideo => {
@@ -225,7 +225,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 // A programme's takes are distinct recordings played in turn,
                 // so each is its own one-shot rather than a restart of the
                 // last.
-                a.play(None, None, pcm, rate, channels, gain, false);
+                a.play(None, None, pcm, rate, channels, gain, false, true);
             }
         }
 
@@ -245,6 +245,9 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                         player.audio_rate,
                         player.audio_channels,
                         1.0,
+                        false,
+                        // QuickTime plays a movie's soundtrack outside the
+                        // four channels, so it takes none of them.
                         false,
                     );
                 }
@@ -311,7 +314,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 if let (Some(a), Effect::PlaySound { name, .. }) = (&audio, &effect) {
                     let gain = game.sounds.gain(name);
                     if let Some((pcm, rate, ch)) = game.sound(name) {
-                        a.play(Some(&name), None, pcm, rate, ch, gain, false);
+                        a.play(Some(&name), None, pcm, rate, ch, gain, false, true);
                     }
                 }
             }
@@ -420,14 +423,14 @@ for effect in effects {
             };
             let gain = game.sounds.gain(&name) * scale;
             if let Some((pcm, rate, ch)) = game.sound(&name) {
-                a.play(Some(&name), None, pcm, rate, ch, gain, false);
+                a.play(Some(&name), None, pcm, rate, ch, gain, false, true);
             }
         }
         Effect::StartLoop { name, volume } => {
             let level = volume.unwrap_or(255) as f32 / 255.0;
             let gain = level * game.sounds.gain(&name);
             if let Some((pcm, rate, ch)) = game.sound(&name) {
-                a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true);
+                a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true, true);
             }
         }
         // `pushVideo` was reaching here and being

@@ -27,6 +27,11 @@ struct Voice {
     step: f64,
     gain: f32,
     looping: bool,
+    /// Whether this voice occupies one of the game's four sound channels.
+    ///
+    /// A movie's own soundtrack does not: QuickTime plays it outside them, so
+    /// it neither takes a channel nor can be crowded out of one.
+    channelled: bool,
 }
 
 #[derive(Default)]
@@ -45,6 +50,7 @@ impl Mixer {
 
     /// Adds a voice, or folds the request into one already playing.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn start(
         &mut self,
         name: Option<&str>,
@@ -54,6 +60,7 @@ impl Mixer {
         step: f64,
         gain: f32,
         looping: bool,
+        channelled: bool,
     ) {
         if let Some(k) = &key {
             if self.voices.iter().any(|v| v.key.as_deref() == Some(k.as_str())) {
@@ -77,6 +84,37 @@ impl Mixer {
             v.gain = gain;
             return;
         }
+        // A sound that shares a channel with one already speaking is not
+        // started; the original gives up rather than finding room.
+        if let Some(group) = name.and_then(exclusive_group) {
+            if self
+                .voices
+                .iter()
+                .any(|v| v.name.as_deref().and_then(exclusive_group) == Some(group))
+            {
+                trace!(
+                    crate::trace::Topic::Audio,
+                    "{} not started, {group} is already speaking",
+                    name.unwrap_or("")
+                );
+                return;
+            }
+        }
+
+        // The game mixes on four sound channels. Every chapter's schema
+        // declares `#soundChannels` with exactly four, loops and effects share
+        // them, and `soundEffect` gives up when none is free rather than
+        // finding room. Without that cap the voices pile up: each one is
+        // quiet enough on its own, and eight of them at once is not.
+        const CHANNELS: usize = 4;
+        if channelled && self.voices.iter().filter(|v| v.channelled).count() >= CHANNELS {
+            trace!(
+                crate::trace::Topic::Audio,
+                "no free channel for {}, dropped",
+                name.unwrap_or("(unnamed)")
+            );
+            return;
+        }
         trace!(
             crate::trace::Topic::Audio,
             "play {} gain {gain:.2} {}ch {} frames{}",
@@ -94,6 +132,7 @@ impl Mixer {
             step,
             gain,
             looping,
+            channelled,
         });
     }
 
@@ -184,6 +223,24 @@ impl Mixer {
     }
 }
 
+/// Sounds that must never overlap one another.
+///
+/// `ghostCalls` walks the four sound channels for the one the last call used,
+/// asks `soundBusy` whether it is still running, and gives up if it is. So two
+/// ghosts never speak at once, however often the room asks. Without that the
+/// calls pile up on each other and the result is not speech.
+///
+/// Keyed by the naming convention because that is how the calls are addressed
+/// in the first place: `BCALL1` to `BCALL11`, `ECALL1` to `ECALL12`,
+/// `MCALL1` to `MCALL10`, built by the handler from a ghost's initial.
+fn exclusive_group(name: &str) -> Option<&'static str> {
+    let n = name.to_ascii_uppercase();
+    let call = ["BCALL", "ECALL", "MCALL"]
+        .iter()
+        .any(|p| n.strip_prefix(p).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit())));
+    call.then_some("ghostCall")
+}
+
 /// Keeps the summed mix inside full scale without hard clipping.
 ///
 /// Everything below the knee passes through untouched, so ordinary material is
@@ -218,6 +275,7 @@ mod tests {
             step: 1.0,
             gain,
             looping,
+            channelled: true,
         }
     }
 
@@ -299,17 +357,17 @@ mod tests {
         // is twice the amplitude, not the modest rise two unrelated sounds
         // give -- the harshest way a mix can go wrong.
         let mut m = mixer(vec![]);
-        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
-        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
         assert_eq!(m.voices.len(), 1);
     }
 
     #[test]
     fn a_restart_returns_the_sound_to_its_beginning() {
         let mut m = mixer(vec![]);
-        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
         m.voices[0].position = 500.0;
-        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 0.5, false);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 0.5, false, true);
         assert_eq!(m.voices[0].position, 0.0);
         assert_eq!(m.voices[0].gain, 0.5, "the new request sets the level");
     }
@@ -317,8 +375,8 @@ mod tests {
     #[test]
     fn different_sounds_still_play_together() {
         let mut m = mixer(vec![]);
-        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false);
-        m.start(Some("breakerSwitch"), None, pcm(), 1, 1.0, 1.0, false);
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
+        m.start(Some("breakerSwitch"), None, pcm(), 1, 1.0, 1.0, false, true);
         assert_eq!(m.voices.len(), 2);
     }
 
@@ -328,9 +386,46 @@ mod tests {
         // recordings played in turn. Folding them together would drop all but
         // the first.
         let mut m = mixer(vec![]);
-        m.start(None, None, pcm(), 1, 1.0, 1.0, false);
-        m.start(None, None, pcm(), 1, 1.0, 1.0, false);
+        m.start(None, None, pcm(), 1, 1.0, 1.0, false, true);
+        m.start(None, None, pcm(), 1, 1.0, 1.0, false, true);
         assert_eq!(m.voices.len(), 2);
+    }
+
+    #[test]
+    fn only_four_sounds_play_at_once() {
+        // Every chapter declares `#soundChannels` with exactly four, loops and
+        // effects share them, and the game gives up on a sound when none is
+        // free rather than finding room.
+        let mut m = mixer(vec![]);
+        for i in 0..8 {
+            m.start(Some(&format!("s{i}")), None, pcm(), 1, 1.0, 1.0, false, true);
+        }
+        assert_eq!(m.voices.len(), 4);
+    }
+
+    #[test]
+    fn a_movie_soundtrack_takes_no_channel_and_is_never_crowded_out() {
+        // QuickTime plays it outside the four, so a busy room must not stop
+        // a film being heard.
+        let mut m = mixer(vec![]);
+        for i in 0..4 {
+            m.start(Some(&format!("s{i}")), None, pcm(), 1, 1.0, 1.0, false, true);
+        }
+        m.start(None, None, pcm(), 1, 1.0, 1.0, false, false);
+        assert_eq!(m.voices.len(), 5);
+        assert!(m.voices.last().is_some_and(|v| !v.channelled));
+    }
+
+    #[test]
+    fn a_channel_freed_by_a_sound_ending_can_be_used_again() {
+        let mut m = mixer(vec![]);
+        for i in 0..4 {
+            m.start(Some(&format!("s{i}")), None, pcm(), 1, 1.0, 1.0, false, true);
+        }
+        m.voices.remove(0);
+        m.start(Some("late"), None, pcm(), 1, 1.0, 1.0, false, true);
+        assert_eq!(m.voices.len(), 4);
+        assert!(m.voices.iter().any(|v| v.name.as_deref() == Some("late")));
     }
 
     #[test]
@@ -338,9 +433,9 @@ mod tests {
         // Re-entering a room must not restart its ambience, or the seam is
         // audible on every move.
         let mut m = mixer(vec![]);
-        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 1.0, true);
+        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 1.0, true, true);
         m.voices[0].position = 900.0;
-        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 0.2, true);
+        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 0.2, true, true);
         assert_eq!(m.voices.len(), 1);
         assert_eq!(m.voices[0].position, 900.0);
     }
@@ -443,6 +538,7 @@ impl Audio {
     /// A `key` names a loop so it can be stopped later; pass `None` for a
     /// one-shot. Starting a loop that is already running is a no-op, so a room
     /// re-entered does not stack a second copy of its ambience.
+    #[allow(clippy::too_many_arguments)]
     pub fn play(
         &self,
         name: Option<&str>,
@@ -452,6 +548,7 @@ impl Audio {
         channels: u16,
         gain: f32,
         looping: bool,
+        channelled: bool,
     ) {
         if samples.is_empty() {
             return;
@@ -460,7 +557,7 @@ impl Audio {
             return;
         };
         let step = source_rate.max(1) as f64 / self.rate as f64;
-        mixer.start(name, key, samples, channels, step, gain, looping);
+        mixer.start(name, key, samples, channels, step, gain, looping, channelled);
     }
 
     /// Makes the set of playing loops match `wanted`, which is `(name, gain)`.
@@ -559,5 +656,60 @@ impl Audio {
 
     pub fn rate(&self) -> u32 {
         self.rate
+    }
+}
+
+#[cfg(test)]
+mod call_tests {
+    use super::*;
+
+    fn pcm() -> Arc<Vec<i16>> {
+        Arc::new(vec![32767i16; 1 << 16])
+    }
+
+    fn mixer() -> Mixer {
+        Mixer {
+            voices: Vec::new(),
+            rate: 44100,
+            channels: 1,
+            master: 1.0,
+            duck: 1.0,
+            suspended: false,
+        }
+    }
+
+    #[test]
+    fn two_ghosts_never_speak_at_once() {
+        let mut m = mixer();
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
+        m.start(Some("MCALL1"), None, pcm(), 1, 1.0, 1.0, false, true);
+        m.start(Some("BCALL3"), None, pcm(), 1, 1.0, 1.0, false, true);
+        assert_eq!(m.voices.len(), 1, "the first call holds the channel");
+    }
+
+    #[test]
+    fn a_call_can_start_once_the_last_has_finished() {
+        let mut m = mixer();
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
+        m.voices.clear();
+        m.start(Some("MCALL1"), None, pcm(), 1, 1.0, 1.0, false, true);
+        assert_eq!(m.voices.len(), 1);
+    }
+
+    #[test]
+    fn ordinary_sounds_are_not_grouped_with_the_calls() {
+        let mut m = mixer();
+        m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
+        m.start(Some("breakerSwitch"), None, pcm(), 1, 1.0, 1.0, false, true);
+        assert_eq!(m.voices.len(), 2);
+    }
+
+    #[test]
+    fn the_group_is_the_call_names_and_not_anything_that_starts_like_one() {
+        assert_eq!(exclusive_group("MCALL7"), Some("ghostCall"));
+        assert_eq!(exclusive_group("bcall11"), Some("ghostCall"));
+        assert_eq!(exclusive_group("ECALL12"), Some("ghostCall"));
+        assert_eq!(exclusive_group("MCALLBACK"), None);
+        assert_eq!(exclusive_group("breakerSwitch"), None);
     }
 }

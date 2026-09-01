@@ -156,9 +156,8 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
 
 /// Runs out the effect queue, reporting what it carried.
 fn settle(game: &mut Game) {
-    let applied = game.settle();
-    if applied > 0 {
-        println!("  ({applied} deferred effect(s) applied)");
+    for line in game.settle() {
+        println!("  sound: {line}");
     }
 }
 

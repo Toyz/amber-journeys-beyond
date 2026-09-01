@@ -562,16 +562,45 @@ impl Game {
     /// without draining it ends somewhere the same route in the window would
     /// not. Everything that is sound or picture is dropped, and everything
     /// that is state is applied.
-    pub fn settle(&mut self) -> usize {
-        let mut applied = 0;
+    pub fn settle(&mut self) -> Vec<String> {
+        let mut audio = Vec::new();
+        // A sequence that holds leaves its remaining actions queued, and in
+        // the window the next frame pumps them. Nothing pumps in the
+        // walkthrough, so a route replayed there stopped at the first `wait`
+        // -- the breaker switch threw and the lights never came on.
+        //
+        // The bound is a guard against a handler that asks to repeat while the
+        // button is held, which in a window is the player's finger and here is
+        // nothing at all.
+        for _ in 0..64 {
+            if self.script.is_empty() {
+                break;
+            }
+            self.waiting = None;
+            self.pump();
+        }
+        self.repeating = None;
+
         self.effect_wait = None;
         while !self.pending.is_empty() {
             let effect = self.pending.remove(0);
-            if self.apply_puppet(&effect) {
-                applied += 1;
+            // Sound is reported rather than played: the walkthrough has no
+            // device, and what a route triggers is exactly what is worth
+            // seeing when a route sounds wrong.
+            match &effect {
+                Effect::PlaySound { name, loudness } => audio.push(match loudness {
+                    Some(l) => format!("play {name} ({l})"),
+                    None => format!("play {name}"),
+                }),
+                Effect::StartLoop { name, volume } => {
+                    audio.push(format!("loop {name} at {}", volume.unwrap_or(255)))
+                }
+                Effect::StopLoop { name, .. } => audio.push(format!("stop {name}")),
+                _ => {}
             }
+            self.apply_puppet(&effect);
         }
-        applied
+        audio
     }
 
     /// Whether the effect queue still has work, including a wait in progress.
@@ -956,14 +985,25 @@ impl Game {
                 sound::load(&path)
             }
             Source::Cast(number) => {
+                // The current chapter first, because that is where a room's
+                // own sounds are, then the others: a cast number is per movie,
+                // and a chapter can name a sound another one carries.
                 let domain = self.node().domain.clone();
-                let chapter = self.chapter(&domain)?;
-                let s = chapter.movie.sound(number).ok()?;
-                Some(sound::Pcm {
-                    samples: s.samples,
-                    rate: s.sample_rate,
-                    channels: s.channels,
-                })
+                let mut order = vec![domain.clone()];
+                order.extend(world_domains(&self.world).into_iter().filter(|d| *d != domain));
+                for d in order {
+                    let Some(chapter) = self.chapter(&d) else { continue };
+                    if let Ok(s) = chapter.movie.sound(number) {
+                        if !s.samples.is_empty() {
+                            return Some(sound::Pcm {
+                                samples: s.samples,
+                                rate: s.sample_rate,
+                                channels: s.channels,
+                            });
+                        }
+                    }
+                }
+                None
             }
         }
     }

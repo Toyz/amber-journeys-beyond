@@ -2274,3 +2274,55 @@ means, and it is why these regions are drawn over navigation in the first
 place. The condition matters as much as the ordering: six hundred and
 eighty-nine of them are guarded on what is in hand and gate themselves, but
 eighty-one are guarded only on `#always` and would fire with empty hands.
+
+## 66. Four channels, and two ghosts talking over each other
+
+helba's recording made this one quick, which is the point of entry 64. The
+route: in through the front door, up to the office, throw the breaker, back
+along the hall to Margaret's locked door. Replaying it printed the fault on the
+second-to-last line.
+
+```text
+> click 576 292
+  sound: play MCALL7 (high)
+> click 223 304
+  sound: play MCALL1 (high)
+```
+
+Two ghost calls, one room apart, both at full volume, both several seconds
+long. The original does not do that. `ghostCalls` walks the sound channels for
+the one the last call used, asks `soundBusy` whether it is still running, and
+gives up if it is. Two ghosts never speak at once however often the room asks.
+Mine started every call it was handed, so they piled up on each other, and
+overlapping speech at full scale is not speech.
+
+The wider version of the same fault: every chapter's schema declares
+`#soundChannels` with **exactly four**, loops and effects share them, and
+`soundEffect` gives up when none is free rather than finding room. My mixer had
+no limit at all. Each voice is quiet enough alone; eight at once is not, and
+that is what "the audio sounds fucked" was.
+
+Three smaller things came out of chasing it.
+
+The recorder helba could not get a file out of was reachable only through the
+environment. It is `--record <file>` on `play` now, because that is where
+anyone would look.
+
+Replaying the route in the walkthrough stopped at the breaker switch, because a
+sequence that holds leaves its remaining actions queued and only the window
+pumps them. The walkthrough runs them out now, so the lights actually come on
+in a replay -- otherwise every route through that switch diverged from the
+window at exactly the point it mattered.
+
+And `sfx` was lying. It resolves a sound in the current chapter, so run from a
+Roxy start it reported `roaringFire`, `outsideLoop`, `iceHole` and five others
+as unresolved. Each is requested only by its own chapter and each resolves
+there, so nothing was broken -- but a diagnostic that reports false failures is
+worse than none, which is the same lesson as the speculative marker in entry
+58. Sound lookup now falls back across chapters and the tool tells the truth.
+
+One check that found nothing, worth recording. `gazeboWind` peaks at exactly
+32768, which is the signature that has now caught two real bugs. It has four
+samples there out of five hundred and forty-five thousand. It is a hot
+recording, not a misread, and `sfx` prints the count now so the two never have
+to be guessed between again.

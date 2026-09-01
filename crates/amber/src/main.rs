@@ -43,7 +43,8 @@ commands:
   cast      <dir> <movie.dxr>  list a movie's cast members
   export    <dir> <movie.dxr> <cast#> <out.png>
                                decode one bitmap cast member
-  play      <dir> [room]       open the game window
+  play      <dir> [room] [--record <file>]
+                               open the game window
   shot      <dir> <room> <out.png>
                                render one room headlessly
   sfx       <dir> [name]       decode a named sound, or sample many
@@ -77,7 +78,25 @@ fn main() -> ExitCode {
             (Some(m), Some(n), Some(out)) => cmd_export(&dir.join(m), n, Path::new(out)),
             _ => return usage(),
         },
-        "play" => render::play(&dir, args.get(2).map(String::as_str)),
+        "play" => {
+            // `--record <file>` is the same switch the recorder reads from the
+            // environment, offered on the command line because that is where
+            // anyone would look for it.
+            if let Some(i) = args.iter().position(|a| a == "--record") {
+                match args.get(i + 1) {
+                    Some(path) => std::env::set_var("AMBER_RECORD", path),
+                    None => {
+                        eprintln!("--record needs a file");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+            let room = args
+                .get(2)
+                .filter(|a| !a.starts_with("--"))
+                .map(String::as_str);
+            render::play(&dir, room)
+        }
         "shot" => match (args.get(2), args.get(3)) {
             (Some(room), Some(out)) => cmd_shot(&dir, room, Path::new(out)),
             _ => return usage(),
@@ -616,6 +635,7 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
                 Some((pcm, rate, ch, _)) => {
                     let secs = pcm.len() as f32 / (rate.max(1) * ch.max(1) as u32) as f32;
                     let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+
                     let (i, n) = at.unwrap_or((0, 0));
                     println!(
                         "      step {step} (item {i}/{n}): {:>8} samples {secs:>5.1}s peak {peak}",
@@ -638,9 +658,22 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
         match game.sound(n) {
             Some((pcm, rate, channels)) => {
                 let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+                // A peak of exactly 32768 is where a hot recording and a
+                // misread look the same. What tells them apart is how many
+                // samples sit there: a few is a loud moment, thousands is a
+                // silence byte read as full scale negative.
+                let at_rail = pcm.iter().filter(|s| **s == i16::MIN).count();
+                let pinned = if at_rail > 0 {
+                    format!(
+                        "  {at_rail} at full scale ({:.1}%)",
+                        100.0 * at_rail as f64 / pcm.len().max(1) as f64
+                    )
+                } else {
+                    String::new()
+                };
                 let secs = pcm.len() as f32 / (rate.max(1) * channels.max(1) as u32) as f32;
                 println!(
-                    "  {n:<20} {:>9} samples  {rate:>5} Hz  {channels}ch  {secs:>5.1}s  peak {peak}",
+                    "  {n:<20} {:>9} samples  {rate:>5} Hz  {channels}ch  {secs:>5.1}s  peak {peak}{pinned}",
                     pcm.len()
                 );
                 if peak == 0 {
