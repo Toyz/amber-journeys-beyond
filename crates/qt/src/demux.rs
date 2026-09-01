@@ -38,6 +38,12 @@ pub struct Track {
     /// IMA ADPCM packs 64 frames into 34 bytes per channel.
     pub samples_per_packet: u32,
     pub bytes_per_packet: u32,
+    /// Bits per uncompressed audio sample, from the sound sample description.
+    pub sample_bits: u16,
+    /// Bits per pixel for a video track, from the video sample description.
+    pub depth: u16,
+    /// The colour table an indexed video track carries, when it has one.
+    pub palette: Option<crate::rle::Palette>,
     pub samples: Vec<Sample>,
 }
 
@@ -141,6 +147,9 @@ fn parse_track(data: &[u8], start: usize, end: usize) -> Option<Track> {
         sample_rate: 0,
         samples_per_packet: 1,
         bytes_per_packet: 1,
+        sample_bits: 0,
+        depth: 0,
+        palette: None,
         samples: Vec::new(),
     };
 
@@ -152,9 +161,25 @@ fn parse_track(data: &[u8], start: usize, end: usize) -> Option<Track> {
             TrackKind::Video => {
                 track.width = u16_at(data, entry + 32);
                 track.height = u16_at(data, entry + 34);
+                // The video sample description runs width and height at +32
+                // and +34, then resolutions, data size, a frame count and a
+                // thirty-two byte compressor name, putting the depth at +82.
+                track.depth = u16_at(data, entry + 82);
+                // The colour table is written inline straight after the
+                // eighty-six byte description. The id at +84 is documented as
+                // -1 when that is so, but these files leave it at zero and
+                // write the table anyway: the description is 2142 bytes where
+                // the fixed part is 86, and 2142 - 86 is exactly the 8 byte
+                // header and 256 eight byte entries. So the size is what says
+                // whether a table is there, not the id.
+                let described = u32_at(data, entry) as usize;
+                if described > 86 + 8 {
+                    track.palette = parse_color_table(data, entry + 86);
+                }
             }
             TrackKind::Sound => {
                 track.channels = u16_at(data, entry + 24).max(1);
+                track.sample_bits = u16_at(data, entry + 26);
                 // The rate is 16.16 fixed point.
                 track.sample_rate = u32_at(data, entry + 32) >> 16;
                 // A version 1 sound description declares its packet geometry;
@@ -254,6 +279,33 @@ fn parse_track(data: &[u8], start: usize, end: usize) -> Option<Track> {
     }
     track.samples = samples;
     Some(track)
+}
+
+/// Reads an inline colour table.
+///
+/// Four bytes of seed and two of flags, then a count written as one less than
+/// the number of entries, then eight bytes each: an index and sixteen-bit red,
+/// green and blue of which only the high byte carries at this depth.
+fn parse_color_table(data: &[u8], at: usize) -> Option<crate::rle::Palette> {
+    let count = u16_at(data, at + 6) as usize + 1;
+    if count == 0 || count > 256 {
+        return None;
+    }
+    let mut palette = [[0u8; 3]; 256];
+    for i in 0..count {
+        let e = at + 8 + i * 8;
+        let index = u16_at(data, e) as usize;
+        // The table need not be in order, and an out of range index is a
+        // corrupt table rather than a reason to drop the rest of it.
+        if index < 256 {
+            palette[index] = [
+                (u16_at(data, e + 2) >> 8) as u8,
+                (u16_at(data, e + 4) >> 8) as u8,
+                (u16_at(data, e + 6) >> 8) as u8,
+            ];
+        }
+    }
+    Some(palette)
 }
 
 /// Packet geometry for codecs that do not declare their own, as

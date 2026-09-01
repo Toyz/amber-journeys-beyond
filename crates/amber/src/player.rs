@@ -4,10 +4,47 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use qt::{Cinepak, Ima4Decoder, Movie, TrackKind};
+use qt::rle::Rle;
+
+/// Which codec a movie's video track uses.
+///
+/// Half the disc is Cinepak and half is Apple Animation, and the player had
+/// been handing every frame to the Cinepak decoder: a hundred and thirty-three
+/// movies decoded to a black rectangle without any error, because a decoder
+/// given the wrong format does not know that is what happened.
+enum Video {
+    Cinepak(Cinepak),
+    Animation { rle: Rle, depth: u16 },
+}
+
+impl Video {
+    fn decode(&mut self, data: &[u8]) {
+        let _ = match self {
+            Video::Cinepak(c) => c.decode(data),
+            Video::Animation { rle, depth } => rle.decode(data, *depth),
+        };
+    }
+
+    fn frame(&self) -> &[u8] {
+        match self {
+            Video::Cinepak(c) => c.frame(),
+            Video::Animation { rle, .. } => rle.frame(),
+        }
+    }
+
+    fn size(&self, declared: (u16, u16)) -> (u32, u32) {
+        match self {
+            // Cinepak's own header is authoritative: it can disagree with the
+            // container, and it is the decoder that sized its buffer.
+            Video::Cinepak(c) => (c.width as u32, c.height as u32),
+            Video::Animation { .. } => (declared.0 as u32, declared.1 as u32),
+        }
+    }
+}
 
 pub struct VideoPlayer {
     movie: Movie,
-    decoder: Cinepak,
+    decoder: Video,
     pub width: u16,
     pub height: u16,
     /// Index of the frame currently in `decoder`.
@@ -40,11 +77,19 @@ impl VideoPlayer {
 
         let (audio, audio_rate, audio_channels) = match movie.track(TrackKind::Sound) {
             Some(sound) => {
+                // The soundtrack was being run through the ADPCM decoder
+                // whatever its codec, and seventeen of the game's are not
+                // ADPCM. Decoding `raw ` that way is not distorted audio, it
+                // is noise at full scale.
                 let mut decoder = Ima4Decoder::new();
                 let mut pcm = Vec::new();
                 for i in 0..sound.samples.len() {
                     if let Some(d) = movie.sample_data(sound, i) {
-                        pcm.extend(decoder.decode(d, sound.channels));
+                        if qt::pcm::handles(&sound.codec) {
+                            pcm.extend(qt::pcm::decode(&sound.codec, sound.sample_bits, d));
+                        } else {
+                            pcm.extend(decoder.decode(d, sound.channels));
+                        }
                     }
                 }
                 (
@@ -57,7 +102,19 @@ impl VideoPlayer {
         };
 
         let mut player = VideoPlayer {
-            decoder: Cinepak::new(width as usize, height as usize),
+            decoder: match &video.codec {
+                b"rle " => Video::Animation {
+                    rle: Rle::new(
+                        width as usize,
+                        height as usize,
+                        // An indexed track without a table is a broken file;
+                        // a black palette at least keeps the geometry right.
+                        video.palette.unwrap_or([[0; 3]; 256]),
+                    ),
+                    depth: video.depth,
+                },
+                _ => Video::Cinepak(Cinepak::new(width as usize, height as usize)),
+            },
             movie,
             width,
             height,
@@ -129,7 +186,7 @@ impl VideoPlayer {
             };
             // A frame that fails to decode leaves the previous one on screen,
             // which is far less jarring than a black flash.
-            let _ = self.decoder.decode(data);
+            self.decoder.decode(data);
         }
         self.current = target;
         true
@@ -142,7 +199,7 @@ impl VideoPlayer {
     /// The dimensions of the buffer `frame()` returns, which are the
     /// decoder's own and can differ from the container's declared size.
     pub fn frame_size(&self) -> (u32, u32) {
-        (self.decoder.width as u32, self.decoder.height as u32)
+        self.decoder.size((self.width, self.height))
     }
 
     pub fn frame_count(&self) -> usize {

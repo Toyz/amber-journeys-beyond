@@ -21,7 +21,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(v) = movie.track(qt::TrackKind::Video) {
         let syncs = v.samples.iter().filter(|s| s.sync).count();
         println!("video: {syncs} keyframes of {}", v.samples.len());
+        let animation = &v.codec == b"rle ";
         let mut dec = qt::Cinepak::new(v.width as usize, v.height as usize);
+        let mut anim = qt::rle::Rle::new(
+            v.width as usize,
+            v.height as usize,
+            v.palette.unwrap_or([[0; 3]; 256]),
+        );
+        println!("  codec {} depth {} palette {}", String::from_utf8_lossy(&v.codec), v.depth,
+                 if v.palette.is_some() { "yes" } else { "no" });
         // Start from the keyframe at or before the requested frame, since
         // inter-frames need their predecessors.
         let want: usize = std::env::args()
@@ -33,12 +41,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let n = target - first + 1;
         for i in first..=target {
             let data = movie.sample_data(v, i).ok_or("no sample data")?;
-            dec.decode(data)?;
+            if animation { anim.decode(data, v.depth)?; } else { dec.decode(data)?; }
         }
         println!("  decoded frames {first}..={target}");
         // Statistics beat eyeballing for judging whether a decoder works: a
         // stuck decoder produces one colour, a working one produces many.
-        let f = dec.frame();
+        let f = if animation { anim.frame() } else { dec.frame() };
         let mut hist = std::collections::HashSet::new();
         let mut sum = 0u64;
         for px in f.chunks_exact(4) {
@@ -47,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!(
             "decoded {n} frames, {}x{}, {} distinct colours, mean level {}",
-            dec.width,
+            if animation { v.width as usize } else { dec.width },
             dec.height,
             hist.len(),
             sum / (f.len() as u64 / 4 * 3)
@@ -62,7 +70,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut pcm = Vec::new();
         for i in 0..a.samples.len().min(400) {
             if let Some(d) = movie.sample_data(a, i) {
-                pcm.extend(qt::decode_ima4(d, a.channels));
+                if qt::pcm::handles(&a.codec) {
+                    pcm.extend(qt::pcm::decode(&a.codec, a.sample_bits, d));
+                } else {
+                    pcm.extend(qt::decode_ima4(d, a.channels));
+                }
             }
         }
         let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);

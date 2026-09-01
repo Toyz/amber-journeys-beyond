@@ -2052,3 +2052,65 @@ scripted edit since has an assertion on it now.
 Three of these four had been in the engine since the queue existed. helba's
 log showed all of them in one run, which is twice now that the event log has
 paid for itself in a single paste.
+
+## 61. Half the video never played
+
+helba reported the bathroom mirror as no video and audio "like my speakers are
+dying". Both were true, and both were the same mistake in two places.
+
+The probe told me in one line:
+
+```text
+Video codec=rle  92x148 samples=117
+Sound codec=raw  rate=22254 ch=1
+audio: 326464 samples, peak 32768, 326463 non-silent
+```
+
+The player handed every soundtrack to the IMA ADPCM decoder and every frame to
+Cinepak, whatever the file said. `MIRROR.MOV` is neither.
+
+`raw ` is unsigned eight-bit, silence at 128. Read as signed that is -32768,
+full scale negative, on every sample that is not making a sound. The peak of
+*exactly* 32768 with 326463 of 326464 samples non-silent is the signature, and
+I have seen that number before: entry 57's `snd ` bug reported the same peak
+for the same reason. Twice now, and the second time I did not recognise it.
+Decoded properly the track peaks at 15104 with half its samples silent, which
+is what speech looks like.
+
+The counts across the disc:
+
+```text
+video: cvid 144, rle 133, smc 1
+audio: ima4  66, raw  16, twos 1
+```
+
+**A hundred and thirty-three of two hundred and seventy-eight movies are Apple
+Animation, and not one of them had ever drawn a pixel.** A decoder handed the
+wrong format does not report anything; it produces a black rectangle, and a
+black rectangle in a dark bathroom mirror looks like a mirror. That is the
+whole reason this survived: the failure was indistinguishable from the art.
+
+The RLE decoder took two corrections, both mine.
+
+At eight bits a count is *four* pixels, not one, and the skip byte steps four
+at a time. That I read from the reference before writing it.
+
+The second I got wrong and the compiler told me. `-1` ends a *line*, not the
+frame -- the outer loop moves on to the next one. I had written `return`, which
+made the `row += 1` after the loop unreachable, and rather than read the warning
+I put `#[allow(unreachable_code)]` on it. That is silencing a diagnostic that
+was correctly describing a bug I had just written. Removed, fixed, and there is
+a test that fails on the mutation.
+
+The palette needed a third correction. The colour table is written inline after
+the eighty-six byte sample description, and the documented signal for that is a
+table id of -1. These files leave the id at zero and write the table anyway.
+The size is what tells you: 2142 bytes where the fixed part is 86, and 2142
+minus 86 is exactly an eight byte header and 256 eight byte entries. Gating on
+the id found no table, every index mapped to black, and the decoder looked
+broken when it was working.
+
+Nineteen tests over the two decoders. The one that matters is
+`minus_one_ends_the_line_and_not_the_frame`, because that bug decodes the first
+changed line and leaves the rest of the picture standing -- on a mostly-still
+film, almost invisible unless you are looking for it.

@@ -9,6 +9,8 @@ mod atom;
 mod cinepak;
 mod demux;
 mod ima4;
+pub mod pcm;
+pub mod rle;
 
 pub use cinepak::Cinepak;
 pub use demux::{Movie, Sample, Track, TrackKind};
