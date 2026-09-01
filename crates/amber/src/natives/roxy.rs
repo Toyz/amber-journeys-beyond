@@ -1059,6 +1059,101 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on setPKamberStatus suggestion
+        //   validList = [#Incomplete, #Online, #WaveButIncomplete, #WaveActivated,
+        //                #ModulatingEEG, #oneMoment, #surfsUp]
+        //   if getPos( validList, suggestion ) = 0 then alert : return
+        //   if suggestion = #Online then
+        //     if getState( #psionicWavesPresent ) then suggestion = #WaveActivated
+        //                                          else suggestion = #Online
+        //   if suggestion = #WaveActivated then
+        //     if getState( #oscillatorInPlace ) then suggestion = #WaveActivated
+        //                                        else suggestion = #WaveButIncomplete
+        //   setProp( oStoryteller.states, #PKamberStatus, list(suggestion) )
+        //   ... sprite 43's cast follows the status ...
+        //
+        // The peek unit's amber display corrects what it is asked for. Ask for
+        // `#Online` while the waves are present and it shows `#WaveActivated`;
+        // ask for `#WaveActivated` without the oscillator in place and it
+        // shows `#WaveButIncomplete`. So the display never claims more than
+        // the equipment can do, and the two corrections chain: `#Online` with
+        // waves but no oscillator lands on `#WaveButIncomplete`.
+        "setpkamberstatus" => {
+            const VALID: [&str; 7] = [
+                "Incomplete",
+                "Online",
+                "WaveButIncomplete",
+                "WaveActivated",
+                "ModulatingEEG",
+                "oneMoment",
+                "surfsUp",
+            ];
+            let Some(asked) = args.first().and_then(Value::as_str).map(|s| s.trim_start_matches('#'))
+            else {
+                return true;
+            };
+            let Some(&wanted) = VALID.iter().find(|v| v.eq_ignore_ascii_case(asked)) else {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "setPKamberStatus: {asked} is not a status"
+                );
+                return true;
+            };
+
+            let mut settled = wanted;
+            if settled.eq_ignore_ascii_case("Online") && state.get("psionicWavesPresent").truthy() {
+                settled = "WaveActivated";
+            }
+            if settled.eq_ignore_ascii_case("WaveActivated")
+                && !state.get("oscillatorInPlace").truthy()
+            {
+                settled = "WaveButIncomplete";
+            }
+            state.set_all("PKamberStatus", vec![Value::Symbol(settled.into())]);
+            out.redraw = true;
+        }
+
+        // on setPKbarStatus suggestion
+        //   validList = [#Offline, #Online, #noActivity, #activityDetected]
+        //   if getPos( validList, suggestion ) = 0 then alert : return
+        //   setProp( oStoryteller.states, #PKbarStatus, list(suggestion) )
+        //   ... sprite 42's cast follows it ...
+        //
+        // No correction on this one, only the refusal. Worth having anyway:
+        // without it a mistyped status would be written and the sprite keyed
+        // on it would find no cast and draw nothing.
+        "setpkbarstatus" => {
+            const VALID: [&str; 4] = ["Offline", "Online", "noActivity", "activityDetected"];
+            let Some(asked) = args.first().and_then(Value::as_str).map(|s| s.trim_start_matches('#'))
+            else {
+                return true;
+            };
+            match VALID.iter().find(|v| v.eq_ignore_ascii_case(asked)) {
+                Some(&wanted) => {
+                    state.set_all("PKbarStatus", vec![Value::Symbol(wanted.into())]);
+                    out.redraw = true;
+                }
+                None => trace!(
+                    crate::trace::Topic::Script,
+                    "setPKbarStatus: {asked} is not a status"
+                ),
+            }
+        }
+
+        // on setvideoTapePosition suggestion
+        //   setProp( oStoryteller.states, #videoTapePosition, list(suggestion) )
+        //
+        // The whole handler. It exists so that `setState` has something to
+        // dispatch to for a flag whose value list holds one entry, and it does
+        // exactly what the direct write would have done -- which is worth
+        // having ported rather than left to the fallback, because the fallback
+        // is the thing that quietly happens when a setter is *missing*.
+        "setvideotapeposition" => {
+            if let Some(v) = args.first() {
+                state.set_all("videoTapePosition", vec![v.clone()]);
+            }
+        }
+
         // on setBarMode whichOne
         //   cursorOff
         //   oldMode = getState( #BarMode )
@@ -2690,5 +2785,57 @@ mod phone_tests {
         let mut s = reading("BarManual", 3);
         turn(&mut s, "setcurrentpageinbarmanual", "next");
         assert_eq!(s.get("currentPageInBarManual"), Value::Int(4));
+    }
+
+    // -- the peek unit's displays -------------------------------------------
+
+    fn amber_status(waves: bool, oscillator: bool, ask: &str) -> String {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("psionicWavesPresent", vec![Value::Int(waves as i32)]);
+        s.set_all("oscillatorInPlace", vec![Value::Int(oscillator as i32)]);
+        let mut out = Outcome::default();
+        assert!(call(
+            "setpkamberstatus",
+            &[Value::Symbol(ask.into())],
+            &mut s,
+            &mut out
+        ));
+        s.get("PKamberStatus").as_str().unwrap_or("").to_string()
+    }
+
+    #[test]
+    fn the_amber_display_never_claims_more_than_the_kit_can_do() {
+        // Asking for Online with no waves is Online.
+        assert_eq!(amber_status(false, false, "Online"), "Online");
+        // With waves it upgrades itself.
+        assert_eq!(amber_status(true, true, "Online"), "WaveActivated");
+        // But not past the missing oscillator -- the two corrections chain.
+        assert_eq!(amber_status(true, false, "Online"), "WaveButIncomplete");
+        assert_eq!(amber_status(false, false, "WaveActivated"), "WaveButIncomplete");
+    }
+
+    #[test]
+    fn and_a_status_it_does_not_know_is_refused() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("PKbarStatus", vec![Value::Symbol("Offline".into())]);
+        let mut out = Outcome::default();
+        assert!(call(
+            "setpkbarstatus",
+            &[Value::Symbol("Scanning".into())],
+            &mut s,
+            &mut out
+        ));
+        // Left alone, rather than written and then drawn as nothing.
+        assert_eq!(s.get("PKbarStatus"), Value::Symbol("Offline".into()));
+
+        assert!(call(
+            "setpkbarstatus",
+            &[Value::Symbol("activityDetected".into())],
+            &mut s,
+            &mut out
+        ));
+        assert_eq!(s.get("PKbarStatus"), Value::Symbol("activityDetected".into()));
     }
 }

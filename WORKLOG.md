@@ -4198,3 +4198,36 @@ two doors, the tape position, the waffle tracks, and `setcurrentLocation`,
 which is the engine's own business rather than a puzzle's.
 
 217 tests.
+
+## 101. Displays that correct what they are told
+
+Three more setters. Nine left down to six.
+
+`setPKamberStatus` is the interesting one. The peek unit's amber display does
+not show what it is asked to show; it shows the most it can honestly claim:
+
+```text
+if suggestion = #Online then
+  if getState( #psionicWavesPresent ) then suggestion = #WaveActivated
+if suggestion = #WaveActivated then
+  if getState( #oscillatorInPlace ) = 0 then suggestion = #WaveButIncomplete
+```
+
+The two corrections chain, which is the part I would have missed writing this
+from a description: ask for `#Online` with the waves present but no oscillator
+and it lands on `#WaveButIncomplete`, having been promoted once and demoted
+once on the way. The test walks all four corners for that reason.
+
+`setPKbarStatus` has the refusal without the correction, and is worth porting
+for the refusal alone: without it a status the unit does not recognise gets
+written anyway, and the sprite keyed on it finds no cast and draws nothing. A
+display showing a wrong thing is a bug; a display showing *nothing* reads as a
+broken engine.
+
+`setvideoTapePosition` is one line -- it writes the flag and stops. Porting a
+handler that does exactly what the fallback would have done looks like waste,
+and is not: the fallback is what happens when a setter is **missing**, so
+leaving it out means the tally cannot tell "this handler does nothing
+interesting" from "nobody has looked at this yet". Now it can.
+
+219 tests.
