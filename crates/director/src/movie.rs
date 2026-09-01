@@ -77,8 +77,16 @@ pub struct CastMember {
     pub pitch: u16,
     pub bit_depth: u8,
     /// Registration point, the anchor Director positions the sprite by.
+    ///
+    /// Expressed in the member's own rectangle space, not the image's, so a
+    /// member whose rectangle has a non-zero origin carries that origin in
+    /// here too. Subtract [`origin_x`](Self::origin_x) and
+    /// [`origin_y`](Self::origin_y) to get the offset within the image.
     pub reg_x: i16,
     pub reg_y: i16,
+    /// Top-left of the member's rectangle, usually zero but not always.
+    pub origin_x: i16,
+    pub origin_y: i16,
     /// Cast number of the custom palette this bitmap wants, if any.
     pub palette_ref: i16,
 }
@@ -96,6 +104,8 @@ impl CastMember {
             bit_depth: 0,
             reg_x: 0,
             reg_y: 0,
+            origin_x: 0,
+            origin_y: 0,
             palette_ref: 0,
         }
     }
@@ -317,6 +327,8 @@ impl Movie {
             let right = s.i16()?;
             m.width = (right - left).max(0) as u16;
             m.height = (bottom - top).max(0) as u16;
+            m.origin_x = left;
+            m.origin_y = top;
             if spec.len() >= 0x16 {
                 let mut s = Reader::at(spec, self.endian, 0x12);
                 m.reg_y = s.i16()?;
@@ -403,6 +415,17 @@ impl Movie {
             .ok_or(Error::MissingChunk("BITD"))?;
         let raw = self.resource_data(child)?;
         bitmap::decode(m, raw)
+    }
+
+    /// The type-specific block of a cast member, for inspection.
+    pub fn cast_spec(&self, cast_number: u32) -> Option<&[u8]> {
+        let m = self.member(cast_number)?;
+        let cd = self.resource_data(m.resource).ok()?;
+        let mut r = Reader::new(cd, self.endian);
+        let _kind = r.u32().ok()?;
+        let info_len = r.u32().ok()? as usize;
+        let data_len = r.u32().ok()? as usize;
+        cd.get(12 + info_len..12 + info_len + data_len)
     }
 
     /// The raw bytes of a sound cast member's `snd ` chunk, for inspection.

@@ -320,20 +320,25 @@ impl Game {
             let Some(art) = self.art(&domain, cast) else {
                 continue;
             };
-            // Director positions a sprite by its registration point, which
-            // defaults to the image centre. `#coords` gives where that point
-            // lands on the stage.
-            let (cx, cy) = center.unwrap_or((width as i32 / 2, height as i32 / 2));
-            let ox = cx - if art.reg_x != 0 {
-                art.reg_x as i32
-            } else {
-                art.width as i32 / 2
+            // `#coords` gives where the sprite's registration point lands on
+            // the stage. Without one there is no anchor and the registration
+            // point alone says nothing, so the image is centred instead.
+            let (ox, oy) = match center {
+                Some((cx, cy)) => (
+                    cx - if art.reg_x != 0 { art.reg_x as i32 } else { art.width as i32 / 2 },
+                    cy - if art.reg_y != 0 { art.reg_y as i32 } else { art.height as i32 / 2 },
+                ),
+                None => (
+                    (width as i32 - art.width as i32) / 2,
+                    (height as i32 - art.height as i32) / 2,
+                ),
             };
-            let oy = cy - if art.reg_y != 0 {
-                art.reg_y as i32
-            } else {
-                art.height as i32 / 2
-            };
+            if std::env::var_os("AMBER_TRACE_SPRITES").is_some() {
+                eprintln!(
+                    "  sprite cast {cast:<6} {}x{} reg=({},{}) coords={:?} -> ({ox},{oy})",
+                    art.width, art.height, art.reg_x, art.reg_y, center
+                );
+            }
             blit(frame, width, height, &art.rgba, art.width, art.height, ox, oy);
         }
     }

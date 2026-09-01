@@ -9,6 +9,8 @@ pub struct Bitmap {
     /// One palette index per pixel, `width * height` long, row-major and already
     /// trimmed of the row padding Director stores on disk.
     pub pixels: Vec<u8>,
+    /// Registration offset within the image, with the member's rectangle
+    /// origin already removed.
     pub reg_x: i16,
     pub reg_y: i16,
     pub palette_ref: i16,
@@ -78,8 +80,13 @@ pub fn decode(member: &CastMember, raw: &[u8]) -> Result<Bitmap> {
         width: member.width,
         height: member.height,
         pixels,
-        reg_x: member.reg_x,
-        reg_y: member.reg_y,
+        // The registration point is given in the member's rectangle space, so
+        // the rectangle's origin has to come off to make it an offset within
+        // the image. Most members have a zero origin and are unaffected; the
+        // ones that do not were landing tens of pixels away from the plates
+        // they belong with.
+        reg_x: member.reg_x - member.origin_x,
+        reg_y: member.reg_y - member.origin_y,
         palette_ref: member.palette_ref,
     })
 }

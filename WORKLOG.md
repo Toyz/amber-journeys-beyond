@@ -867,3 +867,42 @@ sites, because the list was already sorted that way. Sorting by call sites
 measures how often something is invoked, not whether the game is playable
 without it. 800 beats 70, and no amount of set-piece work would have mattered
 while the player could not pick anything up.
+
+## 30. Sprite registration, and a fix built on a bad measurement
+
+helba sent a screenshot of the front door close-up rendering as mismatched
+vertical bands. The room stacks three 600x300 plates - the doorway lit, the
+same unlit, and the closed doors as an overlay - and they were landing tens of
+pixels apart.
+
+I got this wrong once before getting it right, and the way it went wrong is
+the point. A regex I wrote to read the sprites' `#coords` reported `NONE` for
+all three, so I concluded there was no anchor and changed the unanchored
+fallback to centre the image. The regex was faulty; every one of those sprites
+carries `#coords: point(320, 210)`. The change was harmless but its
+justification was invented, and I committed it before checking the reading
+against anything.
+
+Tracing the actual placements gave the real answer in one run:
+
+  cast 2181  reg=(336,212) -> (-16, -2)     wrong
+  cast 1910  reg=(300,150) -> ( 20, 60)     right
+
+Dumping both members' rectangles explained the difference. Cast 1910's is
+`(0, 0, 300, 600)`, origin at zero. Cast 2181's is `(62, 36, 362, 636)`: the
+same 600x300 size at a non-zero origin. And its registration point, (336, 212),
+is exactly (36 + 300, 62 + 150).
+
+**The registration point is expressed in the member's rectangle space, not the
+image's.** Members whose rectangle starts at zero are unaffected, which is why
+this went unnoticed: most do. Subtracting the origin puts both plates at
+(20, 60), which is where the known-good room's plate sits.
+
+520 of the game's 3208 bitmaps carry a non-zero origin, with offsets reaching
+471 pixels. Every one of them was being drawn in the wrong place whenever it
+appeared.
+
+The lesson is not about Director. It is that I trusted a measurement I had
+just written, from a regex over text, without checking it against a second
+source. The trace I eventually added took two minutes and answered the
+question exactly.
