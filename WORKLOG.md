@@ -391,3 +391,47 @@ Individual stack effects are not separated, because the correlation that
 revealed the families also prevents the algebra from splitting them. Nothing
 is decompiled and the 66 handlers remain unimplemented. What exists now is
 the frame, the handler inventory, and the call structure.
+
+## 18. Literal references, and a correction
+
+The literal table is five-field: a count and offset for an 8-byte record
+table, plus a count and offset for the data those records point into. Each
+record is a type word and an offset; each datum is a length word followed by
+its bytes. Type 1 is a string.
+
+That made a candidate I had not tested: a literal reference in bytecode is a
+**byte offset into the record table**, so a multiple of 8, not an index.
+Three opcodes satisfy that for every single use:
+
+  0x44   1245 uses   100.0%
+  0x4b   1025 uses    99.9%
+  0x84    716 uses   100.0%
+
+The control matters more than the score. The median script has ten
+literals, so a stray operand clears the bound rarely, and the field bears
+that out: below those three the next tier is 0x4c at 92% and 0x52 at 89%,
+then it falls away to 40%, 20% and eventually zero. A test that everything
+passes would be worthless; this one separates three opcodes from thirty by
+a wide margin.
+
+**Correction to entry 16.** I reported there that `0x84` reached variable
+names, listing `tumbler`, `lock_C`, `digitStack` and `allboxes`, and said in
+summary that this was the puzzle state. That reading came from the
+name-index test I had already shown to be contaminated, and it was wrong:
+`0x84` is a literal push. Those words are real and they are still in the
+data, but as strings in the literal pool rather than as variables the
+opcode names.
+
+I also got the measurement wrong before I got it right. My first bounds test
+scored every opcode against per-handler tables and reported that nothing fit
+anything. The fault was the denominator: handlers with an empty table could
+never contribute a success but were still counted as attempts, which pushed
+every candidate below its true rate. The data had not changed between that
+run and the one that found three exact fits; only the arithmetic had.
+
+### Still not done
+
+Locals, arguments, globals and properties are not separated - 0x4c and 0x52
+are the obvious pair to chase, being the second and sixth most common
+operand opcodes and sitting just under the literal threshold. Nothing is
+decompiled, and the 66 handlers remain unimplemented.
