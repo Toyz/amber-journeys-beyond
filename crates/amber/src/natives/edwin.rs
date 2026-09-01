@@ -162,6 +162,51 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on setCarLocation suggestion
+        //   validSuggestions = [#inStorage, #standingBy, #enRoute,
+        //                       #hub_main, #hub_A, #hub_B, #hub_C]
+        //   if getPos( validSuggestions, suggestion ) = 0 then
+        //     beep : put "<!> Sorry, " & suggestion & " isn't a valid suggestion..."
+        //     return
+        //   setProp( oStoryteller.states, #carLocation, list(suggestion) )
+        //   if getPos( validSuggestions, suggestion ) > 3 then
+        //     set the castNum of sprite 44 = getProp( <hub frames>, suggestion )
+        //   updateDisplay( oPuppeteer )
+        //
+        // Seven places the car can be, in two groups. The first three --
+        // stored, waiting, on its way -- are states of the car; the last four
+        // are positions on the hub, and only those redraw the hub display.
+        // The split is done by position in the list rather than by name, which
+        // is why the order of that list is not arbitrary.
+        "setcarlocation" => {
+            const PLACES: [&str; 7] = [
+                "inStorage",
+                "standingBy",
+                "enRoute",
+                "hub_main",
+                "hub_A",
+                "hub_B",
+                "hub_C",
+            ];
+            let Some(asked) = args.first() else { return true };
+            let Some(at) = PLACES.iter().position(|p| asked.is_symbol(p)) else {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "setCarLocation: {asked:?} is not a place the car can be"
+                );
+                return true;
+            };
+            state.set_all("carLocation", vec![Value::Symbol(PLACES[at].into())]);
+            // The last four are hub positions and redraw the hub display.
+            if at >= 3 {
+                out.effects.push(Effect::SpriteCastNamed {
+                    channel: 44,
+                    name: PLACES[at].into(),
+                });
+            }
+            out.redraw = true;
+        }
+
         // on setWaffleTracks suggestion
         //   lsWaffleTracks = getProp( oStoryteller.states, #waffleTracks )
         //   if suggestion = #None then
@@ -844,5 +889,43 @@ mod tests {
             &mut out
         ));
         assert_eq!(s.get("waffleTracks"), Value::Symbol("None".into()));
+    }
+
+    #[test]
+    fn only_the_hub_positions_redraw_the_hub() {
+        let drive = |to: &str| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+            let mut out = Outcome::default();
+            assert!(call(
+                "setcarlocation",
+                &[Value::Symbol(to.into())],
+                &mut s,
+                &mut out
+            ));
+            let drew = out
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::SpriteCastNamed { channel: 44, .. }));
+            (s.get("carLocation"), drew)
+        };
+        // The first three are states of the car, not places on the hub.
+        assert_eq!(drive("enRoute"), (Value::Symbol("enRoute".into()), false));
+        assert_eq!(drive("hub_B"), (Value::Symbol("hub_B".into()), true));
+    }
+
+    #[test]
+    fn and_a_place_the_car_cannot_be_is_refused() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all("carLocation", vec![Value::Symbol("standingBy".into())]);
+        let mut out = Outcome::default();
+        assert!(call(
+            "setcarlocation",
+            &[Value::Symbol("hub_Z".into())],
+            &mut s,
+            &mut out
+        ));
+        assert_eq!(s.get("carLocation"), Value::Symbol("standingBy".into()));
     }
 }

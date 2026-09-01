@@ -4272,3 +4272,46 @@ of their own machinery to be worth reading properly rather than squeezing in
 here.
 
 222 tests.
+
+## 103. The setters, all of them
+
+`unported setters: none`. Sixteen when the count first existed two entries ago.
+
+The last four:
+
+**`setPlayerIsUsingLaptop`** is eight states with side effects on the way in.
+Two matter. `#password` *freezes the inventory*, so while the cursor is in the
+password field the player cannot pick something up and use it -- the bar goes
+cold rather than silently ignoring clicks, which is a real piece of manners.
+And `#off` clears `#passwordAttempt`, as does closing the lid: a wrong password
+is not remembered, so switching the machine off and on is a genuine reset and
+not a way to keep guessing from where you left off.
+
+Porting it turned up `unFreezeInventory` missing entirely -- `freezeInventory`
+had been ported and its mirror had not, so the bar could freeze and never thaw.
+
+**`setCarLocation`** has seven places in two groups: three states of the car
+and four positions on the hub, and only the last four redraw the hub display.
+The split is made by *position in the list* rather than by name, which is why
+the order of that list is not arbitrary and why I wrote it out rather than
+sorting it.
+
+**`setConservatoryDoorIsOpen`** is a bleeding door that does not balance.
+Closing it stops the outside in two rooms; opening it starts the outside in
+one. Stand at `#Cons_CenterS` and the outside dies when the door shuts and does
+not come back when it opens. I read both branches twice looking for the reading
+that makes them agree and there is not one, so it is reproduced as it is, with
+a test that says in words that this is faithful rather than fixed. Someone
+tidying this later would otherwise "correct" it in five minutes.
+
+**`setCurrentLocation`** is a stub -- `on setCurrentLocation suggestion` and
+then `return`. The flag holds a single value, which declares a setter exists,
+and the empty handler is how `setState` is told to fall through to the plain
+write. Moving the player is `moveToLocation`'s job.
+
+I ported the stub. A handler that does nothing and a handler nobody has opened
+look identical from outside, and the entire value of the count in entry 97 is
+that it distinguishes them.
+
+228 tests. What is left: **14 verbs across 18 call sites, and 50 event
+handlers.**

@@ -269,6 +269,20 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // to. This engine acts on the release edge and handles one click per
         // release, so there is no pending event to consume. A no-op here is
         // the same behaviour by a different route, not a gap.
+        // on setCurrentLocation suggestion
+        //   return
+        //
+        // A stub in the original, and deliberately so: the flag holds a single
+        // value, which declares that a setter exists, and moving the player is
+        // `moveToLocation`'s job rather than this one's. Writing the flag is
+        // all that should happen, and the empty handler is how `setState` is
+        // told to fall through to exactly that.
+        //
+        // Ported as the no-op it is, so the tally can say "read, and there was
+        // nothing in it" rather than leaving it indistinguishable from a
+        // handler nobody has opened.
+        "setcurrentlocation" => {}
+
         "mousedown" => {}
 
         // on puppetSprite channel, on

@@ -22,6 +22,76 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // The original rolls a die so the swarm is only sometimes heard. The
         // roll is reproduced rather than firing every time, because the
         // intermittency is the effect.
+        // on setConservatoryDoorIsOpen suggestion
+        //   currentState = getState( #conservatoryDoorIsOpen )
+        //   cursorOff : currentLoc = getState( #currentLocation )
+        //   if suggestion = 0 and currentState = 1 then
+        //     soundEffect #solidDoorClose
+        //     setProp( states, #conservatoryDoorIsOpen, list(0) )
+        //     ... if currentLoc = #Cons_p1_s, a horsepower-gated film ...
+        //     endLoop #win_hangingLoop
+        //     updateDisplay( oPuppeteer )
+        //     if currentLoc = #Cons_CenterS or currentLoc = #Cons_Exit then
+        //       endLoop #outsideLoop
+        //   if suggestion = 1 and currentState = 0 then
+        //     soundEffect #solidDoorOpen
+        //     setProp( states, #conservatoryDoorIsOpen, list(1) )
+        //     ... the same film ...
+        //     updateDisplay( oPuppeteer )
+        //     if currentLoc = #Cons_Exit then setLoop( #outsideLoop, 120 )
+        //
+        // Another bleeding door, and not a symmetrical one: closing it stops
+        // the outside in **two** rooms and opening it starts the outside in
+        // **one**. Standing at `#Cons_CenterS` you can hear the outside die
+        // when the door shuts and not hear it return when it opens -- which
+        // looks like a bug in the original and is faithfully reproduced,
+        // because there is no reading of those two branches that makes them
+        // agree.
+        //
+        // Not modelled: on a fast machine the open and close each hold until
+        // the door's film passes movieTime 220, behind `if gHorsepower =
+        // #high`. This engine has no equivalent of waiting on part of an
+        // already-running film, and the wait is a pause rather than a
+        // behaviour -- what it gates is `killVideo`, which happens either way.
+        "setconservatorydoorisopen" => {
+            let asked = args.first().and_then(Value::as_int).unwrap_or(0);
+            let held = state.get("conservatoryDoorIsOpen").as_int().unwrap_or(0);
+            let opening = match (asked, held) {
+                (1, 0) => true,
+                (0, 1) => false,
+                _ => return true,
+            };
+            let at = state.get("currentLocation");
+
+            out.effects.push(Effect::CursorOff);
+            out.effects.push(Effect::PlaySound {
+                name: if opening { "solidDoorOpen" } else { "solidDoorClose" }.into(),
+                loudness: None,
+            });
+            state.set_all("conservatoryDoorIsOpen", vec![Value::Int(asked)]);
+
+            if opening {
+                if at.is_symbol("Cons_Exit") {
+                    out.effects.push(Effect::StartLoop {
+                        name: "outsideLoop".into(),
+                        volume: Some(120),
+                    });
+                }
+            } else {
+                out.effects.push(Effect::StopLoop {
+                    name: "win_hangingLoop".into(),
+                    fade: false,
+                });
+                if at.is_symbol("Cons_CenterS") || at.is_symbol("Cons_Exit") {
+                    out.effects.push(Effect::StopLoop {
+                        name: "outsideLoop".into(),
+                        fade: false,
+                    });
+                }
+            }
+            out.redraw = true;
+        }
+
         // on setShedDoorIsOpen suggestion
         //   currentState = getState( #shedDoorIsOpen )
         //   if suggestion = 0 and currentState = 1 then
@@ -634,5 +704,41 @@ mod tests {
         let mut out = Outcome::default();
         assert!(call("setsheddoorisopen", &[Value::Int(1)], &mut s, &mut out));
         assert!(out.effects.is_empty());
+    }
+
+    #[test]
+    fn the_conservatory_door_is_not_symmetrical() {
+        let loops = |at: &str, to: i32, from: i32| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("BRICE".into())]);
+            s.set_all("conservatoryDoorIsOpen", vec![Value::Int(from)]);
+            s.set_all("currentLocation", vec![Value::Symbol(at.into())]);
+            let mut out = Outcome::default();
+            assert!(call(
+                "setconservatorydoorisopen",
+                &[Value::Int(to)],
+                &mut s,
+                &mut out
+            ));
+            out.effects
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::StartLoop { name, .. } => Some(format!("start {name}")),
+                    Effect::StopLoop { name, .. } => Some(format!("stop {name}")),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // At the exit the outside comes and goes with the door.
+        assert!(loops("Cons_Exit", 1, 0).contains(&"start outsideLoop".to_string()));
+        assert!(loops("Cons_Exit", 0, 1).contains(&"stop outsideLoop".to_string()));
+
+        // At the centre it only ever goes. Closing the door kills the outside
+        // and opening it does not bring it back -- the two branches of the
+        // original disagree and there is no reading that makes them agree, so
+        // this is faithful rather than fixed.
+        assert!(loops("Cons_CenterS", 0, 1).contains(&"stop outsideLoop".to_string()));
+        assert!(!loops("Cons_CenterS", 1, 0).contains(&"start outsideLoop".to_string()));
     }
 }

@@ -199,6 +199,101 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         }
 
 
+        // on unFreezeInventory
+        //   setState( oStoryteller, #inventoryStatus, #hot )
+        //   gFreezeInventory = 0
+        //
+        // The mirror of `freezeInventory` above, and missing until now -- so
+        // the bar froze and never thawed.
+        "unfreezeinventory" => {
+            state.set("inventoryStatus", Value::Symbol("hot".into()));
+            state.set("gFreezeInventory", Value::Int(0));
+        }
+
+        // on setPlayerIsUsingLaptop suggestion
+        //   newValue = #none
+        //   if suggestion = 0 then
+        //     purgeMultiframes #passwordEntry : unFreezeInventory : killVideo
+        //     newValue = 0 : setProp( states, #passwordAttempt, list() )
+        //   if suggestion = #prompting then
+        //     loadMultiFrames #passwordEntry : newValue = #prompting
+        //   if suggestion = #crashing then newValue = #crashing
+        //   if suggestion = #crashed  then newValue = #crashed
+        //   if suggestion = #restart  then newValue = #restart
+        //   if suggestion = #off then
+        //     newValue = #off : setProp( states, #passwordAttempt, list() )
+        //     soundEffect #computerOff
+        //   if suggestion = #warmingUp then
+        //     newValue = #warmingUp : soundEffect #computerStart
+        //   if suggestion = #password then
+        //     freezeInventory : newValue = #password
+        //   if suggestion = #startUp then
+        //     purgeMultiframes #passwordEntry : unFreezeInventory
+        //     newValue = #startUp
+        //
+        // The laptop's eight states, each with what it does on the way in.
+        // Two of them are worth naming:
+        //
+        // `#password` **freezes the inventory** -- while the cursor is in the
+        // password field the player cannot pick something up and use it, which
+        // is why the bar goes cold rather than simply being ignored. `#startUp`
+        // and switching off thaw it again.
+        //
+        // And `#off` clears `#passwordAttempt`, as does 0. So a wrong password
+        // is not remembered: switching the machine off and on is a real reset
+        // and not a way to keep guessing from where you left off.
+        "setplayerisusinglaptop" => {
+            let asked = args.first().cloned().unwrap_or(Value::Void);
+            let is = |name: &str| asked.is_symbol(name);
+            let switched_off = asked.as_int() == Some(0);
+
+            if switched_off || is("off") {
+                // Nothing typed survives the machine going off.
+                state.set_all("passwordAttempt", Vec::new());
+            }
+            if switched_off || is("startUp") {
+                call("unfreezeinventory", &[], state, out);
+            }
+            if switched_off {
+                out.effects.push(Effect::StopVideo);
+            }
+            if is("off") {
+                out.effects.push(Effect::PlaySound {
+                    name: "computerOff".into(),
+                    loudness: None,
+                });
+            }
+            if is("warmingUp") {
+                out.effects.push(Effect::PlaySound {
+                    name: "computerStart".into(),
+                    loudness: None,
+                });
+            }
+            if is("password") {
+                call("freezeinventory", &[], state, out);
+            }
+
+            // Only a state it recognises is written; anything else leaves the
+            // machine where it was.
+            const STATES: [&str; 7] = [
+                "prompting",
+                "crashing",
+                "crashed",
+                "restart",
+                "off",
+                "warmingUp",
+                "startUp",
+            ];
+            if switched_off {
+                state.set_all("playerIsUsingLaptop", vec![Value::Int(0)]);
+            } else if let Some(&settled) = STATES.iter().find(|v| asked.is_symbol(v)) {
+                state.set_all("playerIsUsingLaptop", vec![Value::Symbol(settled.into())]);
+            } else {
+                return true;
+            }
+            out.redraw = true;
+        }
+
         // on stashClick
         //   gClickLoc = point(the mouseH, the mouseV)
         //
@@ -2837,5 +2932,59 @@ mod phone_tests {
             &mut out
         ));
         assert_eq!(s.get("PKbarStatus"), Value::Symbol("activityDetected".into()));
+    }
+
+    // -- the laptop ---------------------------------------------------------
+
+    fn laptop(to: &str) -> (State, Outcome) {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("passwordAttempt", vec![Value::Int(4), Value::Int(2)]);
+        let mut out = Outcome::default();
+        let arg = match to.parse::<i32>() {
+            Ok(n) => Value::Int(n),
+            Err(_) => Value::Symbol(to.into()),
+        };
+        assert!(call("setplayerisusinglaptop", &[arg], &mut s, &mut out));
+        (s, out)
+    }
+
+    #[test]
+    fn typing_a_password_freezes_the_inventory() {
+        let (s, _) = laptop("password");
+        assert_eq!(s.get("inventoryStatus"), Value::Symbol("cool".into()));
+        // And starting up thaws it again.
+        let (s, _) = laptop("startUp");
+        assert_eq!(s.get("inventoryStatus"), Value::Symbol("hot".into()));
+    }
+
+    #[test]
+    fn switching_it_off_forgets_what_was_typed() {
+        let (s, out) = laptop("off");
+        assert!(s.get_all("passwordAttempt").is_empty());
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::PlaySound { name, .. } if name == "computerOff"
+        )));
+
+        // Closing the lid does the same, without the sound.
+        let (s, _) = laptop("0");
+        assert!(s.get_all("passwordAttempt").is_empty());
+        assert_eq!(s.get("playerIsUsingLaptop"), Value::Int(0));
+    }
+
+    #[test]
+    fn and_a_state_it_does_not_know_leaves_it_alone() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("playerIsUsingLaptop", vec![Value::Symbol("warmingUp".into())]);
+        let mut out = Outcome::default();
+        assert!(call(
+            "setplayerisusinglaptop",
+            &[Value::Symbol("rebooting".into())],
+            &mut s,
+            &mut out
+        ));
+        assert_eq!(s.get("playerIsUsingLaptop"), Value::Symbol("warmingUp".into()));
     }
 }
