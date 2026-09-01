@@ -363,6 +363,11 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
             .world
             .resolve(room, None)
             .ok_or_else(|| format!("no room named {room}"))?;
+        // Load whatever this room plays, and just as importantly drop the
+        // previous one's movie. Without this the screenshot carries the
+        // startup movie over the top of every room it is asked for, so the
+        // tool answers a different question than the one asked.
+        game.start_room_video();
     }
 
     const W: u32 = 640;

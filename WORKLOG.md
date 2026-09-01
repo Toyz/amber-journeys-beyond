@@ -653,3 +653,43 @@ than one that fails.
 
 It also printed the contents of the literal pool, which is game text and
 serves no purpose in a listing. It now prints lengths instead.
+
+## 24. The property-assignment statement, and the kitchen
+
+Chasing the wrong-scene report led somewhere useful, though not where I
+expected. Room scripts do not call the compiled door setters at all: they
+call `setState( oStoryteller, #FrontDoorIsOpen, FALSE )` directly, which the
+engine already handles. So the thirty-six door setters decoded in entry 23,
+while correctly read, are reached only through a dispatcher and porting them
+would not have moved anything. Worth knowing before spending a day on them.
+
+What the kitchen doorway actually does is this:
+
+  set the queuedSound of oPuppeteer = #swingingDoorOpen
+  goTo( #HallKitchenEntryOpen, #forward )
+
+The first line is Lingo's property-assignment statement, which the engine was
+recording as an unimplemented native and dropping. Thirty of the thirty-four
+uses across the whole game are exactly this shape, queuing a sound on the
+puppeteer so that a move carries its own effect - the door you hear while
+walking through a doorway is queued by the hotspot that walks you through it.
+Implementing that one form took the report from 54 handlers over 357 call
+sites to 54 over 327, and the sound count rose by exactly thirty.
+
+### A second tool that answered the wrong question
+
+While checking the fix I noticed `shot` reporting a 2991-frame movie for a
+room that has no movie at all. `cmd_shot` never called `start_room_video`, so
+every screenshot carried the startup movie over the top of whatever room was
+asked for. In `play` the same path is covered, because moves go through
+`apply`, so this was confined to the tool.
+
+That is the second time in two entries that a diagnostic quietly answered a
+different question than the one put to it, after `disasm.py` ignoring its own
+command line. Both were caught by a number looking wrong rather than by
+anything failing. When the tools are how you see the problem, a tool that
+lies is worse than one that breaks.
+
+The patch attempt also failed safe: I asserted the code I meant to replace
+was present, and it was not, because I had misremembered an error message.
+The script refused rather than writing a mangled file.

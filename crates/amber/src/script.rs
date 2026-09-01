@@ -146,6 +146,35 @@ fn parse_call(src: &str) -> Option<Call> {
     })
 }
 
+/// Splits `set the <property> of <object> = <value>` into property and value.
+///
+/// The separator is `=` or, in a few places, the word `to`. Both spellings are
+/// Lingo and the data uses each.
+fn parse_property_assignment(src: &str) -> Option<(String, String)> {
+    let lower = src.to_ascii_lowercase();
+    let rest = lower.strip_prefix("set the ")?;
+    let offset = src.len() - rest.len();
+
+    // Property name runs up to " of ".
+    let of = rest.find(" of ")?;
+    let property = src[offset..offset + of].trim().to_string();
+
+    // Value follows the assignment operator.
+    let tail = &rest[of + 4..];
+    let (sep, width) = match (tail.find('='), tail.find(" to ")) {
+        (Some(i), Some(j)) if j < i => (j, 4),
+        (Some(i), _) => (i, 1),
+        (None, Some(j)) => (j, 4),
+        (None, None) => return None,
+    };
+    let value_start = offset + of + 4 + sep + width;
+    let value = src.get(value_start..)?.trim().to_string();
+    if property.is_empty() || value.is_empty() {
+        return None;
+    }
+    Some((property, value))
+}
+
 /// Finds the start of a trailing `--` comment, ignoring one inside a string.
 fn find_comment(src: &str) -> Option<usize> {
     let b = src.as_bytes();
@@ -328,6 +357,32 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         "stowinventory" => state.stow(),
 
         // -- presentation ----------------------------------------------------
+        // Lingo's property-assignment statement, `set the X of Y = Z`.
+        //
+        // Almost every use in the room scripts queues a sound on the puppeteer,
+        // which is how a move carries its own sound effect: the door heard on
+        // the way through a doorway is queued by the hotspot that walks you
+        // through it. Queuing and playing amount to the same thing here,
+        // because the move follows immediately.
+        "set" => {
+            let text = line.trim();
+            match parse_property_assignment(text) {
+                Some((property, value)) if property.eq_ignore_ascii_case("queuedSound") => {
+                    out.effects.push(Effect::PlaySound {
+                        name: value.trim_start_matches('#').to_string(),
+                        loudness: None,
+                    });
+                }
+                // The remaining forms address sprites and cast members
+                // directly, which the renderer does not expose yet.
+                Some(_) => out.effects.push(Effect::Native {
+                    name: "set".into(),
+                    args: Vec::new(),
+                }),
+                None => out.unhandled.push(text.to_string()),
+            }
+        }
+
         "updatedisplay" | "updatestage" => out.redraw = true,
         "cursoroff" => out.effects.push(Effect::CursorOff),
         "fadetomontage" => out.effects.push(Effect::FadeToMontage(int_arg(0).unwrap_or(1))),
