@@ -259,8 +259,17 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
 
             if solved {
                 state.set("grateIsOpen", Value::Int(1));
-                out.destination = Some("gaz_trapdoorCU".into());
-                out.transition = Some("backOff".into());
+                // The original only moves the player when they are not already
+                // at the trapdoor: the lock can be worked from a close-up of
+                // it, and re-entering the room would restart its scene.
+                let here = state.get("currentLocation");
+                let at_door = here
+                    .as_str()
+                    .is_some_and(|r| r.eq_ignore_ascii_case("gaz_trapdoorCU"));
+                if !at_door {
+                    out.destination = Some("gaz_trapdoorCU".into());
+                    out.transition = Some("backOff".into());
+                }
             } else {
                 let _ = roll(state, 3);
                 out.effects.push(Effect::PlaySound {

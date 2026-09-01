@@ -21,6 +21,13 @@ use lingo::{parse_value, Value};
 /// Maps a room name to the `#storageCast` triple identifying its record.
 pub struct LocationTable {
     by_name: HashMap<String, (u32, u32, u32)>,
+    /// Room name -> the area it belongs to.
+    ///
+    /// The table's top level groups rooms into areas -- `#office`, `#Porch`,
+    /// `#DarkDn` -- and handlers compare against those names rather than
+    /// against a room: whether an open front door can be heard depends on
+    /// being in the hall, not on which wall of it is in view.
+    zone_by_name: HashMap<String, String>,
 }
 
 impl LocationTable {
@@ -30,6 +37,7 @@ impl LocationTable {
     /// that parses as a property list whose leaves are three-integer lists.
     pub fn from_texts(texts: &[String]) -> LocationTable {
         let mut by_name = HashMap::new();
+        let mut zone_by_name = HashMap::new();
         for text in texts {
             let trimmed = text.trim();
             if !trimmed.starts_with("[#") || !trimmed.contains("_LOCATION") {
@@ -38,7 +46,7 @@ impl LocationTable {
             let Ok(Value::Props(areas)) = parse_value(trimmed) else {
                 continue;
             };
-            for (_, rooms) in &areas {
+            for (zone, rooms) in &areas {
                 let Value::Props(rooms) = rooms else { continue };
                 for (name, triple) in rooms {
                     if let Some([a, b, c]) = triple.as_list() {
@@ -46,16 +54,21 @@ impl LocationTable {
                             (a.as_int(), b.as_int(), c.as_int())
                         {
                             by_name.insert(name.clone(), (a as u32, b as u32, c as u32));
+                            zone_by_name.insert(name.clone(), zone.clone());
                         }
                     }
                 }
             }
         }
-        LocationTable { by_name }
+        LocationTable { by_name, zone_by_name }
     }
 
     pub fn all_names(&self) -> Vec<&str> {
         self.by_name.keys().map(String::as_str).collect()
+    }
+
+    pub fn zone(&self, name: &str) -> Option<&str> {
+        self.zone_by_name.get(&name.to_ascii_lowercase()).map(String::as_str)
     }
 
     pub fn triple(&self, name: &str) -> Option<(u32, u32, u32)> {

@@ -11,8 +11,159 @@ use crate::state::State;
 
 use super::roll;
 
+/// One ambience loop a door lets through, and where it can be heard from.
+struct Bleed {
+    /// Areas the loop is audible in -- `#Hall`, `#Porch` -- rather than
+    /// rooms. Anywhere else, the door makes no difference to what the player
+    /// hears.
+    rooms: &'static [&'static str],
+    /// Extra conditions, as `(flag, value)`, all of which must hold.
+    guards: &'static [(&'static str, &'static str)],
+    loop_name: &'static str,
+    /// Volume when starting. `None` is the original's `#disablePeekAlert`,
+    /// which is a flag rather than a level.
+    volume: Option<i32>,
+}
+
+/// Doors whose opening and shutting is heard beyond the door itself.
+///
+/// The plain openable setters in `shared` write a flag and play a cue. These
+/// three do that and then start or stop an ambience loop, but only when the
+/// player is somewhere the loop would carry to: the grounds become audible
+/// from the hall when the front door opens, and the house hum reaches the
+/// porch. Standing anywhere else, the door is only a sound.
+const BLEED_DOORS: &[(&str, &str, &str, &[Bleed])] = &[
+    (
+        "setfrontdoorisopen",
+        "frontDoorOpen",
+        "frontDoorClose",
+        &[
+            Bleed { rooms: &["DarkDn", "Hall"], guards: &[], loop_name: "grounds", volume: None },
+            Bleed { rooms: &["Porch"], guards: &[], loop_name: "houseHum", volume: Some(80) },
+        ],
+    ),
+    (
+        "setkitchenreardoorisopen",
+        "kitchenExitOpen",
+        "kitchenExitClose",
+        &[
+            Bleed { rooms: &["DarkDn", "kitchen"], guards: &[], loop_name: "grounds", volume: None },
+            Bleed { rooms: &["Ghse"], guards: &[], loop_name: "houseHum", volume: None },
+            // The scanner on the kitchen door is only heard through it when
+            // the unit is actually mounted there and switched on.
+            Bleed {
+                rooms: &["kitchen"],
+                guards: &[("DoorWithScanUnit", "kitchenOutside"), ("scanUnitIsActive", "1")],
+                loop_name: "scanLoop",
+                volume: Some(120),
+            },
+        ],
+    ),
+    (
+        "setbalconydoorisopen",
+        "doorOpen",
+        "doorClose",
+        &[
+            Bleed {
+                rooms: &["UHallBalconyEntry", "UHallNwall2", "DarkUp_UHallNwall2", "DarkUp_BalcEntry"],
+                guards: &[],
+                loop_name: "grounds",
+                volume: None,
+            },
+            Bleed {
+                rooms: &["UHallBalconyN", "UHallBalconyS", "DarkUp_BalcNorth", "DarkUp_BalcSouth"],
+                guards: &[],
+                loop_name: "houseHum",
+                volume: Some(80),
+            },
+        ],
+    ),
+];
+
+/// The shared body of the three doors above.
+///
+///   on set<X>IsOpen suggestion
+///     currentState = getState( #X )
+///     currentRoom  = <where the player is>
+///     if suggestion = 0 and currentState = 1 then
+///       cue( #<x>Close ) : setProp( #X, list(0) ) : updateDisplay
+///       if currentRoom = ... then endLoop( #grounds )
+///       if currentRoom = ... then endLoop( #houseHum )
+///     if suggestion = 1 and currentState = 0 then
+///       cue( #<x>Open ) : setProp( #X, list(1) ) : updateDisplay
+///       if currentRoom = ... then setLoop( #grounds, #disablePeekAlert )
+///       if currentRoom = ... then setLoop( #houseHum, 80 )
+///
+/// Guarded on the flag changing, like the plain setters, so a door already
+/// open neither sounds nor disturbs the loops.
+fn bleed_door(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
+    // Margaret has a balcony door and a front door of her own, handled by the
+    // plain setters. These rules are Roxy's rooms and Roxy's loops, so the
+    // chapter is checked here rather than left to the order handlers run in.
+    if state
+        .get("gChapter")
+        .as_str()
+        .is_none_or(|c| !c.eq_ignore_ascii_case("ROXY"))
+    {
+        return false;
+    }
+    let Some(&(_, open_cue, close_cue, bleeds)) =
+        BLEED_DOORS.iter().find(|(h, _, _, _)| *h == name)
+    else {
+        return false;
+    };
+
+    let flag = &name[3..];
+    let current = state.get(flag).as_int().unwrap_or(0);
+    let Some(suggestion) = args.first().and_then(Value::as_int) else {
+        return true;
+    };
+    let opening = match (suggestion, current) {
+        (1, 0) => true,
+        (0, 1) => false,
+        _ => return true,
+    };
+
+    out.effects.push(Effect::PlaySound {
+        name: if opening { open_cue } else { close_cue }.into(),
+        loudness: None,
+    });
+    state.set_all(flag, vec![Value::Int(suggestion)]);
+    out.redraw = true;
+
+    let here = state.get("gZone");
+    let here = here.as_str().unwrap_or_default().trim_start_matches('#').to_string();
+    for bleed in bleeds {
+        if !bleed.rooms.iter().any(|r| r.eq_ignore_ascii_case(&here)) {
+            continue;
+        }
+        if !bleed.guards.iter().all(|(flag, want)| {
+            let held = state.get(flag);
+            held.as_str().is_some_and(|s| s.eq_ignore_ascii_case(want))
+                || held.as_int().map(|n| n.to_string()).as_deref() == Some(*want)
+        }) {
+            continue;
+        }
+        out.effects.push(if opening {
+            Effect::StartLoop {
+                name: bleed.loop_name.into(),
+                volume: bleed.volume,
+            }
+        } else {
+            Effect::StopLoop {
+                name: bleed.loop_name.into(),
+                fade: false,
+            }
+        });
+    }
+    true
+}
+
 /// Runs a handler from this chapter, or reports that it is not one of ours.
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
+    if bleed_door(name, args, state, out) {
+        return true;
+    }
     // Arguments and effects are unused by some chapters until more handlers
     // land here; the signature is uniform so the dispatcher stays simple.
     let _ = (args, &out, &state);
@@ -373,4 +524,107 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         _ => return false,
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn door(zone: &str, handler: &str, to: i32, from: i32) -> (State, Outcome) {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        state.set_all("gZone", vec![Value::Symbol(zone.into())]);
+        state.set_all(&handler[3..], vec![Value::Int(from)]);
+        let mut out = Outcome::default();
+        assert!(bleed_door(handler, &[Value::Int(to)], &mut state, &mut out));
+        (state, out)
+    }
+
+    fn loops(out: &Outcome) -> Vec<(String, bool, Option<i32>)> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::StartLoop { name, volume } => Some((name.clone(), true, *volume)),
+                Effect::StopLoop { name, .. } => Some((name.clone(), false, None)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_open_door_lets_the_grounds_into_the_hall() {
+        let (_, out) = door("Hall", "setfrontdoorisopen", 1, 0);
+        assert_eq!(loops(&out), [("grounds".to_string(), true, None)]);
+    }
+
+    #[test]
+    fn and_lets_the_house_out_onto_the_porch() {
+        let (_, out) = door("Porch", "setfrontdoorisopen", 1, 0);
+        assert_eq!(loops(&out), [("houseHum".to_string(), true, Some(80))]);
+    }
+
+    #[test]
+    fn shutting_it_again_ends_that_loop() {
+        let (state, out) = door("Porch", "setfrontdoorisopen", 0, 1);
+        assert_eq!(loops(&out), [("houseHum".to_string(), false, None)]);
+        assert_eq!(state.get_all("frontdoorisopen"), &[Value::Int(0)]);
+    }
+
+    #[test]
+    fn standing_somewhere_it_cannot_be_heard_the_door_is_only_a_sound() {
+        // The office is nowhere near the front door. The cue still plays --
+        // this is a setter, not a room -- but nothing about the ambience
+        // changes.
+        let (_, out) = door("office", "setfrontdoorisopen", 1, 0);
+        assert!(loops(&out).is_empty());
+        assert!(matches!(out.effects.as_slice(), [Effect::PlaySound { .. }]));
+    }
+
+    #[test]
+    fn a_door_already_open_does_nothing_at_all() {
+        let (_, out) = door("Hall", "setfrontdoorisopen", 1, 1);
+        assert!(out.effects.is_empty());
+        assert!(!out.redraw);
+    }
+
+    #[test]
+    fn the_scanner_is_heard_through_the_kitchen_door_only_when_it_is_mounted_there() {
+        // rooms: #kitchen, and the unit has to be on that door and switched on.
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        state.set_all("gZone", vec![Value::Symbol("kitchen".into())]);
+        state.set_all("kitchenReardoorisopen", vec![Value::Int(0)]);
+        let mut out = Outcome::default();
+        bleed_door("setkitchenreardoorisopen", &[Value::Int(1)], &mut state, &mut out);
+        assert!(
+            !loops(&out).iter().any(|(n, _, _)| n == "scanLoop"),
+            "no scanner mounted, so no scanner heard"
+        );
+
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        state.set_all("gZone", vec![Value::Symbol("kitchen".into())]);
+        state.set_all("kitchenReardoorisopen", vec![Value::Int(0)]);
+        state.set_all("DoorWithScanUnit", vec![Value::Symbol("kitchenOutside".into())]);
+        state.set_all("scanUnitIsActive", vec![Value::Int(1)]);
+        let mut out = Outcome::default();
+        bleed_door("setkitchenreardoorisopen", &[Value::Int(1)], &mut state, &mut out);
+        assert!(loops(&out)
+            .iter()
+            .any(|(n, on, v)| n == "scanLoop" && *on && *v == Some(120)));
+    }
+
+    #[test]
+    fn margaret_has_her_own_doors_and_these_rules_are_not_them() {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        state.set_all("gZone", vec![Value::Symbol("Hall".into())]);
+        let mut out = Outcome::default();
+        assert!(!bleed_door(
+            "setbalconydoorisopen",
+            &[Value::Int(1)],
+            &mut state,
+            &mut out
+        ));
+    }
 }

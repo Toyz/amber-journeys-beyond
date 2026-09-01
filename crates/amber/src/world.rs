@@ -216,6 +216,10 @@ pub struct Node {
     pub index: usize,
     /// The room's name from its chapter's location table, when it has one.
     pub name: Option<String>,
+    /// The area of the house this room is in, from the same table. Handlers
+    /// compare against areas rather than rooms when what matters is roughly
+    /// where the player is standing.
+    pub zone: Option<String>,
     /// Which character's chapter this room belongs to.
     pub domain: String,
     pub preload: Vec<u32>,
@@ -320,6 +324,7 @@ impl Node {
         Node {
             index,
             name: None,
+            zone: None,
             domain: domain.to_owned(),
             preload,
             sprites,
@@ -517,6 +522,9 @@ impl World {
                             if nodes[i].name.is_none() {
                                 nodes[i].name = Some(name.to_string());
                             }
+                            if nodes[i].zone.is_none() {
+                                nodes[i].zone = table.zone(name).map(str::to_string);
+                            }
                         }
                     }
                 }
@@ -565,6 +573,7 @@ mod tests {
         Node {
             index: 0,
             name: None,
+            zone: None,
             domain: "test".into(),
             preload: Vec::new(),
             sprites: Vec::new(),

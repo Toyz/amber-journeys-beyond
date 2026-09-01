@@ -1772,3 +1772,70 @@ Fifty-four tests. The new ones cover the cue table by chapter, the
 does-nothing-when-unchanged guard, and a chapter declining a setter it does not
 have, since answering with another chapter's sound is the failure the table
 invites.
+
+## 56. Doors that are heard from the next room, and a symbol I misread
+
+The remaining setters, ranked by how often the room data calls them, put three
+at the top that are the plain template plus one thing: an ambience loop. The
+front door, the kitchen's rear door and the balcony door each write their flag
+and cue their sound like the other twenty-five, and then start or stop a loop --
+but only if the player is somewhere it would carry to:
+
+```text
+if suggestion = 1 and currentState = 0 then
+  cue( #frontDoorOpen ) : setProp( #FrontDoorIsOpen, list(1) ) : updateDisplay
+  if currentRoom = #DarkDn or currentRoom = #Hall then setLoop( #grounds, #disablePeekAlert )
+  if currentRoom = #Porch                          then setLoop( #houseHum, 80 )
+```
+
+Open the front door from the hall and the grounds become audible; stand on the
+porch and it is the house you start to hear. Shut it and that stops. Fifty-eight
+call sites between the three.
+
+I got `currentRoom` wrong first. `#Porch` and `#DarkDn` read like room names, so
+I wired the rules to `#currentLocation` -- and then `Porch` resolved to no room
+at all, because the rooms are `Porch_A_E`, `PorchFrontDoor`, `PorchDoorCU`.
+These are areas, not rooms.
+
+Chasing that had me resolve the handler's property operand against the movie's
+name table, which returned `gHotSublist`. That is not a current room by any
+reading, and it is worth saying plainly why: my disassembler prints those
+operands raw *because* the mapping is not established, and I read one anyway. A
+tool that says "op61 55" is telling me it does not know. Treating its operand as
+a name-table index was me supplying certainty the tool had explicitly withheld.
+
+The answer was in data I already parse. The location table is keyed by area
+before it is keyed by room:
+
+```text
+[#office: [#OfficeEntry2: [145, 1, 1089], #OfficeExit: [170, 1091, 2096], ...],
+ #Porch:  [#PorchFrontDoor: [...], #PorchDoorCU: [...], ...], ...]
+```
+
+`LocationTable` was throwing that key away -- `for (_, rooms) in &areas`. It now
+keeps it, `Node` carries a zone, and the door rules compare against that.
+
+Two flags fell out of the same work, both of which should have existed already.
+`#currentLocation` is a flag the game reads like any other and nothing was
+keeping it current: it held whatever the chapter had been seeded with. Every
+room change now goes through one `move_to` that writes it, along with the area
+as `gZone`. `tryToOpenGrate` reads `#currentLocation` too -- it only moves the
+player to the trapdoor if they are not already standing at it, so that the lock
+can be worked from a close-up without the room restarting -- and my port from
+entry 54 had ignored that check because the flag was not worth reading yet.
+
+The kitchen's rear door has a third rule the other two lack: the scanner is
+heard through it, but only when the unit is mounted on that door and switched
+on. That is two extra conditions on one loop, so the table carries guards.
+
+Sixty-one tests. The new ones cover each loop by area, the case where the
+player is nowhere near the door (the cue still plays -- it is a setter, not a
+room -- but nothing about the ambience changes), the scanner's two guards, and
+Margaret declining rules that are Roxy's.
+
+Still to do from this family: the one-of-many openables, where the flag holds
+*which* door of a cabinet is open rather than whether it is. Roxy's kitchen
+cabinet is the biggest single caller left at sixty-one sites, and it has an
+asymmetry I want to keep -- the trash can closes with the cabinet sound but
+opens with the drawer one, and it opens even when something else is already
+open.

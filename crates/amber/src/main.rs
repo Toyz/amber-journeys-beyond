@@ -398,7 +398,7 @@ fn verify_cast_lookups(dir: &Path) -> Res {
     let (mut resolved, mut missing) = (0usize, 0usize);
     let mut misses: BTreeMap<String, usize> = BTreeMap::new();
     for i in 0..game.world.nodes.len() {
-        game.room = i;
+        game.jump_to(i);
         let lookups: Vec<(String, String)> = game.world.nodes[i]
             .sprites
             .iter()
@@ -431,10 +431,11 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
     // "start" renders wherever the game actually opens, which is the case worth
     // checking when the window comes up blank.
     if !room.eq_ignore_ascii_case("start") {
-        game.room = game
+        let target = game
             .world
             .resolve(room, None)
             .ok_or_else(|| format!("no room named {room}"))?;
+        game.jump_to(target);
         // The room's own chapter, not whichever one the game opens in.
         let domain = game.node().domain.clone();
         game.seed_chapter(&domain);
@@ -633,7 +634,7 @@ fn cmd_verify(dir: &Path) -> Res {
         let (mut drawn, mut failed) = (0usize, 0usize);
         let mut bad_rooms = 0usize;
         for i in 0..game.world.nodes.len() {
-            game.room = i;
+            game.jump_to(i);
             let before = failed;
             for (_, cast, _) in game.visible() {
                 if game.has_art(cast) {
@@ -685,7 +686,7 @@ fn cmd_verify(dir: &Path) -> Res {
         for domain in ["ROXY", "MARGARET", "EDWIN", "BRICE"] {
             let Some(&(start, _)) = world.domains.get(domain) else { continue };
             for name in &names {
-                game.room = start;
+                game.jump_to(start);
                 // Permissive state, so a handler runs its body rather than
                 // returning at its guard.
                 let mut probe = state::State::new();

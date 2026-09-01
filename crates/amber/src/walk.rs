@@ -138,13 +138,13 @@ fn step(game: &mut Game, cmd: &str) -> Result<(), String> {
     let from = game.node().domain.clone();
     match game.world.resolve(cmd, Some(&from)) {
         Some(i) => {
-            game.room = i;
             // Jumping across chapters skips the entry that would have seeded
             // this one, and an unseeded chapter reads every flag as void.
             let domain = game.world.nodes[i].domain.clone();
             if domain != from {
                 game.seed_chapter(&domain);
             }
+            game.jump_to(i);
             game.start_room_video();
             Ok(())
         }

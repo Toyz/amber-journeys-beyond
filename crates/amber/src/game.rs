@@ -148,7 +148,7 @@ impl Game {
             .or_else(|| self.first_room_with_art(domain))
             .or_else(|| self.world.domains.get(domain).map(|(s, _)| *s));
         if let Some(t) = target {
-            self.room = t;
+            self.move_to(t);
         }
     }
 
@@ -234,6 +234,32 @@ impl Game {
 
     pub fn node(&self) -> &Node {
         &self.world.nodes[self.room]
+    }
+
+    /// Moves the player and records where they now are.
+    ///
+    /// `#currentLocation` is a flag like any other and handlers read it:
+    /// `tryToOpenGrate` checks it before moving the player to the trapdoor,
+    /// and the door setters use it to decide whether an ambience loop should
+    /// be audible from where the player is standing. Nothing had been keeping
+    /// it up to date, so it held whatever the chapter was seeded with.
+    /// Moves without recording history, for the tools that jump to a room.
+    pub fn jump_to(&mut self, room: usize) {
+        self.move_to(room);
+    }
+
+    fn move_to(&mut self, room: usize) {
+        self.room = room;
+        if let Some(name) = self.world.nodes[room].name.clone() {
+            self.state
+                .set_all("currentLocation", vec![lingo::Value::Symbol(name)]);
+        }
+        // The area, which is what handlers compare against when what matters
+        // is roughly where the player is rather than which wall is in view.
+        if let Some(zone) = self.world.nodes[room].zone.clone() {
+            self.state
+                .set_all("gZone", vec![lingo::Value::Symbol(zone)]);
+        }
     }
 
     fn chapter(&mut self, domain: &str) -> Option<&mut Chapter> {
@@ -909,7 +935,7 @@ impl Game {
     fn apply(&mut self, outcome: &Outcome) {
         if outcome.go_back {
             if let Some(prev) = self.history.pop() {
-                self.room = prev;
+                self.move_to(prev);
             }
         } else if let Some(dest) = &outcome.destination {
             let from = self.node().domain.clone();
@@ -922,7 +948,7 @@ impl Game {
                         self.history.remove(0);
                     }
                 }
-                self.room = next;
+                self.move_to(next);
             }
         }
         // A move changes which movie is on screen, so reload it either way.
