@@ -2626,3 +2626,46 @@ Recorded plainly because it is the same mistake as the palette and the `snd `
 peak: a number that agreed with what I expected got no second look. Entry 57
 even says "measured rather than guessed", and the measurement was of the wrong
 quantity.
+
+## 74. Talking to herself, and a film that is not on the disc
+
+Four reports from helba at once, and they had four different answers.
+
+**No sound when the box puzzle loads.** Correct. Entering runs `initBoxPuzzle`
+and that handler is one byte of code -- `return` -- in the only place it is
+defined; I checked every `Lscr` in every movie rather than trusting the first
+match, because a duplicate definition is exactly how this tool has misled me
+before. `BOXPLAY.MOV` has no sound track either. The room opens on a clock, a
+radio and a silent film of five closed boxes.
+
+**Opening a door breaks the capture.** `setDoorIsOpen` was not ported, and it
+is the biggest handler left in the chapter at twenty-eight call sites.
+
+**The sound of talking to myself.** Same handler. Closing a door she has just
+opened is how Margaret thinks aloud: `#Iwonder` once the clock puzzle is under
+way or the radio is tuned to the dining room, `#wasteOfTime` otherwise, with a
+forty tick beat before the second which is taken only when the line has not
+been used up. Both sounds were sitting on the disc unplayed.
+
+The handler carries something I could not make sense of and have recorded
+rather than tidied. Each door passes a time to `goBack`: fifteen minutes for a
+door between rooms, three hours for the one to the outside, and the bedroom
+resetting to four o'clock. `goBack` in this chapter takes no arguments at all,
+so the original discards every one of them. Those symbols appear nowhere else
+on the disc. They read as a clock these doors were once meant to move, left in
+when it stopped moving.
+
+**The radio does not change.** A programme's take is keyed by its programme so
+that a room change cannot restart it, which entry 72 established. But a keyed
+voice was refused if one was already there, and a programme is due *exactly*
+when its take ends -- the voice is not retired until the mixer next runs, so
+the two overlap and the next take was turned away. The radio stalled on
+whichever take had been playing at the moment they met. A keyed *loop* is still
+left where it is; a keyed one-shot takes the slot over.
+
+**Margaret's opening film.** It is not on the disc. `bedrm_fadeIn` asks for
+`40sINTRO.mov`, that name does not appear anywhere in the 574MB image, and the
+extraction is complete -- 280 `.MOV` names in the image against 278 files, the
+two extras being fragments my scan caught mid-string. Margaret's own directory
+holds thirty-six films and no intro among them. Entry 69 steps past that room
+for exactly this reason, and there is nothing further to recover.

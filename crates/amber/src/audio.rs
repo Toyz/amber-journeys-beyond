@@ -65,9 +65,25 @@ impl Mixer {
         channelled: bool,
     ) {
         if let Some(k) = &key {
-            if self.voices.iter().any(|v| v.key.as_deref() == Some(k.as_str())) {
-                trace!(crate::trace::Topic::Audio, "loop {k} already playing");
-                return;
+            if let Some(i) = self
+                .voices
+                .iter()
+                .position(|v| v.key.as_deref() == Some(k.as_str()))
+            {
+                if self.voices[i].looping {
+                    // A loop already running is left where it is, so a room
+                    // re-entered does not restart its ambience.
+                    trace!(crate::trace::Topic::Audio, "loop {k} already playing");
+                    return;
+                }
+                // A programme's take is keyed by its programme rather than by
+                // itself, and the next take takes the slot over. Refusing it
+                // would stall the radio on whichever take was playing when the
+                // two happened to overlap: the programme is due exactly when
+                // the take ends, and the voice is not retired until the mixer
+                // next runs.
+                trace!(crate::trace::Topic::Audio, "{k} moves on to its next take");
+                self.voices.remove(i);
             }
         } else if let Some(v) = self.voices.iter_mut().find(|v| {
             !v.looping
@@ -807,5 +823,48 @@ mod soundtrack_tests {
         assert_eq!(m.voices.len(), 3, "hum, box, and one soundtrack");
         assert!(m.voices.iter().any(|v| v.name.as_deref() == Some("houseHum")));
         assert!(m.voices.iter().any(|v| v.name.as_deref() == Some("snd1box")));
+    }
+}
+
+#[cfg(test)]
+mod programme_tests {
+    use super::*;
+
+    fn pcm() -> Arc<Vec<i16>> {
+        Arc::new(vec![32767i16; 1 << 16])
+    }
+
+    fn mixer() -> Mixer {
+        Mixer {
+            voices: Vec::new(),
+            rate: 44100,
+            channels: 1,
+            master: 1.0,
+            duck: 1.0,
+            suspended: false,
+        }
+    }
+
+    #[test]
+    fn a_programme_moves_on_to_its_next_take() {
+        // The programme is due exactly when a take ends, and the voice is not
+        // retired until the mixer next runs, so the two overlap. Refusing the
+        // new take would stall the radio on whichever one was playing.
+        let mut m = mixer();
+        m.start(Some("BRradio"), Some("BRradio".into()), pcm(), 1, 1.0, 0.2, false, true);
+        m.voices[0].position = 900.0;
+        m.start(Some("BRradio"), Some("BRradio".into()), pcm(), 1, 1.0, 0.2, false, true);
+        assert_eq!(m.voices.len(), 1);
+        assert_eq!(m.voices[0].position, 0.0, "the new take starts at its beginning");
+    }
+
+    #[test]
+    fn a_loop_is_still_left_where_it_is() {
+        let mut m = mixer();
+        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 0.3, true, true);
+        m.voices[0].position = 900.0;
+        m.start(Some("houseHum"), Some("houseHum".into()), pcm(), 1, 1.0, 0.3, true, true);
+        assert_eq!(m.voices.len(), 1);
+        assert_eq!(m.voices[0].position, 900.0, "re-entering a room does not restart it");
     }
 }

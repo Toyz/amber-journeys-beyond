@@ -17,6 +17,110 @@ use crate::state::State;
 /// Runs a handler from this chapter, or reports that it is not one of ours.
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
     match name {
+        // on setDoorIsOpen suggestion
+        //   valid = [#None, #DRtoKitchen, #DRtoStudy, #KitchenToOutside,
+        //            #KitchenToHall, #KitchenToDR, #Bedrm, #livingRm]
+        //   if not getPos(valid, suggestion) then put "..." : return
+        //   if suggestion <> #None and not inState(#tunedIn, #livingRm) then
+        //     if suggestion = #DRtoKitchen      then goBack( #add_15min )
+        //     if suggestion = #DRtoStudy        then goBack( #add_30min )
+        //     if suggestion = #KitchenToOutside then goBack( #add_3hr )
+        //     if suggestion = #KitchenToHall    then goBack( #add_15min )
+        //     if suggestion = #KitchenToDR      then goBack( #add_15min )
+        //     if suggestion = #Bedrm            then goBack( #reset_4pm )
+        //   previousState = getState( #doorIsOpen )
+        //   setProp( oStoryteller.states, #doorIsOpen, list(suggestion) )
+        //   updateDisplay( oPuppeteer )
+        //   if suggestion = #None and previousState <> #None then
+        //     if getState(#clockPuzzleActivated) = 1 or inState(#tunedIn, #diningRm) then
+        //       assertSound #Iwonder
+        //     else
+        //       if inState(#utterancesRemaining, #wasteOfTime) then wait 40
+        //       assertSound #wasteOfTime
+        //
+        // Opening a door and then shutting it again is how Margaret talks to
+        // herself. Closing one she has just opened draws a line: `#Iwonder`
+        // once the clock puzzle is under way or the radio is tuned to the
+        // dining room, and `#wasteOfTime` otherwise. The wait before the
+        // second is the beat before she says it, and it is only taken when the
+        // line has not been used up.
+        //
+        // The `goBack` arguments name times -- fifteen minutes for a door
+        // between rooms, three hours for the one outside, and the bedroom
+        // resetting to four o'clock. `goBack` in this chapter takes no
+        // arguments at all, so the original discards them: they read as a
+        // clock this door was once meant to move and no longer does. They are
+        // carried through as the transition, which is what a second argument
+        // to a move means everywhere else.
+        "setdoorisopen" => {
+            const DOORS: [(&str, &str); 6] = [
+                ("DRtoKitchen", "add_15min"),
+                ("DRtoStudy", "add_30min"),
+                ("KitchenToOutside", "add_3hr"),
+                ("KitchenToHall", "add_15min"),
+                ("KitchenToDR", "add_15min"),
+                ("Bedrm", "reset_4pm"),
+            ];
+            let Some(asked) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|v| v.trim_start_matches('#').to_string())
+            else {
+                return true;
+            };
+            let known = ["None", "livingRm"]
+                .iter()
+                .map(|s| (*s, ""))
+                .chain(DOORS.iter().map(|(d, t)| (*d, *t)))
+                .find(|(d, _)| d.eq_ignore_ascii_case(&asked));
+            let Some((door, flavour)) = known else {
+                trace!(crate::trace::Topic::Script, "setDoorIsOpen: no door {asked}");
+                return true;
+            };
+
+            let in_living_room = state
+                .get_all("tunedIn")
+                .iter()
+                .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case("livingRm")));
+            if !door.eq_ignore_ascii_case("None") && !in_living_room && !flavour.is_empty() {
+                out.go_back = true;
+                out.transition = Some(flavour.to_string());
+            }
+
+            let previous = state.get("doorIsOpen");
+            let was_open = previous
+                .as_str()
+                .is_some_and(|p| !p.eq_ignore_ascii_case("None"));
+            state.set_all("doorIsOpen", vec![Value::Symbol(door.to_string())]);
+            out.redraw = true;
+
+            if door.eq_ignore_ascii_case("None") && was_open {
+                let puzzle_on = state.get("clockPuzzleActivated").as_int().unwrap_or(0) == 1;
+                let dining = state
+                    .get_all("tunedIn")
+                    .iter()
+                    .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case("diningRm")));
+                if puzzle_on || dining {
+                    out.effects.push(Effect::PlaySound {
+                        name: "Iwonder".into(),
+                        loudness: None,
+                    });
+                } else {
+                    let unused = state
+                        .get_all("utterancesRemaining")
+                        .iter()
+                        .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case("wasteOfTime")));
+                    if unused {
+                        out.effects.push(Effect::WaitTicks(40));
+                    }
+                    out.effects.push(Effect::PlaySound {
+                        name: "wasteOfTime".into(),
+                        loudness: None,
+                    });
+                }
+            }
+        }
+
         // on setOpenBox suggestion
         //   validSuggestions = [#None: 0, #all: #allboxes, #moot: 0,
         //                       #snd1: #snd1box, ... #snd5: #snd5box]
