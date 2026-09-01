@@ -10,7 +10,6 @@ use crate::{Error, Result};
 const TAG_MMAP: &[u8; 4] = b"mmap";
 const TAG_KEY: &[u8; 4] = b"KEY*";
 const TAG_CAS: &[u8; 4] = b"CAS*";
-const TAG_CAST: &[u8; 4] = b"CASt";
 const TAG_BITD: &[u8; 4] = b"BITD";
 const TAG_CLUT: &[u8; 4] = b"CLUT";
 const TAG_SND: &[u8; 4] = b"snd ";

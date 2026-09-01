@@ -46,6 +46,23 @@ fn vane_turn(from: &str, to: &str) -> Option<(u32, u32)> {
     Some(seg)
 }
 
+/// The whirligig's spin-up and steady-loop movies for a wind direction.
+///
+/// `#gigStartMovies: [#n: 966, #s: 967, #e: 965, #W: 968]`
+/// `#gigLoopMovies:  [#n: 970, #s: 971, #e: 969, #W: 972]`
+///
+/// Keyed without regard to case, because the tables spell three of the four
+/// directions in lower case and the weather vane spells three of them in
+/// upper. Lingo does not care and neither can this.
+fn whirligig_movies(facing: &str) -> (u32, u32) {
+    match facing.trim_start_matches('#').to_ascii_lowercase().as_str() {
+        "s" => (967, 971),
+        "e" => (965, 969),
+        "w" => (968, 972),
+        _ => (966, 970),
+    }
+}
+
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
     // Arguments and effects are unused by some chapters until more handlers
     // land here; the signature is uniform so the dispatcher stays simple.
@@ -53,6 +70,98 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
     match name {
         // on enableGust
         //   setState(oStoryteller, #gustEnabled, 1)
+        // on initWhirligig
+        //   if getState( #Wind ) = #None then return
+        //   disableGust : disableSongs
+        //   windDirection = getState( #weatherVane )
+        //   gigLoopMovies = getProp( oPuppeteer.frames, #gigLoopMovies )
+        //   puppetSprite 44, 1
+        //   set the visible   of sprite 44 = 0
+        //   set the castNum   of sprite 44 = getProp( gigLoopMovies, windDirection )
+        //   set the movieRate of sprite 44 = 0
+        //   updateStage
+        //   set the loc of sprite 44 = point(336, 184) + gOriginPoint
+        //   puppetSprite 45, 1
+        //   gigStartMovies = getProp( oPuppeteer.frames, #gigStartMovies )
+        //   set the castNum of sprite 45 = getProp( gigStartMovies, windDirection )
+        //   set the loc     of sprite 45 = point(336, 184) + gOriginPoint
+        //   updateStage
+        //
+        // The whirligig is two movies stacked on the two film channels: the
+        // spin-up on 45 and the steady loop on 44, each with a version for
+        // every wind direction. Nothing is shown yet -- 44 is hidden and
+        // stopped -- because `startWhirligig` runs the pair in order.
+        //
+        // Note the keys. The movie tables are `[#n, #s, #e, #W]` while the
+        // vane holds `#n`, `#E`, `#S`, `#W`. Lingo compares symbols without
+        // regard to case, so the mismatch never mattered there and would have
+        // silently found nothing here.
+        "initwhirligig" => {
+            if state.get("Wind").as_symbol() == Some("None") {
+                return true;
+            }
+            call("disablegust", &[], state, out);
+            call("disablesongs", &[], state, out);
+
+            let facing = state.get("weatherVane").as_symbol().unwrap_or("n").to_string();
+            let (start, spin) = whirligig_movies(&facing);
+
+            out.effects.push(Effect::PuppetSprite { channel: 44, on: true });
+            out.effects.push(Effect::SpriteCast { channel: 44, cast: spin });
+            out.effects.push(Effect::SpriteVisible { channel: 44, visible: false });
+            out.effects.push(Effect::SpriteLoc { channel: 44, x: 336, y: 184 });
+            out.effects.push(Effect::PuppetSprite { channel: 45, on: true });
+            out.effects.push(Effect::SpriteCast { channel: 45, cast: start });
+            out.effects.push(Effect::SpriteLoc { channel: 45, x: 336, y: 184 });
+            out.redraw = true;
+        }
+
+        // on startWhirligig
+        //   if getState( #Wind ) = #None then return
+        //   setState( #showMontage, 1 )
+        //   cursorOff : killSongs
+        //   setLoop( #steadyWind, 0 )
+        //   setState( #Wind, getState( #weatherVane ) )
+        //   startSound #WGstart
+        //   set the movieRate of sprite 45 = 1
+        //   repeat while the movieRate of sprite 45 <> 1: updateStage
+        //   repeat while the movieRate of sprite 45 <> 0: updateStage
+        //   set the loc     of sprite 45 = point(-1000, -1000)
+        //   set the visible of sprite 44 = 1
+        //
+        // Runs the spin-up once, waits for it to stop of its own accord, then
+        // throws that sprite a thousand pixels off stage and shows the loop
+        // underneath. The two waits are the original's way of blocking on a
+        // movie: one until it has started, one until it has finished.
+        //
+        // The wind is set from the vane here rather than when the vane turns,
+        // so a vane turned while the whirligig is still gives the direction
+        // the wind picks up in.
+        "startwhirligig" => {
+            if state.get("Wind").as_symbol() == Some("None") {
+                return true;
+            }
+            state.set("showMontage", Value::Int(1));
+            out.effects.push(Effect::CursorOff);
+            call("killsongs", &[], state, out);
+            out.effects.push(Effect::StartLoop {
+                name: "steadyWind".into(),
+                volume: Some(0),
+            });
+            let facing = state.get("weatherVane").as_symbol().unwrap_or("n").to_string();
+            state.set("Wind", Value::Symbol(facing));
+
+            out.effects.push(Effect::PlaySound {
+                name: "WGstart".into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::SpriteLoc { channel: 45, x: -1000, y: -1000 });
+            out.effects.push(Effect::SpriteVisible { channel: 44, visible: true });
+            out.redraw = true;
+        }
+
         // on setWeatherVane whichWay
         //   currentDirection = getState( #weatherVane )
         //   if whichWay = #clockwise then deltaList = [#n, #E, #S, #W, #n]
@@ -163,10 +272,45 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //   killSongs()
         "disablesongs" => {
             state.set("carolsEnabled", Value::Int(0));
-            out.effects.push(Effect::StopLoop {
-                name: "carols".into(),
-                fade: false,
-            });
+            call("killsongs", &[], state, out);
+        }
+
+        // on killSongs optionSwitch
+        //   if gSoundsSuspended then return
+        //   if optionSwitch = #PConly and gCPU <> #PC then return
+        //   lsCarols      = getProp( oStoryteller.states, #windSongs )
+        //   soundChannels = getProp( oStoryteller.states, #soundChannels )
+        //   repeat with each channel whose #sndName is in lsCarols
+        //     ... ramp its volume 255 down to 0, waiting 4 ticks a step ...
+        //   puppetSound 0
+        //
+        // `#windSongs: [#threeKings, #silentNight, #godRestYe, #goodKing]` --
+        // the four carols the wind carries. This used to stop a loop called
+        // `carols`, which is a name I made up and which nothing in the game
+        // answers to, so for eight call sites the carols simply never stopped.
+        //
+        // It went unnoticed because `verify` checked the names on `PlaySound`
+        // and `StartLoop` and not on `StopLoop`. It checks all three now, and
+        // that is what turned this up.
+        //
+        // `#PConly` is honoured the way the rest of the port honours a
+        // platform test: this disc's movies are RIFX, so the Mac arm is the
+        // one that applies and a `#PConly` call does nothing.
+        "killsongs" => {
+            const WIND_SONGS: [&str; 4] = ["threeKings", "silentNight", "godRestYe", "goodKing"];
+            let pc_only = args
+                .first()
+                .and_then(Value::as_str)
+                .is_some_and(|o| o.trim_start_matches('#').eq_ignore_ascii_case("PConly"));
+            if pc_only || state.get("gSoundsSuspended").as_int() == Some(1) {
+                return true;
+            }
+            for song in WIND_SONGS {
+                out.effects.push(Effect::StopLoop {
+                    name: song.into(),
+                    fade: true,
+                });
+            }
         }
 
 
@@ -531,5 +675,109 @@ mod tests {
             assert!(call("initweathervane", &[], &mut s, &mut out));
             assert_eq!(segment(&out), Some((at, at)), "facing {facing}");
         }
+    }
+
+
+    // -- the whirligig ------------------------------------------------------
+
+    fn windy(facing: &str) -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all("weatherVane", vec![Value::Symbol(facing.into())]);
+        s.set_all("Wind", vec![Value::Symbol(facing.into())]);
+        s
+    }
+
+    fn casts(out: &Outcome) -> Vec<(u8, u32)> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::SpriteCast { channel, cast } => Some((*channel, *cast)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_whirligig_has_a_pair_of_films_for_each_wind() {
+        for (facing, start, spin) in [
+            ("n", 966, 970),
+            ("S", 967, 971),
+            ("E", 965, 969),
+            ("W", 968, 972),
+        ] {
+            let mut s = windy(facing);
+            let mut out = Outcome::default();
+            assert!(call("initwhirligig", &[], &mut s, &mut out));
+            assert_eq!(casts(&out), [(44, spin), (45, start)], "wind from {facing}");
+        }
+    }
+
+    #[test]
+    fn and_finds_them_whichever_way_the_case_falls() {
+        // The film tables spell three directions in lower case and the vane
+        // spells three in upper; Lingo does not care and neither can this.
+        let mut lower = windy("s");
+        let mut upper = windy("S");
+        let (mut a, mut b) = (Outcome::default(), Outcome::default());
+        assert!(call("initwhirligig", &[], &mut lower, &mut a));
+        assert!(call("initwhirligig", &[], &mut upper, &mut b));
+        assert_eq!(casts(&a), casts(&b));
+        assert!(!casts(&a).is_empty());
+    }
+
+    #[test]
+    fn nothing_happens_in_still_air() {
+        let mut s = windy("n");
+        s.set("Wind", Value::Symbol("None".into()));
+        let mut out = Outcome::default();
+        assert!(call("initwhirligig", &[], &mut s, &mut out));
+        assert!(out.effects.is_empty());
+
+        let mut out = Outcome::default();
+        assert!(call("startwhirligig", &[], &mut s, &mut out));
+        assert!(out.effects.is_empty());
+    }
+
+    #[test]
+    fn starting_it_takes_the_wind_from_the_vane() {
+        let mut s = windy("n");
+        // The vane has been turned since the wind picked up.
+        s.set("weatherVane", Value::Symbol("W".into()));
+        let mut out = Outcome::default();
+        assert!(call("startwhirligig", &[], &mut s, &mut out));
+        assert_eq!(s.get("Wind"), Value::Symbol("W".into()));
+    }
+
+    #[test]
+    fn killing_the_songs_stops_the_four_carols() {
+        let mut s = windy("n");
+        let mut out = Outcome::default();
+        assert!(call("killsongs", &[], &mut s, &mut out));
+        let stopped: Vec<String> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::StopLoop { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            stopped,
+            ["threeKings", "silentNight", "godRestYe", "goodKing"]
+        );
+    }
+
+    #[test]
+    fn but_a_pc_only_call_does_nothing_here() {
+        let mut s = windy("n");
+        let mut out = Outcome::default();
+        assert!(call(
+            "killsongs",
+            &[Value::Symbol("PConly".into())],
+            &mut s,
+            &mut out
+        ));
+        assert!(out.effects.is_empty());
     }
 }

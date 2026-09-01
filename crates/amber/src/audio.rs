@@ -693,25 +693,11 @@ impl Audio {
         }
     }
 
-    /// Stops everything, used when a room change cuts the previous scene.
-    pub fn stop_all(&self) {
-        if let Ok(mut mixer) = self.mixer.lock() {
-            mixer.voices.clear();
-        }
-    }
-
     /// Stops every one-shot but leaves ambient loops running, which is what a
     /// plain room change wants.
     pub fn stop_oneshots(&self) {
         if let Ok(mut mixer) = self.mixer.lock() {
             mixer.voices.retain(|v| v.key.is_some());
-        }
-    }
-
-    /// Scales every voice.
-    pub fn set_master(&self, gain: f32) {
-        if let Ok(mut mixer) = self.mixer.lock() {
-            mixer.master = gain.clamp(0.0, 1.0);
         }
     }
 

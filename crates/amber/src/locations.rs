@@ -75,20 +75,4 @@ impl LocationTable {
         self.by_name.get(&name.to_ascii_lowercase()).copied()
     }
 
-    pub fn len(&self) -> usize {
-        self.by_name.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_name.is_empty()
-    }
-
-    /// All names sharing a triple, so a room can report its aliases.
-    pub fn names_for(&self, triple: (u32, u32, u32)) -> Vec<&str> {
-        self.by_name
-            .iter()
-            .filter(|(_, t)| **t == triple)
-            .map(|(n, _)| n.as_str())
-            .collect()
-    }
 }

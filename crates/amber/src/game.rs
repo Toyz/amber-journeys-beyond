@@ -752,10 +752,6 @@ impl Game {
         self.puppets.clear();
     }
 
-    pub fn puppet_count(&self) -> usize {
-        self.puppets.len()
-    }
-
     /// Draws the current room into a 640x480 BGRA framebuffer.
     pub fn draw(&mut self, frame: &mut [u32], width: u32, height: u32) {
         frame.fill(0xff00_0000);
@@ -938,10 +934,6 @@ impl Game {
     pub fn program_position(&self) -> Option<(usize, usize)> {
         let p = self.program.as_ref()?;
         Some((p.next % p.order.len(), p.order.len()))
-    }
-
-    pub fn program_running(&self) -> Option<&str> {
-        self.program.as_ref().map(|p| p.group.as_str())
     }
 
     /// Returns the next item to play when the current one has run its course.

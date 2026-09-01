@@ -228,7 +228,6 @@ pub struct Node {
     pub preload: Vec<u32>,
     pub sprites: Vec<Sprite>,
     pub hotspots: Vec<Hotspot>,
-    pub custom_palette: Option<String>,
     /// `[cast library, first member, last member]` for the room's art.
     pub storage_cast: Option<(u32, u32, u32)>,
     /// Ambient mix levels keyed by source, e.g. `househum`, `phonevol`.
@@ -332,10 +331,6 @@ impl Node {
             preload,
             sprites,
             hotspots,
-            custom_palette: v
-                .get_str("CustomPalette")
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned),
             storage_cast,
             ambience,
         }
@@ -423,17 +418,6 @@ impl World {
         candidates.first().copied()
     }
 
-    /// Every room sharing a name, for diagnostics.
-    pub fn resolve_all(&self, name: &str) -> &[usize] {
-        self.by_name
-            .get(&name.to_ascii_lowercase())
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    pub fn node(&self, index: usize) -> Option<&Node> {
-        self.nodes.get(index)
-    }
 }
 
 impl World {
@@ -574,9 +558,6 @@ impl World {
         self.nodes.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
-    }
 }
 
 
@@ -608,7 +589,6 @@ mod tests {
             preload: Vec::new(),
             sprites: Vec::new(),
             hotspots,
-            custom_palette: None,
             storage_cast: None,
             ambience: HashMap::new(),
         }

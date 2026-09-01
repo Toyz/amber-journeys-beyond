@@ -1,4 +1,3 @@
-use crate::chunk::Reader;
 use crate::movie::CastMember;
 use crate::{Error, Result};
 
@@ -129,24 +128,6 @@ impl Bitmap {
         }
         out
     }
-}
-
-/// Reads a `BITD` payload when the caller already knows the geometry, used by
-/// tooling that walks chunks directly rather than going through the cast.
-pub fn decode_raw(raw: &[u8], width: u16, height: u16, stride: u16) -> Result<Vec<u8>> {
-    let _ = Reader::new(raw, crate::Endian::Big);
-    let expected = stride as usize * height as usize;
-    let packed = if raw.len() >= expected {
-        raw[..expected].to_vec()
-    } else {
-        unpack(raw, expected)
-    };
-    let mut pixels = Vec::with_capacity(width as usize * height as usize);
-    for y in 0..height as usize {
-        let row = &packed[y * stride as usize..];
-        pixels.extend_from_slice(&row[..width as usize]);
-    }
-    Ok(pixels)
 }
 
 #[cfg(test)]

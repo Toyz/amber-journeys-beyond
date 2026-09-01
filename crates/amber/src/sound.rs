@@ -211,10 +211,6 @@ impl SoundBank {
         self.sources.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.sources.is_empty()
-    }
-
     pub fn file_count(&self) -> usize {
         self.files.len()
     }

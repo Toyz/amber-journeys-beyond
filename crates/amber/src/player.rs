@@ -143,10 +143,6 @@ impl VideoPlayer {
         Some(player)
     }
 
-    pub fn elapsed(&self) -> Duration {
-        self.started.elapsed()
-    }
-
     /// Advances to whichever frame the wall clock now calls for.
     ///
     /// Returns true when the displayed frame changed, so the caller only

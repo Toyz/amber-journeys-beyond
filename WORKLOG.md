@@ -3240,3 +3240,75 @@ been sitting behind that same wall of noise for two commits.
 
 Unported is now **22 verbs across 39 call sites**. 167 tests, clippy clean, no
 warnings.
+
+## 85. The whirligig, and a name I made up
+
+Edwin's whirligig, ported: `initWhirligig` and `startWhirligig`.
+
+It is two films stacked on the two film channels -- the spin-up on 45 and the
+steady loop on 44 -- with a version of each for every wind direction:
+
+```text
+#gigStartMovies: [#n: 966, #s: 967, #e: 965, #W: 968]
+#gigLoopMovies:  [#n: 970, #s: 971, #e: 969, #W: 972]
+```
+
+`startWhirligig` runs the spin-up, blocks until it stops of its own accord,
+throws that sprite a thousand pixels off stage and shows the loop underneath.
+The wind is set from the vane *here* rather than when the vane turns, so a vane
+turned while the whirligig is still decides which way the wind picks up in.
+
+One trap worth naming: those tables spell three directions in lower case and
+the weather vane spells three of them in upper. Lingo compares symbols without
+regard to case, so the mismatch never mattered in the original and would have
+silently found nothing in mine. There is a test for it.
+
+### `carols`
+
+While wiring the whirligig I called `killSongs`, found it had no handler, went
+to write one, and discovered that `disableSongs` had been stopping a loop
+called **`carols`** -- a name I invented, that nothing in the game answers to,
+at eight call sites. The real thing is
+
+```text
+#windSongs: [#threeKings, #silentNight, #godRestYe, #goodKing]
+```
+
+Four carols the wind carries, faded out one at a time. So for every one of
+those eight sites the carols simply never stopped.
+
+It survived because `verify`'s dangling-reference check tested the names on
+`PlaySound` and `StartLoop` and **not on `StopLoop`**. Stopping a loop nothing
+answers to is exactly as much a mistake as starting one, and the check now
+covers all three. It reported `sound carols 8` on the first run.
+
+That is the third check this week that was answering a narrower question than
+it appeared to, after `verify`'s unported tally in entry 81 and the effect
+coverage in entry 84. The pattern is the same each time: the check passes, the
+passing is read as evidence, and the evidence is worthless because the check
+could not have failed.
+
+### Warnings
+
+Entry 84 said I had cleared the build warnings, "all of them this time". That
+was wrong -- nineteen remained, all dead code, and I had counted only the
+category I had just fixed. They are gone now, properly: two rounds of removal,
+because deleting dead code uncovers more of it.
+
+Two of them were worth stopping for.
+
+`decode_raw` in the bitmap decoder is documented as being for "tooling that
+walks chunks directly". An unused raw-bitmap path could have meant uncompressed
+`BITD`s were never decoded, which would be a real gap. It is not -- the tooling
+that used it is Python now. Deleted.
+
+`Node.custom_palette` is parsed from every room and read by nothing, which
+would be a much worse bug: rooms rendering in the wrong colours is precisely
+what a "something looks broken" screenshot looks like. So I counted it before
+touching it. **All 1320 rooms declare `#CustomPalette: ""`.** The field is
+empty everywhere in the shipped data; the game never uses a custom palette.
+Dead for a good reason, and now deleted with the measurement written down so
+nobody has to wonder again.
+
+Build warnings: zero. Clippy: zero errors, twenty-nine style lints left
+standing. 173 tests. Unported is **20 verbs across 31 call sites**.

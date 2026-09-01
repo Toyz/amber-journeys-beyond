@@ -101,7 +101,4 @@ impl CastTables {
         self.tables.len()
     }
 
-    pub fn names(&self) -> impl Iterator<Item = &String> {
-        self.tables.keys()
-    }
 }

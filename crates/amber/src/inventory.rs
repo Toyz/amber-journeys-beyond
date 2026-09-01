@@ -78,10 +78,6 @@ impl Inventory {
         icons.all.get(index.checked_sub(1)?).copied()
     }
 
-    pub fn len(&self) -> usize {
-        self.icons.len()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.icons.is_empty()
     }

@@ -200,11 +200,6 @@ pub fn record(topic: Topic, args: Arguments<'_>) {
     }
 }
 
-/// How many records were dropped because the sink was busy.
-pub fn dropped() -> u32 {
-    DROPPED.load(Ordering::Relaxed)
-}
-
 /// Writes one record, if its topic is selected.
 ///
 /// The arguments are not evaluated when the topic is off, so a record may call

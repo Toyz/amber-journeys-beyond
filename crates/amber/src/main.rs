@@ -898,8 +898,13 @@ fn cmd_verify(dir: &Path) -> Res {
                 for effect in &out.effects {
                     fired += 1;
                     let missing = match effect {
+                        // StopLoop was left out of this check, which let a
+                        // handler stop a loop that does not exist and report
+                        // nothing. Stopping a name nothing answers to is as
+                        // much a mistake as starting one.
                         script::Effect::PlaySound { name, .. }
-                        | script::Effect::StartLoop { name, .. } => (!(game
+                        | script::Effect::StartLoop { name, .. }
+                        | script::Effect::StopLoop { name, .. } => (!(game
                             .sounds
                             .source(name)
                             .is_some()

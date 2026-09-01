@@ -77,10 +77,6 @@ impl<'a> Reader<'a> {
         Reader { data, pos, endian }
     }
 
-    pub fn seek(&mut self, pos: usize) {
-        self.pos = pos;
-    }
-
     pub fn remaining(&self) -> usize {
         self.data.len().saturating_sub(self.pos)
     }
@@ -114,10 +110,6 @@ impl<'a> Reader<'a> {
     pub fn u32(&mut self) -> Result<u32> {
         let b = self.take(4)?;
         Ok(self.endian.u32([b[0], b[1], b[2], b[3]]))
-    }
-
-    pub fn i32(&mut self) -> Result<i32> {
-        Ok(self.u32()? as i32)
     }
 
     pub fn bytes(&mut self, n: usize) -> Result<&'a [u8]> {

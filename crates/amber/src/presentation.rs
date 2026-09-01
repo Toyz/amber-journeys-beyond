@@ -52,11 +52,4 @@ impl Presentation {
             .copied()
     }
 
-    pub fn len(&self) -> usize {
-        self.casts.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.casts.is_empty()
-    }
 }

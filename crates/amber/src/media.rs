@@ -35,18 +35,10 @@ impl MovieIndex {
             .map(PathBuf::as_path)
     }
 
-    /// True when the name asks for frame-addressed rather than linear playback.
-    pub fn is_multiframe(name: &str) -> bool {
-        name.to_ascii_lowercase().ends_with(".multiframe")
-    }
-
     pub fn len(&self) -> usize {
         self.by_name.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.by_name.is_empty()
-    }
 }
 
 fn walk(dir: &Path, depth: usize, out: &mut HashMap<String, PathBuf>) {
