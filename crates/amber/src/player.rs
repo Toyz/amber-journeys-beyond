@@ -139,6 +139,12 @@ impl VideoPlayer {
         self.decoder.frame()
     }
 
+    /// The dimensions of the buffer `frame()` returns, which are the
+    /// decoder's own and can differ from the container's declared size.
+    pub fn frame_size(&self) -> (u32, u32) {
+        (self.decoder.width as u32, self.decoder.height as u32)
+    }
+
     pub fn frame_count(&self) -> usize {
         self.frame_count
     }

@@ -54,6 +54,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     }
     let mut playing_soundtrack = false;
     let mut ambience_room = usize::MAX;
+    eprintln!("space skips a movie, escape quits");
     eprintln!(
         "starting in {} / {}{}",
         game.node().domain,
@@ -113,6 +114,22 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                     }
                 }
             }
+        }
+
+        // Space skips whatever movie is playing. The opening is two minutes
+        // long and the original had no way past it either, so this is the one
+        // deliberate departure from the game's behaviour.
+        if window.is_key_pressed(Key::Space, minifb::KeyRepeat::No) && game.skip_video() {
+            if let Some(a) = &audio {
+                a.stop_oneshots();
+            }
+            playing_soundtrack = false;
+            dirty = true;
+            eprintln!(
+                "skipped to {} / {}",
+                game.node().domain,
+                game.node().name.clone().unwrap_or_default()
+            );
         }
 
         // Advance any running programme, queuing its next item as the current

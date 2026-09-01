@@ -734,3 +734,35 @@ printed. Routes can be passed as arguments so a repro is a one-liner.
 That command is what confirmed the fix, and it would have found this bug
 weeks earlier than the renderer did. Worth building the instrument before
 needing it, not after.
+
+## 26. Three faults from one play session
+
+helba played for a few minutes and turned up three distinct bugs, two of
+which no amount of static checking would have found.
+
+**The programme sequencer spun.** `tick_program` advanced the playlist index
+and then returned early when an item failed to resolve, without ever setting
+the next due time. So the programme was due again on the following frame, and
+raced through its running order at the frame rate, re-firing every item that
+did resolve dozens of times a second. Heard as the same sound over and over.
+The fix advances the clock before anything can fail, and a programme whose
+items all fail now stops rather than polling for ever.
+
+Worth noting what made it possible: eleven of the ninety-one sound symbols do
+not resolve, which I had recorded as an acceptable gap. It was, right up until
+an unresolved item became a spin instead of a silence. A known gap and a
+loop are individually fine and together are not.
+
+**The video blit crashed.** Cinepak resizes its own buffer when a frame header
+disagrees with the container, but the player kept reporting the container's
+dimensions, so the blit was told 320x240 while the buffer had shrunk. The
+player now reports the decoder's live size, and the blit clips against the
+actual slice rather than trusting either, so a future mismatch costs pixels
+instead of the process.
+
+**The opening could not be skipped.** Rooms carried entirely by a movie have
+no live exit, because the original advances them from script when the movie
+ends. Space now stops the movie, and where the room has nothing else to show,
+moves on: the opening leads to `Gbhs_gameEntry`, which the name table made
+easy to find sitting next to `Gbhs_playIntro`. This is a deliberate departure
+- the original had no skip either - and it is marked as such in the code.

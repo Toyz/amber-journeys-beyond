@@ -123,6 +123,34 @@ impl Game {
         }
     }
 
+    /// Stops the current movie and moves on if the room has nothing else.
+    ///
+    /// Rooms carried entirely by a movie have no live exit to click, because
+    /// the original advances them from script when the movie ends. Skipping
+    /// therefore has to supply the destination: the opening leads to the
+    /// chapter's game entry, and anything else falls back to the first room
+    /// that draws, so a skip never strands the player on a blank screen.
+    pub fn skip_video(&mut self) -> bool {
+        if self.player.is_none() {
+            return false;
+        }
+        self.player = None;
+        if !self.draws_nothing() {
+            return true;
+        }
+        let from = self.node().domain.clone();
+        let onward = self
+            .world
+            .resolve("Gbhs_gameEntry", Some(&from))
+            .filter(|_| self.node().name.as_deref() == Some("Gbhs_playIntro"))
+            .or_else(|| self.first_playable());
+        if let Some(i) = onward {
+            self.room = i;
+            self.start_room_video();
+        }
+        true
+    }
+
     /// The first room anywhere that draws something, used to get past a
     /// video-only opening.
     pub fn first_playable(&self) -> Option<usize> {
@@ -264,7 +292,9 @@ impl Game {
                 .find(|s| matches!(s.channel, Channel::Video))
                 .and_then(|s| s.center)
                 .unwrap_or((width as i32 / 2, height as i32 / 2));
-            let (w, h) = (player.width as u32, player.height as u32);
+            // The decoder is authoritative: a frame header can disagree with
+            // the container, and it is the decoder that resized its buffer.
+            let (w, h) = player.frame_size();
             blit(
                 frame,
                 width,
@@ -338,6 +368,7 @@ impl Game {
             next: 0,
             due: Instant::now(),
             gain,
+            misses: 0,
         });
         true
     }
@@ -387,12 +418,30 @@ impl Game {
             (p.group.clone(), item, p.gain)
         };
 
-        let pcm = self.group_sound(&group, &item)?;
-        let seconds = pcm.0.len() as f64 / (pcm.1.max(1) as f64 * pcm.2.max(1) as f64);
+        // Advance the clock before anything can fail. An item that does not
+        // resolve must still cost a beat: returning early without setting
+        // `due` leaves the programme due again on the very next frame, so it
+        // races through the running order at frame rate and re-fires every
+        // item that does resolve, many times a second.
+        let pcm = self.group_sound(&group, &item);
+        let seconds = match &pcm {
+            Some((samples, rate, channels)) => {
+                samples.len() as f64 / ((*rate).max(1) as f64 * (*channels).max(1) as f64)
+            }
+            None => 0.0,
+        };
         if let Some(p) = self.program.as_mut() {
-            p.due = Instant::now() + Duration::from_secs_f64(seconds.max(0.05));
+            // A missing item waits a short beat rather than no time at all.
+            p.due = Instant::now() + Duration::from_secs_f64(seconds.max(0.25));
+            p.misses = if pcm.is_some() { 0 } else { p.misses + 1 };
+            // A programme whose items all fail would otherwise poll for ever.
+            if p.misses > p.order.len() {
+                self.program = None;
+                return None;
+            }
         }
-        Some((pcm.0, pcm.1, pcm.2, gain))
+        let (samples, rate, channels) = pcm?;
+        Some((samples, rate, channels, gain))
     }
 
     /// Decodes one item of a sound group, for callers outside this module.
@@ -594,6 +643,9 @@ struct Program {
     /// When the current item is expected to finish.
     due: Instant,
     gain: f32,
+    /// Consecutive items that failed to resolve, so a wholly unresolvable
+    /// programme stops instead of polling.
+    misses: usize,
 }
 
 /// Blits RGBA source pixels onto a BGRA framebuffer, clipped to its bounds.
@@ -618,10 +670,15 @@ fn blit(
                 continue;
             }
             let s = ((y as u32 * src_w + x as u32) * 4) as usize;
-            if src[s + 3] == 0 {
+            // The source may be shorter than its declared size: a video
+            // decoder can resize its buffer mid-stream when a frame header
+            // disagrees with the container. Clip rather than trusting the
+            // dimensions, so a mismatch costs pixels instead of the process.
+            let Some(px) = src.get(s..s + 4) else { return };
+            if px[3] == 0 {
                 continue;
             }
-            let (r, g, b) = (src[s] as u32, src[s + 1] as u32, src[s + 2] as u32);
+            let (r, g, b) = (px[0] as u32, px[1] as u32, px[2] as u32);
             dst[(ty as u32 * dst_w + tx as u32) as usize] = 0xff00_0000 | (r << 16) | (g << 8) | b;
         }
     }
