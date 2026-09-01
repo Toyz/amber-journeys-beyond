@@ -1054,6 +1054,39 @@ fn cmd_verify(dir: &Path) -> Res {
     // handlers already ported are called from inside other handlers rather
     // than from an action list, so they do not appear in the tally above and
     // this list is the honest measure of what is left.
+    // A third body of code that neither of the counts above can see. Nothing
+    // ever *calls* `setBarMode`: the room says
+    // `setState( oStoryteller, #BarMode, #power )` and `setState` dispatches to
+    // the setter because the flag's value list has exactly one entry. So the
+    // schema is where the list of expected setters lives, and until this
+    // counted them a panel with two buttons and four modes read as fully
+    // ported while doing nothing at all.
+    let mut missing_setters: Vec<String> = Vec::new();
+    for domain in ["ROXY", "MARGARET", "EDWIN", "BRICE"] {
+        let Some(path) = crate::world::find_ci(&dir.join(domain), &format!("{domain}.DXR"))
+        else {
+            continue;
+        };
+        let Ok(movie) = director::Movie::open(path) else { continue };
+        let Some(schema) = schema::Schema::from_texts(&movie.texts()) else { continue };
+        // Only the setters that actually exist. A flag with a single value
+        // declares one, but most of those have no handler and take the write
+        // directly.
+        let defined: Vec<String> = movie
+            .handler_names()
+            .into_iter()
+            .map(|n| n.to_ascii_lowercase())
+            .collect();
+        for setter in schema.setters() {
+            let key = setter.to_ascii_lowercase();
+            if defined.contains(&key) && !natives::is_handled(&key) {
+                missing_setters.push(setter);
+            }
+        }
+    }
+    missing_setters.sort();
+    missing_setters.dedup();
+
     let unported_calls: usize = unported.values().sum();
     if unported.is_empty() {
         println!("unported verbs:      none");
@@ -1073,6 +1106,14 @@ fn cmd_verify(dir: &Path) -> Res {
         by_use.sort_by_key(|(_, v)| std::cmp::Reverse(**v));
         for (k, v) in by_use {
             println!("  native {} {}", k.trim_start_matches("native:"), v);
+        }
+    }
+    if missing_setters.is_empty() {
+        println!("unported setters:    none");
+    } else {
+        println!("unported setters:    {} of them", missing_setters.len());
+        for name in missing_setters.iter().take(40) {
+            println!("  {name}");
         }
     }
     if unhandled.is_empty() {

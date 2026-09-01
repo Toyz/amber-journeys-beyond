@@ -965,6 +965,125 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on setBarMode whichOne
+        //   cursorOff
+        //   oldMode = getState( #BarMode )
+        //   if whichOne = #power then
+        //     ... light the button from #barButtons ...
+        //     if oldMode = #runOFF then i = #runON
+        //     if oldMode = #runON  then i = #runOFF
+        //     if oldMode = #setOFF then i = #setON
+        //     if oldMode = #setON  then i = #setOFF
+        //   else                                        -- #mode
+        //     ... light the switch from #barSwitch ...
+        //     if oldMode = #runOFF then i = #setOFF
+        //     if oldMode = #runON  then i = #setON
+        //     if oldMode = #setOFF then i = #runOFF
+        //     if oldMode = #setON  then i = #runON
+        //   if i = #runON then
+        //     if getState( #BarLevel ) = 6 and getState( #BarGain ) = 5
+        //                                 and getState( #BarFM )    = 8 then
+        //       setState( #BarOnline, 1 )
+        //       go ...
+        //   setProp( oStoryteller.states, #BarMode, list(i) )
+        //
+        // The panel has two buttons and four modes. Power switches on and off
+        // without changing which of the two modes it is in; mode switches
+        // between running and setting without changing whether it is on. So
+        // `#runOFF`, `#runON`, `#setOFF`, `#setON`, and the schema starts at
+        // `#setOFF`.
+        //
+        // **Level six, gain five, FM eight**, then set it running with the
+        // power on, and `#BarOnline` comes up. That is the whole puzzle, and
+        // it is the only place those three numbers appear together.
+        //
+        // Neither `#power` nor `#mode` is a mode: they are what the buttons
+        // ask for. Without this handler the flag was being set to the request
+        // itself, so the panel sat in a state that is not one of its four and
+        // nothing worked -- which is exactly what helba found.
+        "setbarmode" => {
+            let asked = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|w| w.trim_start_matches('#').to_ascii_lowercase())
+                .unwrap_or_default();
+            let old = state.get("BarMode");
+            let old = old.as_str().unwrap_or("setOFF").trim_start_matches('#');
+
+            let is = |m: &str| old.eq_ignore_ascii_case(m);
+            let moved = match asked.as_str() {
+                // On and off, staying in whichever mode it is in.
+                "power" => {
+                    if is("runOFF") {
+                        "runON"
+                    } else if is("runON") {
+                        "runOFF"
+                    } else if is("setOFF") {
+                        "setON"
+                    } else {
+                        "setOFF"
+                    }
+                }
+                // Running and setting, staying on or off as it was.
+                "mode" => {
+                    if is("runOFF") {
+                        "setOFF"
+                    } else if is("runON") {
+                        "setON"
+                    } else if is("setOFF") {
+                        "runOFF"
+                    } else {
+                        "runON"
+                    }
+                }
+                _ => return true,
+            };
+
+            out.effects.push(Effect::CursorOff);
+            if moved == "runON"
+                && state.get("BarLevel").as_int() == Some(6)
+                && state.get("BarGain").as_int() == Some(5)
+                && state.get("BarFM").as_int() == Some(8)
+            {
+                state.set("BarOnline", Value::Int(1));
+            }
+            state.set_all("BarMode", vec![Value::Symbol(moved.into())]);
+            out.redraw = true;
+        }
+
+        // on setBarSelection
+        //   cursorOff
+        //   ... light the button ...
+        //   if getState( #BarMode ) = #setON then
+        //     i = [#level, #gain, #FM]
+        //     pos = getPos( i, getState( #BarSelection ) )
+        //     ... step it, wrapping at three ...
+        //     setProp( oStoryteller.states, #BarSelection, list(getAt(i, pos)) )
+        //     ... move the dash to the new column ...
+        //   else
+        //     wait 2 : ... unlight the button ...
+        //
+        // Which of the three digits the up and down buttons act on, and only
+        // while the panel is in setting mode and switched on. Pressing it with
+        // the bar running does nothing but light the button for two ticks.
+        "setbarselection" => {
+            const COLUMNS: [&str; 3] = ["level", "gain", "FM"];
+            out.effects.push(Effect::CursorOff);
+            if !state.get("BarMode").is_symbol("setON") {
+                out.effects.push(Effect::WaitTicks(2));
+                return true;
+            }
+            let held = state.get("BarSelection");
+            let held = held.as_str().unwrap_or("level");
+            let at = COLUMNS
+                .iter()
+                .position(|c| c.eq_ignore_ascii_case(held.trim_start_matches('#')))
+                .unwrap_or(0);
+            let moved = COLUMNS[(at + 1) % COLUMNS.len()];
+            state.set_all("BarSelection", vec![Value::Symbol(moved.into())]);
+            out.redraw = true;
+        }
+
         // on adjustBarSettings upOrDown
         //   cursorOff
         //   whichSetting = getState( #BarSelection )
@@ -2328,5 +2447,90 @@ mod phone_tests {
             )),
             "Roxy's frame script answered for Margaret's chapter"
         );
+    }
+
+    // -- the bar panel ------------------------------------------------------
+
+    fn panel() -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("BarMode", vec![Value::Symbol("setOFF".into())]);
+        s.set_all("BarSelection", vec![Value::Symbol("level".into())]);
+        s.set_all("BarLevel", vec![Value::Int(4)]);
+        s.set_all("BarGain", vec![Value::Int(2)]);
+        s.set_all("BarFM", vec![Value::Int(0)]);
+        s
+    }
+
+    fn panel_press(state: &mut State, button: &str) {
+        let mut out = Outcome::default();
+        assert!(call(
+            &format!("setbar{}", if button == "select" { "selection" } else { "mode" }),
+            &[Value::Symbol(button.into())],
+            state,
+            &mut out
+        ));
+    }
+
+    fn mode(state: &State) -> String {
+        state.get("BarMode").as_str().unwrap_or("").to_string()
+    }
+
+    #[test]
+    fn power_switches_on_without_leaving_the_mode_it_is_in() {
+        let mut s = panel();
+        panel_press(&mut s, "power");
+        assert_eq!(mode(&s), "setON");
+        panel_press(&mut s, "power");
+        assert_eq!(mode(&s), "setOFF");
+    }
+
+    #[test]
+    fn and_mode_switches_between_setting_and_running() {
+        let mut s = panel();
+        panel_press(&mut s, "mode");
+        assert_eq!(mode(&s), "runOFF");
+        panel_press(&mut s, "power");
+        assert_eq!(mode(&s), "runON");
+        panel_press(&mut s, "mode");
+        assert_eq!(mode(&s), "setON");
+    }
+
+    #[test]
+    fn six_five_eight_brings_the_bar_online() {
+        let mut s = panel();
+        s.set_all("BarLevel", vec![Value::Int(6)]);
+        s.set_all("BarGain", vec![Value::Int(5)]);
+        s.set_all("BarFM", vec![Value::Int(8)]);
+        panel_press(&mut s, "power"); // setOFF -> setON
+        panel_press(&mut s, "mode"); // setON  -> runON
+        assert_eq!(mode(&s), "runON");
+        assert_eq!(s.get("BarOnline"), Value::Int(1));
+    }
+
+    #[test]
+    fn and_no_other_setting_does() {
+        let mut s = panel();
+        s.set_all("BarLevel", vec![Value::Int(6)]);
+        s.set_all("BarGain", vec![Value::Int(5)]);
+        s.set_all("BarFM", vec![Value::Int(7)]);
+        panel_press(&mut s, "power");
+        panel_press(&mut s, "mode");
+        assert_eq!(mode(&s), "runON");
+        assert_eq!(s.get("BarOnline"), Value::Void);
+    }
+
+    #[test]
+    fn the_selection_only_moves_while_the_panel_is_set_and_on() {
+        let mut s = panel();
+        // Off: nothing moves.
+        panel_press(&mut s, "select");
+        assert_eq!(s.get("BarSelection"), Value::Symbol("level".into()));
+
+        panel_press(&mut s, "power");
+        for want in ["gain", "FM", "level"] {
+            panel_press(&mut s, "select");
+            assert_eq!(s.get("BarSelection"), Value::Symbol(want.into()));
+        }
     }
 }

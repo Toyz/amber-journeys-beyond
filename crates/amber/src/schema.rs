@@ -24,6 +24,22 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// The flags that declare a setter rather than hold a value.
+    ///
+    /// From `setState` itself: a flag whose value list holds more than one
+    /// setting takes the write directly, and a flag holding exactly one is not
+    /// a value at all -- it declares that a handler named `set<Flag>` exists
+    /// and dispatches to it. So this is the list of custom setters the chapter
+    /// expects, which is a body of code no count of *called* verbs can see:
+    /// nothing ever calls `setBarMode` by name.
+    pub fn setters(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|(_, values)| values.len() == 1)
+            .map(|(key, _)| format!("set{key}"))
+            .collect()
+    }
+
     /// Picks the schema out of a movie's text chunks and parses it.
     ///
     /// It is recognised by content rather than position: the schema is the text

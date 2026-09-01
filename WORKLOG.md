@@ -3972,3 +3972,73 @@ this month the answer was "build the thing that shows it" -- after the event
 log in entry 58 and `mix` in entry 71.
 
 206 tests.
+
+## 97. The bar panel, and a third thing I was not counting
+
+helba asked what was missing for the psionic bar's panel to turn on. Nothing,
+on their side. Two handlers on mine.
+
+The panel has four modes -- `#runOFF`, `#runON`, `#setOFF`, `#setON` -- and two
+buttons. **Power** switches on and off without changing which mode it is in;
+**mode** switches between running and setting without changing whether it is
+on. And inside `setBarMode`, the reason to care:
+
+```text
+if i = #runON then
+  if getState( #BarLevel ) = 6 and getState( #BarGain ) = 5
+                              and getState( #BarFM )    = 8 then
+    setState( #BarOnline, 1 )
+```
+
+**Level six, gain five, FM eight**, then set it running with the power on. That
+is the whole puzzle and those three numbers appear together nowhere else.
+
+Neither `#power` nor `#mode` is a mode. They are what the buttons *ask for*,
+and `setBarMode` turns a request into a state. Without it the flag was being
+set to the request itself, so the panel sat in a fifth state that is not one of
+its four, and every guard downstream failed. `adjustBarSettings` -- ported in
+entry 88, and correct -- tests for `#setON`, which the panel could never reach.
+
+`setBarSelection` is the other half: which of the three digits the up and down
+buttons act on, cycling level, gain, FM, and only while the panel is set and
+switched on.
+
+### The third count
+
+Neither of my two "what is left" numbers could see these. `verify` counts verbs
+a room's action list *names*, and nothing names `setBarMode`. The event-handler
+count from entry 93 covers `mouseDown` and the frame scripts. This is a third
+kind:
+
+```text
+on setState me, stateVar, suggestion
+  if count(valueList) > 1 then ... else
+    return value("set" & stateVar & "(" & suggestion & ")")
+```
+
+A flag whose value list holds exactly one entry is not a value -- it *declares
+a setter*. The schema is therefore a list of handlers the game expects, and it
+was never being read as one.
+
+Fifty flags declare a setter. Reporting fifty would have been a number that
+cries wolf: 29 of them have no such handler and correctly take the direct
+write. Telling those apart needs the movie's actual handler list, so the
+director crate can now read one -- the `Lnam` name table and the handler tables
+in each `Lscr`, which the Python tooling has been able to do all along and the
+engine could not.
+
+The honest figure is **16**, and it includes `setdumbWaiter` -- which is what
+moves the kitchen radio station along the dial in entry 83 -- `setcarLocation`,
+`setVideoTapePosition`, and the page-turning for all three of the books.
+
+So: **14 verbs across 18 call sites, 54 event handlers of which 4 are ported,
+and 16 setters.** Three counts, three times I have found the number I was
+quoting was answering a smaller question than it looked like. I have stopped
+being surprised by this and started expecting a fourth.
+
+211 tests.
+
+*(A small one for the record: I first concluded the win condition was not
+firing, because I grepped the trace for `BarOnline` and the trace prints that
+key lower-cased. Case again, in my own tooling this time, ten minutes after
+fixing twelve instances of it in the port.)*

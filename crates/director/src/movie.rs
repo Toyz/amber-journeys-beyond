@@ -14,6 +14,8 @@ const TAG_BITD: &[u8; 4] = b"BITD";
 const TAG_CLUT: &[u8; 4] = b"CLUT";
 const TAG_SND: &[u8; 4] = b"snd ";
 const TAG_VWCF: &[u8; 4] = b"VWCF";
+const TAG_LNAM: &[u8; 4] = b"Lnam";
+const TAG_LSCR: &[u8; 4] = b"Lscr";
 
 /// The kinds of cast member Director 5 can hold. Amber only exercises a few of
 /// these, but the discriminants are the on-disk values so unknown members still
@@ -572,6 +574,67 @@ impl Movie {
             return Some(Palette::decode(self.resource_data(child).ok()?, self.endian));
         }
         None
+    }
+
+    /// Every Lingo handler the movie defines, by name.
+    ///
+    /// Needed to tell a handler that exists from one that is merely implied.
+    /// `setState` dispatches to `set<Flag>` for any flag whose value list has
+    /// a single entry, but plenty of those flags have no such handler and take
+    /// the write directly -- 29 of the 50 in this game. Reporting all 50 as
+    /// missing work would be a number that cries wolf, which is no more useful
+    /// than one that stays silent.
+    pub fn handler_names(&self) -> Vec<String> {
+        // The name table: a header offset and a count, then Pascal strings.
+        // A movie can carry several and the real one is the largest.
+        let names: Vec<String> = self
+            .find_all(TAG_LNAM)
+            .into_iter()
+            .filter_map(|i| self.resource_data(i).ok())
+            .max_by_key(|d| d.len())
+            .map(|d| {
+                let mut r = Reader::at(d, self.endian, 16);
+                let (start, count) = (
+                    r.u16().unwrap_or(0) as usize,
+                    r.u16().unwrap_or(0) as usize,
+                );
+                let mut out = Vec::with_capacity(count);
+                let mut p = start;
+                for _ in 0..count {
+                    let Some(&len) = d.get(p) else { break };
+                    let end = p + 1 + len as usize;
+                    let Some(bytes) = d.get(p + 1..end) else { break };
+                    out.push(String::from_utf8_lossy(bytes).into_owned());
+                    p = end;
+                }
+                out
+            })
+            .unwrap_or_default();
+
+        let mut found = Vec::new();
+        for i in self.find_all(TAG_LSCR) {
+            let Ok(d) = self.resource_data(i) else { continue };
+            if d.len() < 0x5c {
+                continue;
+            }
+            let mut r = Reader::at(d, self.endian, 0x48);
+            let count = r.u16().unwrap_or(0) as usize;
+            let table = r.u32().unwrap_or(0) as usize;
+            // Each entry is 42 bytes and opens with the handler's name index.
+            for k in 0..count {
+                let at = table + k * 42;
+                if at + 42 > d.len() {
+                    break;
+                }
+                let id = Reader::at(d, self.endian, at).u16().unwrap_or(0) as usize;
+                if let Some(name) = names.get(id) {
+                    found.push(name.clone());
+                }
+            }
+        }
+        found.sort();
+        found.dedup();
+        found
     }
 
     /// The movie's palettes, in `mmap` order. Bitmaps select one by `palette_ref`;
