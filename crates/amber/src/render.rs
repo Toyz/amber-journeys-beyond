@@ -6,6 +6,7 @@ use std::sync::Arc;
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions};
 
 use crate::audio::Audio;
+use crate::cursor;
 use crate::game::Game;
 use crate::script::Effect;
 use crate::world::Verb;
@@ -54,7 +55,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     }
     let mut playing_soundtrack = false;
     let mut ambience_room = usize::MAX;
-    eprintln!("space skips a movie, escape quits");
+    eprintln!("space skips a movie, tab outlines live hotspots, escape quits");
     eprintln!(
         "starting in {} / {}{}",
         game.node().domain,
@@ -80,7 +81,11 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     // room is static between clicks anyway.
     window.set_target_fps(60);
 
+    // `frame` holds the composed scene, redrawn only when it changes;
+    // `out` adds the cursor, which follows the mouse every frame.
     let mut frame = vec![0u32; STAGE_W * STAGE_H];
+    let mut out = vec![0u32; STAGE_W * STAGE_H];
+    let mut show_hotspots = false;
     let mut dirty = true;
     let mut was_down = false;
     let mut last_title = String::new();
@@ -186,6 +191,11 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             game.draw_inventory(&mut frame, STAGE_W as u32, STAGE_H as u32);
             dirty = false;
         }
+        // Tab shows where the live hotspots actually are, which is the quickest
+        // way to tell a missing exit from one that is merely hard to find.
+        if window.is_key_pressed(Key::Tab, minifb::KeyRepeat::No) {
+            show_hotspots = !show_hotspots;
+        }
 
         // The window may be resized, but the stage is always 640x480 and the
         // scale mode letterboxes it, so mouse coordinates need mapping back.
@@ -229,7 +239,6 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 if game.click_inventory(x, y, STAGE_W as i32, STAGE_H as i32) {
                     dirty = true;
                     was_down = down;
-                    window.update_with_buffer(&frame, STAGE_W, STAGE_H)?;
                     continue;
                 }
                 let had_movie = game.player.is_some();
@@ -295,7 +304,27 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         }
         was_down = down;
 
-        window.update_with_buffer(&frame, STAGE_W, STAGE_H)?;
+        out.copy_from_slice(&frame);
+        if show_hotspots {
+            let state = game.state.clone();
+            for h in &game.node().hotspots {
+                if h.actions.is_empty() || !state.test(&h.condition) {
+                    continue;
+                }
+                cursor::outline(
+                    &mut out,
+                    STAGE_W as i32,
+                    STAGE_H as i32,
+                    h.bounds,
+                    0xff00_ff00,
+                );
+            }
+        }
+        if let Some((mx, my)) = pos {
+            let verb = game.hotspot_at(mx, my).map(|(v, _)| v);
+            cursor::draw(&mut out, STAGE_W as i32, STAGE_H as i32, mx, my, verb);
+        }
+        window.update_with_buffer(&out, STAGE_W, STAGE_H)?;
     }
     Ok(())
 }

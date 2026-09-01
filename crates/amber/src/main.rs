@@ -5,6 +5,7 @@
 //! kept honest.
 
 mod audio;
+mod cursor;
 mod game;
 mod inventory;
 mod locations;

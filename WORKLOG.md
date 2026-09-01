@@ -906,3 +906,44 @@ The lesson is not about Director. It is that I trusted a measurement I had
 just written, from a regex over text, without checking it against a second
 source. The trace I eventually added took two minutes and answered the
 question exactly.
+
+## 31. TRUE was not 1
+
+The front door could be opened and still not walked through. The walkthrough
+put the cause on screen in one step: after clicking the door, both of the
+room's pointer hotspots reported as blocked, one waiting for
+`frontDoorIsOpen = 0` and the other for `= 1`. A value that satisfies neither
+is not a boolean at all.
+
+The action is `setState( oStoryteller, #FrontDoorIsOpen, TRUE )`. The parser
+treated a bare word as a symbol, so the door entered a state named TRUE while
+every guard that reads it compares against 1. Anything set that way became
+permanently unreachable. The literals appear 227 times across the room
+scripts, so this was not confined to one door.
+
+Mapping TRUE and FALSE to 1 and 0 fixes it, and the door now opens and admits
+the player.
+
+That the `blocked` command found this in a single step is the argument for
+having built it. The same bug through the window is a door that will not open
+and no way to ask why.
+
+## 32. Cursors, and knowing when not to be faithful
+
+helba asked for proper cursors, partly to see the hotspots. The game's own
+cursors are 1-bit image and mask pairs at cast 2500 onward, addressed as
+`2500 + (cursorID - 6000) * 2`, and which cursor a verb gets is decided inside
+`castCursor` and its callers rather than in the room data. Using the original
+art therefore means decoding another handler first.
+
+The cursors drawn here are mine: an arrow per direction, a lens for examine, a
+blunt pointer for operables, crosshairs while an item is in hand. What matters
+for playing is that the pointer says what a click will do, and that does not
+require the original bitmaps. Tab outlines the live hotspots, which answers
+the question behind the request more directly than any cursor: whether an exit
+is missing or merely hard to find.
+
+Recorded because it is a departure. Everything else in this project has been
+faithful to the disc, and when the original art is reachable it should replace
+this. The stand-in is the cheap thing that unblocks play now, not the right
+long-term answer, and the code says so.
