@@ -50,6 +50,30 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
             dump_state(&game, filter.trim());
             continue;
         }
+        // A click at a point goes through the same hit test the window uses,
+        // so an overlap that resolves the wrong way can be reproduced exactly.
+        if let Some(rest) = cmd.strip_prefix("click ") {
+            let nums: Vec<i32> = rest
+                .split_whitespace()
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            match nums[..] {
+                [x, y] => match game.hotspot_at(x, y) {
+                    Some((verb, bounds)) => {
+                        println!("  hits {verb:?} {bounds:?}");
+                        if let Some(o) = game.click(x, y) {
+                            if let Some(d) = &o.destination {
+                                println!("  -> {d}");
+                            }
+                        }
+                        show(&mut game);
+                    }
+                    None => println!("  nothing at ({x}, {y})"),
+                },
+                _ => println!("  usage: click <x> <y>"),
+            }
+            continue;
+        }
         if cmd == "blocked" {
             show_blocked(&game);
             continue;

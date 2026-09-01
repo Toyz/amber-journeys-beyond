@@ -947,3 +947,34 @@ Recorded because it is a departure. Everything else in this project has been
 faithful to the disc, and when the original art is reachable it should replace
 this. The stand-in is the cheap thing that unblocks play now, not the right
 long-term answer, and the code says so.
+
+## 33. Order, not area
+
+helba walked into the darkened house and arrived in the lit one, and read it
+as unfinished game state. It was not: the state was correct throughout and
+the fault was in how I chose between overlapping hotspots.
+
+The porch offers two forward exits whose guards can both hold at once:
+
+  Forward (79, 57, 526, 363) -> DarkDn_Entry2   lights off and door open
+  Forward (90, 62, 502, 358) -> HallNwall       door open
+
+My hit test broke ties between same-verb hotspots by smallest area, and the
+lit rectangle is the smaller of the two at 121,952 pixels against 136,782. So
+every click in the overlap chose the lit house.
+
+Director checks hotspots in the order the room lists them and takes the first
+match. That order is the authors' expression of precedence and it put the
+darkened exit first. Area was my own invention, introduced to make a small
+`#examine` target beat the room-sized `#browse` beneath it - but verb priority
+already does that, so the area rule was doing nothing except quietly
+overriding the data.
+
+The walkthrough had been right all along, because it takes the first matching
+hotspot, which is why the dark path held there and broke in the window. Two
+tools disagreeing was the signal; I should have noticed sooner that I was
+reading them as one confirming the other rather than as one contradicting it.
+
+`walk` now takes `click <x> <y>`, which runs the same hit test the window
+uses, so an overlap that resolves the wrong way can be reproduced exactly
+rather than inferred.

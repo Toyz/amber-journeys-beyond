@@ -319,21 +319,26 @@ impl Node {
 
     /// Picks the hotspot a click at `(x, y)` should trigger.
     ///
-    /// Regions overlap by design, so this resolves by verb priority first and
-    /// then by smallest area, which is what makes a small `#examine` target win
-    /// over the room-sized `#browse` rectangle underneath it.
+    /// Regions overlap by design. Verb priority separates the affordances -
+    /// a small `#examine` target has to beat the room-sized `#browse`
+    /// rectangle underneath it - but two hotspots of the same verb are
+    /// separated by the order the room lists them in, first match winning, as
+    /// Director does.
+    ///
+    /// Order matters and area does not. The front porch offers two forward
+    /// exits whose guards can both hold: the first leads into the darkened
+    /// house, the second into the lit one, and the lit rectangle is the
+    /// smaller of the two. Breaking the tie by size therefore sent the player
+    /// into a lit house they had not turned the lights on in.
     pub fn hit_test(&self, x: i32, y: i32, live: impl Fn(&Cond) -> bool) -> Option<&Hotspot> {
         self.hotspots
             .iter()
             .filter(|h| h.bounds.contains(x, y))
             .filter(|h| !h.actions.is_empty())
             .filter(|h| live(&h.condition))
-            .max_by(|a, b| {
-                a.verb
-                    .priority()
-                    .cmp(&b.verb.priority())
-                    .then(b.bounds.area().cmp(&a.bounds.area()))
-            })
+            .enumerate()
+            .max_by_key(|(index, h)| (h.verb.priority(), std::cmp::Reverse(*index)))
+            .map(|(_, h)| h)
     }
 }
 
