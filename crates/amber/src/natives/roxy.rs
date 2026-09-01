@@ -260,6 +260,42 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on testForMargGhost  /  on testForMirrorMsg
+        //   activeHaunts = getProp(oStoryteller, #hauntsRemaining)
+        //   if getPos(activeHaunts, #ghostBrushingHair) then
+        //     cursorOff
+        //     if gCPU = #PC then suspendSounds #fadeOut
+        //     pushVideo
+        //     wait #videoStop
+        //     if gCPU = #PC then restoreSounds #fadeIn
+        //     trimState #hauntsRemaining, #ghostBrushingHair
+        //
+        // A haunt plays only while it is still in the pool and trims itself
+        // once it has, so the house runs out of things to do as the player
+        // sees them. The two differ only in which haunt they are.
+        "testformargghost" | "testformirrormsg" => {
+            let haunt = if name == "testformargghost" {
+                "ghostBrushingHair"
+            } else {
+                "mirrorMessage"
+            };
+            let pending = match state.get("hauntsRemaining") {
+                Value::List(items) => items
+                    .iter()
+                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(haunt))),
+                _ => false,
+            };
+            if !pending {
+                return true;
+            }
+            out.effects.push(Effect::CursorOff);
+            out.effects.push(Effect::SuspendSounds { fade: true });
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::RestoreSounds { fade: true });
+            state.trim_item("hauntsRemaining", &Value::Symbol(haunt.to_string()));
+        }
+
         _ => return false,
     }
     true

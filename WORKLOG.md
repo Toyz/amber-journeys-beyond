@@ -1329,3 +1329,36 @@ chapter it ran in.
 With the control repeated on the corrected version, a wrong icon index shows
 up as 24 dangling references and a right one as none. The check can fail,
 which is the only reason its passing means anything.
+
+## 46. The pools were never lists
+
+Porting two haunt handlers turned up a fault under them both.
+
+`trimState` is always called as `trimState( #hauntsRemaining, #gazebo2 )`: a
+list and an item to take out of it. All 17 calls in the room scripts have that
+shape, and so does every call in the bytecode. My implementation removed the
+flag *named by the last argument*, so it deleted a flag called `gazebo2` and
+left the haunt pool untouched. Nothing ever left the list.
+
+Fixing that exposed the larger one. `#hauntsRemaining` was seeded as
+`Symbol("knifeShadow")` rather than as a list, because seeding takes each
+flag's first declared value and the schema writes a pool exactly as it writes
+an enumeration of legal settings. Nothing in the schema distinguishes
+
+  #hauntsRemaining : [#knifeShadow, #ghostBrushingHair, ...]     a pool
+  #doorIsOpen : [0, 1]                                           the settings
+
+so the shape has to come from use. A flag that has items trimmed from it, or
+that is tested with `#includes` or `#lacks`, holds a list. Six do:
+`hauntsRemaining`, `tunedIn`, `ghostsRemaining`, `panelGuess`,
+`cameraFeedbackRemaining` and `utterancesRemaining`.
+
+`ghostsRemaining` is the one that stings. The ghost telephone gates on it, and
+when I ported that handler I wrote a fallback for the case where the list was
+not yet seeded, treating every ghost as still present. That fallback was
+running every time, and it was covering the bug rather than handling an edge
+case. A defensive branch that is always taken is not defensive; it is the
+whole behaviour, unexamined.
+
+Both haunts now play once and leave the pool, and the house runs out of things
+to do as the player sees them.

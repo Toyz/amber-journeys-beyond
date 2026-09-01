@@ -387,11 +387,22 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 }
             }
         }
-        "trimstate" => {
-            if let Some(k) = args.last().and_then(Value::as_str) {
-                state.trim(k);
+        // `trimState( #list, #item )` removes an item from a list; the
+        // one-argument form drops a flag outright.
+        "trimstate" => match args.len() {
+            0 => {}
+            1 => {
+                if let Some(k) = args[0].as_str() {
+                    state.trim(k);
+                }
             }
-        }
+            _ => {
+                if let Some(k) = args[args.len() - 2].as_str() {
+                    let item = args[args.len() - 1].clone();
+                    state.trim_item(k, &item);
+                }
+            }
+        },
         // Bare reads matter only when nested in another call, which `eval_arg`
         // has already resolved by this point.
         "getstate" | "getprop" | "instate" | "nothing" | "idle" => {}

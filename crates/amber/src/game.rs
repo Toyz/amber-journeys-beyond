@@ -137,7 +137,7 @@ impl Game {
 
         if let Some(chapter) = self.chapters.get(domain) {
             if let Some(schema) = &chapter.schema {
-                schema.seed(&mut self.state);
+                schema.seed(&mut self.state, &self.world.list_flags);
             }
         }
 

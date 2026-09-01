@@ -347,6 +347,13 @@ pub struct World {
     pub nodes: Vec<Node>,
     /// Chapter name -> the range of `nodes` it owns.
     pub domains: HashMap<String, (usize, usize)>,
+    /// Flags the game treats as lists rather than as single values.
+    ///
+    /// Derived from use: a flag that has items trimmed from it, or that is
+    /// tested with `#includes` or `#lacks`, holds a list. The schema writes a
+    /// pool and an enumeration of legal settings identically, so nothing in it
+    /// distinguishes them.
+    pub list_flags: std::collections::HashSet<String>,
     /// Room name -> every room carrying that name, built by joining each
     /// chapter's name table to its room records on the cast number.
     ///
@@ -509,9 +516,11 @@ impl World {
             domains.insert(dir.to_string(), (start, nodes.len()));
         }
 
+        let list_flags = derive_list_flags(&nodes);
         Ok(World {
             nodes,
             domains,
+            list_flags,
             by_name,
         })
     }
@@ -522,5 +531,47 @@ impl World {
 
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
+    }
+}
+
+/// Collects the flags the rooms treat as lists.
+fn derive_list_flags(nodes: &[Node]) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for node in nodes {
+        for h in &node.hotspots {
+            walk_cond(&h.condition, &mut out);
+            for action in &h.actions {
+                // `trimState( #list, #item )` names the list first.
+                let lower = action.to_ascii_lowercase();
+                if let Some((_, rest)) = lower.split_once("trimstate(") {
+                    if let Some(first) = rest.split(',').next() {
+                        let name = first.trim().trim_start_matches('#').trim();
+                        if !name.is_empty() {
+                            out.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        for sprite in &node.sprites {
+            walk_cond(&sprite.condition, &mut out);
+        }
+    }
+    out
+}
+
+/// Notes every list-testing condition in a tree.
+fn walk_cond(cond: &Cond, out: &mut std::collections::HashSet<String>) {
+    match cond {
+        Cond::Includes { key, .. } | Cond::Lacks { key, .. } => {
+            out.insert(key.to_ascii_lowercase());
+        }
+        Cond::Not(inner) => walk_cond(inner, out),
+        Cond::And(parts) | Cond::Or(parts) => {
+            for p in parts {
+                walk_cond(p, out);
+            }
+        }
+        _ => {}
     }
 }

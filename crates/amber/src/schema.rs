@@ -13,6 +13,8 @@
 //! This is effectively the save-file format, declared in the data rather than in
 //! code, and it is also the only place the chapter's starting room is recorded.
 
+use std::collections::HashSet;
+
 use lingo::{parse_value, Value};
 
 use crate::state::State;
@@ -101,9 +103,19 @@ impl Schema {
     ///
     /// Without this the guards run against an empty store, so any sprite whose
     /// `#showIF` compares a flag to its starting value stays hidden.
-    pub fn seed(&self, state: &mut State) {
+    ///
+    /// Most entries declare a value followed by the other settings the flag may
+    /// take, so the first is the initial one. A few are pools, where the list
+    /// itself is the value: the haunts still to happen, the ghosts still to be
+    /// dealt with, the stations the radio can find. Those are named by
+    /// `list_valued`, which the caller derives from how the game uses them
+    /// rather than from anything the schema says, because the schema writes
+    /// both shapes identically.
+    pub fn seed(&self, state: &mut State, list_valued: &HashSet<String>) {
         for (key, values) in &self.entries {
-            if let Some(initial) = values.first() {
+            if list_valued.contains(&key.to_ascii_lowercase()) {
+                state.set(key, Value::List(values.clone()));
+            } else if let Some(initial) = values.first() {
                 state.set(key, initial.clone());
             }
         }

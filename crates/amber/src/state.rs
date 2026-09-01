@@ -79,10 +79,24 @@ impl State {
         self.props.insert(key, value);
     }
 
-    /// Drops a flag entirely, which is what `trimState` does; a missing flag reads
-    /// back as `Void` and so fails an equality test rather than matching zero.
+    /// Drops a flag entirely; a missing flag reads back as `Void` and so fails
+    /// an equality test rather than matching zero.
     pub fn trim(&mut self, key: &str) {
         self.props.remove(&key.to_ascii_lowercase());
+    }
+
+    /// Removes one entry from the list a flag holds.
+    ///
+    /// This is what `trimState` does. Every call in the game passes a list and
+    /// an item - `trimState( #hauntsRemaining, #gazebo2 )` - and each haunt
+    /// trims itself once it has played, so the list is how the house runs out
+    /// of things to do. Treating the second argument as the flag to delete
+    /// leaves that list untouched and every haunt repeats for ever.
+    pub fn trim_item(&mut self, key: &str, item: &Value) {
+        let key = key.to_ascii_lowercase();
+        if let Some(Value::List(items)) = self.props.get_mut(&key) {
+            items.retain(|i| !i.loosely_eq(item));
+        }
     }
 
     /// Every flag currently set, for inspection from the walkthrough.

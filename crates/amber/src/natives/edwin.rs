@@ -182,6 +182,33 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::WaitForSound(line.into()));
         }
 
+        // on listenToBees
+        //   cursorOff
+        //   if gCPU = #PC then suspendSounds #fadeOut
+        //   else setLoop #outsideLoop, #howManybits
+        //   pushVideo
+        //   wait #videoStop
+        //   if gCPU = #PC then restoreSounds #fadeIn
+        //   else setLoop #outsideLoop, #startT
+        //   assertSound #youBees
+        //
+        // Standing and listening to the hive. The two platforms handle the
+        // ambience differently, the Windows build ducking it and the Mac one
+        // swapping the outdoor loop; this port behaves as the Windows build,
+        // whose branches the data fills in. The remark afterwards is common to
+        // both.
+        "listentobees" => {
+            out.effects.push(Effect::CursorOff);
+            out.effects.push(Effect::SuspendSounds { fade: true });
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::RestoreSounds { fade: true });
+            out.effects.push(Effect::PlaySound {
+                name: "youBees".into(),
+                loudness: None,
+            });
+        }
+
         _ => return false,
     }
     true
