@@ -485,3 +485,50 @@ The arithmetic and comparison opcodes are unidentified, and so are globals
 and properties, though `0x49` and `0x85` are clearly those two from context.
 Nothing is translated to source yet and the 66 handlers remain
 unimplemented.
+
+## 20. Globals, and a method that failed
+
+`0x49` and `0x89` push globals; `0x4f` sets one. Globals are named
+program-wide rather than per script, so unlike locals they index the movie's
+name table directly, which is why the per-handler bounds tests never fit them.
+
+The test used Director's naming convention, where object references start
+with `o` and globals with `g`. Across the whole name table only 5.1% of names
+look like that, so it discriminates: `0x49` lands on them 92.8% of the time
+over 1706 uses and `0x89` 92.3%, while the argument-list opcodes land on them
+0.0% of the time. The names that come out are `oStoryteller`, `oPuppeteer`,
+`gCPU`. An eighteen-fold enrichment over background with a clean zero at the
+other end is the shape I now look for.
+
+### The stack-effect solve did not work
+
+I spent most of this stretch trying to derive every opcode's stack effect from
+the balance constraint, and it failed. Anchoring the known effects and solving
+the rest gave a model under which only 84 of 543 handlers balanced. Testing
+whether `0x42` and `0x43` differ in keeping or discarding a call's result -
+a reasonable idea, since one would be an expression and the other a statement
+- produced at best 78 of 543.
+
+The fault was in the method rather than the data. I was simulating stack depth
+straight through code that branches, and with a median handler of fifty
+instructions, jumps throughout, and 771 mid-handler returns across the corpus,
+a linear walk does not describe what the stack does. Getting this properly
+needs a control-flow graph with depth propagated along edges and checked at
+join points, which is a larger job than the afternoon I gave it.
+
+Worth recording that the useful finding of the stretch came out of that
+failure anyway: every one of the 543 handlers ends with `0x01`, which is the
+return, and that turned up only because I went looking for why the balance
+model was wrong.
+
+### Where the disassembler stands
+
+`setGrateIsOpen` now reads as its own logic: fetch the current state from
+`oStoryteller`, compare it against the argument, and on a difference drive the
+animation through `oPuppeteer`, write the new state with `setProp`, and
+refresh. That is the division of labour the room scripts already assume, which
+is a check on the reading.
+
+Unidentified: the arithmetic and comparison opcodes, `0x03`, `0x0f`, `0x12`,
+`0x61`, `0x62`. Nothing is translated to Rust and the 66 handlers remain
+unimplemented.
