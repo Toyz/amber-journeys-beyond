@@ -36,7 +36,9 @@ struct CachedArt {
 struct Chapter {
     movie: Movie,
     palettes: Vec<Palette>,
-    art: HashMap<u32, Option<CachedArt>>,
+    /// Decoded plates, keyed by cast member and by whether its
+    /// background is painted -- the same member is used both ways.
+    art: HashMap<(u32, bool), Option<CachedArt>>,
     schema: Option<Schema>,
     /// Lookup tables for sprites whose cast is chosen by a state flag.
     tables: CastTables,
@@ -397,9 +399,10 @@ impl Game {
 
     /// Decodes a cast member to RGBA, caching both hits and misses so a missing
     /// member is not re-decoded every frame.
-    fn art(&mut self, domain: &str, cast: u32) -> Option<&CachedArt> {
+    fn art(&mut self, domain: &str, cast: u32, matte: bool) -> Option<&CachedArt> {
         let chapter = self.chapter(domain)?;
-        if !chapter.art.contains_key(&cast) {
+        let key = (cast, matte);
+        if !chapter.art.contains_key(&key) {
             let decoded = chapter.movie.bitmap(cast).ok().map(|b: Bitmap| {
                 // The member names the palette cast it was authored against.
                 let palette = chapter
@@ -407,17 +410,29 @@ impl Game {
                     .palette_for_cast(b.palette_ref)
                     .or_else(|| chapter.palettes.first().cloned())
                     .unwrap_or_default();
+                // The whole game uses two inks: 0 for the 2345 sprites that
+                // are a room's own plates, and 36 for the fifteen that are
+                // something held up in front of one -- a phone lifted to the
+                // ear, a bottle turned over, a newspaper being read. Those
+                // fifteen are drawn on a white field that must not be painted,
+                // and index zero is white in every one of this game's
+                // palettes.
+                //
+                // Not painting it is the whole of what ink means here, so
+                // rather than model Director's ink table this asks the one
+                // question the data actually poses.
+                let transparent = matte.then_some(0u8);
                 CachedArt {
-                    rgba: b.to_rgba(&palette, None),
+                    rgba: b.to_rgba(&palette, transparent),
                     width: b.width as u32,
                     height: b.height as u32,
                     reg_x: b.reg_x,
                     reg_y: b.reg_y,
                 }
             });
-            chapter.art.insert(cast, decoded);
+            chapter.art.insert(key, decoded);
         }
-        chapter.art.get(&cast).and_then(Option::as_ref)
+        chapter.art.get(&key).and_then(Option::as_ref)
     }
 
     /// The movie a room wants to play, from its `#video` channel element.
@@ -530,12 +545,12 @@ impl Game {
     /// Takes `&mut self` so the chapter is loaded before its lookup tables are
     /// consulted; a sprite that picks its cast by state needs them on the very
     /// first frame of the room, not the second.
-    pub fn visible(&mut self) -> Vec<(u8, u32, Option<(i32, i32)>)> {
+    pub fn visible(&mut self) -> Vec<(u8, u32, Option<(i32, i32)>, i32)> {
         let domain = self.node().domain.clone();
         self.chapter(&domain);
         let tables = self.chapters.get(&domain).map(|c| &c.tables);
 
-        let mut out: Vec<(u8, u32, Option<(i32, i32)>)> = self
+        let mut out: Vec<(u8, u32, Option<(i32, i32)>, i32)> = self
             .node()
             .sprites
             .iter()
@@ -571,10 +586,10 @@ impl Game {
                     Channel::Sprite(n) => n,
                     _ => 0,
                 };
-                Some((ch, cast, s.center))
+                Some((ch, cast, s.center, s.ink))
             })
             .collect();
-        out.sort_by_key(|(ch, _, _)| *ch);
+        out.sort_by_key(|(ch, ..)| *ch);
         out
     }
 
@@ -807,13 +822,25 @@ impl Game {
 
         enum Layer {
             /// A cast member from the room or from a puppet channel.
-            Art { cast: u32, at: Option<(i32, i32)> },
+            Art {
+                cast: u32,
+                at: Option<(i32, i32)>,
+                /// Whether the member's background colour is painted.
+                matte: bool,
+            },
             Movie,
         }
 
         let mut stage: Vec<(u16, Layer)> = Vec::new();
-        for (ch, cast, center) in self.visible() {
-            stage.push((SCORE_BASE + ch as u16, Layer::Art { cast, at: center }));
+        for (ch, cast, center, ink) in self.visible() {
+            stage.push((
+                SCORE_BASE + ch as u16,
+                Layer::Art {
+                    cast,
+                    at: center,
+                    matte: ink != 0,
+                },
+            ));
         }
         if self.player.is_some() {
             stage.push((MOVIE_CHANNEL, Layer::Movie));
@@ -827,6 +854,9 @@ impl Game {
                 Layer::Art {
                     cast: puppet.cast,
                     at: puppet.loc,
+                    // A script-driven channel does not carry an ink of its
+                    // own; the game only ever puts full plates on one.
+                    matte: false,
                 },
             ));
         }
@@ -845,8 +875,8 @@ impl Game {
 
         for (channel, layer) in stage {
             match layer {
-                Layer::Art { cast, at } => {
-                    let Some(art) = self.art(&domain, cast) else {
+                Layer::Art { cast, at, matte } => {
+                    let Some(art) = self.art(&domain, cast, matte) else {
                         continue;
                     };
                     // `#coords` gives where the sprite's registration point
@@ -1188,7 +1218,7 @@ impl Game {
     /// Whether a cast member in the current room's chapter decodes to art.
     pub fn has_art(&mut self, cast: u32) -> bool {
         let domain = self.node().domain.clone();
-        self.art(&domain, cast).is_some()
+        self.art(&domain, cast, false).is_some()
     }
 
     /// Draws the inventory bar over the stage.
@@ -1207,7 +1237,7 @@ impl Game {
             let Some(icons) = self.inventory.icons(&item) else { continue };
             let lit = in_use.as_deref() == Some(item.to_ascii_lowercase().as_str());
             let cast = if lit { icons.lit } else { icons.plain };
-            let Some(art) = self.art(&domain, cast) else { continue };
+            let Some(art) = self.art(&domain, cast, false) else { continue };
             let (w, h) = (art.width, art.height);
             blit(frame, width, height, &art.rgba, w, h, x, y);
         }

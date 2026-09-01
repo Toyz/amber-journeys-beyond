@@ -3907,3 +3907,68 @@ Three things I should have done and did not:
 
 The `.gitignore` now covers all of it, so nothing new gets swept in. That does
 not help with what is already gone.
+
+## 96. Ink, and a phone that would not go down
+
+helba got stuck holding the phone in Roxy's living room, with two white
+rectangles either side of it.
+
+### The white
+
+Every sprite in the game carries an `#ink`, and I had parsed the field into
+`Sprite.ink` and never read it. Counting the values across all four chapters:
+
+```text
+   2345 #ink: 0
+     15 #ink: 36
+```
+
+Two values, and the fifteen are all the same kind of thing -- something held up
+in front of a room rather than part of it:
+
+```text
+DR-WDKLLR-CU                    #playerIsExaminingWeedkiller
+ST-DRAWER-OPEN-ARTICLE-ACTOR    #playerIsReadingNoteInStudy
+LR-PHONE-CU2                    #playerIsExaminingPhone
+```
+
+Each is drawn on a white field, and index zero is the only pure white in every
+one of this game's palettes. So ink 36 means "do not paint the background", and
+`Bitmap::to_rgba` has taken a transparent index since it was written -- every
+caller passed `None`.
+
+I have not modelled Director's ink table, because the data does not pose that
+question. It poses one question, fifteen times.
+
+### The phone
+
+The phone was not actually stuck. Every hotspot in that room is guarded on
+`[#equals: [#playerIsExaminingPhone, 1]]`, and with the phone raised the
+keypad's rectangle sits on top of `putDownThePhone`'s, so clicking the middle
+of the screen presses buttons and clicking anywhere else hangs up. That works,
+and the walk shows it working.
+
+What did not work was seeing it: the sprite that comes down is the one drawn
+with the wrong ink, so the phone was still there afterwards over two white
+blocks, and nothing about the screen said the click had done anything.
+
+Which is the more interesting failure. A hotspot that does nothing gets
+reported; a hotspot that does exactly the right thing invisibly gets reported
+as being broken in some other way entirely, and I would have gone looking at
+`putDownThePhone` -- which is fine -- instead of at the compositor.
+
+### `shot ... flag=value`
+
+Half of what a room draws is conditional, and a screenshot of the default state
+cannot show the conditional half, which is the half that tends to be wrong. So
+`shot` now takes `flag=value` pairs:
+
+```sh
+amber shot mac_game LivingRmPhoneCU out.png playerIsExaminingPhone=1
+```
+
+That is how I saw the white blocks without a window, and it is the third time
+this month the answer was "build the thing that shows it" -- after the event
+log in entry 58 and `mix` in entry 71.
+
+206 tests.

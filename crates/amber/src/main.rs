@@ -80,7 +80,7 @@ commands:
                                decode one bitmap cast member
   play      <dir> [room|chapter] [--record <file>]
                                open the game window
-  shot      <dir> <room> <out.png>
+  shot      <dir> <room> <out.png> [flag=value ...]
                                render one room headlessly
   sfx       <dir> [name]       decode a named sound, or sample many
   walk      <dir> [steps...]   walk the game from the terminal
@@ -135,7 +135,7 @@ fn main() -> ExitCode {
             render::play(&dir, room)
         }
         "shot" => match (args.get(2), args.get(3)) {
-            (Some(room), Some(out)) => cmd_shot(&dir, room, Path::new(out)),
+            (Some(room), Some(out)) => cmd_shot(&dir, room, Path::new(out), &args[4.min(args.len())..]),
             _ => return usage(),
         },
         "sfx" => cmd_sfx(&dir, args.get(2).map(String::as_str)),
@@ -603,7 +603,13 @@ fn verify_cast_lookups(dir: &Path) -> Res {
     Ok(())
 }
 
-fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
+/// Renders one room, optionally with some flags forced.
+///
+/// Half of what a room draws is decided by state -- a phone is only held up
+/// while `#playerIsExaminingPhone` is 1 -- so a screenshot of the default
+/// state cannot show the half that is conditional, which is the half that
+/// tends to be wrong.
+fn cmd_shot(dir: &Path, room: &str, out: &Path, force: &[String]) -> Res {
     let mut game = game::Game::new(dir)?;
     // "start" renders wherever the game actually opens, which is the case worth
     // checking when the window comes up blank.
@@ -621,6 +627,20 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path) -> Res {
         // startup movie over the top of every room it is asked for, so the
         // tool answers a different question than the one asked.
         game.start_room_video();
+    }
+    // `flag=value` pairs, applied after the room is entered so they are not
+    // overwritten by the chapter's own seeding. A bare number is an integer
+    // and anything else is a symbol, which is the distinction the schema draws.
+    for pair in force {
+        let Some((key, value)) = pair.split_once('=') else {
+            return Err(format!("expected flag=value, got {pair}").into());
+        };
+        let parsed = match value.parse::<i32>() {
+            Ok(n) => lingo::Value::Int(n),
+            Err(_) => lingo::Value::Symbol(value.trim_start_matches('#').to_string()),
+        };
+        println!("  forcing {key} = {parsed:?}");
+        game.state.set_all(key, vec![parsed]);
     }
 
     // Granting items makes the "object taken" plates reachable, which
@@ -886,7 +906,7 @@ fn cmd_verify(dir: &Path) -> Res {
         for i in 0..game.world.nodes.len() {
             game.jump_to(i);
             let before = failed;
-            for (_, cast, _) in game.visible() {
+            for (_, cast, ..) in game.visible() {
                 if game.has_art(cast) {
                     drawn += 1;
                 } else {

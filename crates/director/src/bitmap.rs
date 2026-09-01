@@ -177,3 +177,41 @@ mod tests {
         assert_eq!(unpack(&[0xff, b'q'], 200), b"qq");
     }
 }
+
+#[cfg(test)]
+mod ink_tests {
+    use super::*;
+    use crate::palette::Palette;
+
+    /// Amber uses two inks and only two: 0 on the 2345 sprites that are a
+    /// room's own plates, and 36 on the fifteen that are something held up in
+    /// front of one -- a phone lifted to the ear, a bottle turned over, a
+    /// newspaper being read. Those fifteen are drawn on a white field, and
+    /// index zero is the only pure white in every one of this game's palettes.
+    #[test]
+    fn a_transparent_index_drops_out_and_nothing_else_does() {
+        let mut palette = Palette::default();
+        palette.colors[0] = [255, 255, 255];
+        palette.colors[7] = [10, 20, 30];
+
+        let bmp = Bitmap {
+            width: 2,
+            height: 1,
+            pixels: vec![0, 7],
+            reg_x: 0,
+            reg_y: 0,
+            palette_ref: 0,
+        };
+
+        // Painted: both pixels opaque, the white among them.
+        let opaque = bmp.to_rgba(&palette, None);
+        assert_eq!(&opaque[0..4], &[255, 255, 255, 255]);
+        assert_eq!(&opaque[4..8], &[10, 20, 30, 255]);
+
+        // Matted: the white field goes, the phone stays.
+        let matted = bmp.to_rgba(&palette, Some(0));
+        assert_eq!(matted[3], 0, "index zero should not be painted");
+        assert_eq!(&matted[4..8], &[10, 20, 30, 255]);
+    }
+}
+
