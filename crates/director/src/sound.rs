@@ -119,3 +119,99 @@ pub fn decode(data: &[u8], endian: Endian) -> Result<Sound> {
 fn u8_to_i16(b: u8) -> i16 {
     ((b as i16) - 128) << 8
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Assembles a format-1 `snd ` whose bufferCmd points at an extended
+    /// header, so the offsets below are exercised the way the real resources
+    /// exercise them.
+    fn extended_snd(rate: u32, frames: u32, bits: u16, payload: &[u8]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&1u16.to_be_bytes()); // format
+        v.extend_from_slice(&0u16.to_be_bytes()); // modifier count
+        v.extend_from_slice(&1u16.to_be_bytes()); // command count
+        v.extend_from_slice(&0x8051u16.to_be_bytes()); // bufferCmd
+        v.extend_from_slice(&0u16.to_be_bytes()); // param1
+        let start = 14u32;
+        v.extend_from_slice(&start.to_be_bytes()); // param2: header offset
+        assert_eq!(v.len(), start as usize);
+
+        let mut h = vec![0u8; 64];
+        h[4..8].copy_from_slice(&1u32.to_be_bytes()); // channels
+        h[8..12].copy_from_slice(&(rate << 16).to_be_bytes()); // 16.16 rate
+        h[20] = 0xff; // extended encoding
+        h[22..26].copy_from_slice(&frames.to_be_bytes());
+        h[48..50].copy_from_slice(&bits.to_be_bytes());
+        v.extend_from_slice(&h);
+        v.extend_from_slice(payload);
+        v
+    }
+
+    #[test]
+    fn extended_samples_begin_at_sixty_four() {
+        // Walking the header field by field suggests +52, which pulls twelve
+        // bytes of header in as audio. Those bytes are zero, and zero in
+        // unsigned 8-bit is full-scale negative, so every sound opened with a
+        // loud click -- on an ambient loop, a thump every few seconds for as
+        // long as the player stayed in the room.
+        //
+        // Every loop in the game reported a peak of exactly 32768 and I
+        // explained that away once before believing it.
+        let snd = extended_snd(22050, 4, 8, &[0x80, 0xff, 0x00, 0x80]);
+        let out = decode(&snd, Endian::Big).expect("decodes");
+
+        assert_eq!(out.sample_rate, 22050);
+        assert_eq!(out.channels, 1);
+        assert_eq!(out.samples, vec![0, 32512, -32768, 0]);
+        assert_ne!(
+            out.samples[0], -32768,
+            "a full-scale negative first sample is the click"
+        );
+    }
+
+    #[test]
+    fn no_loop_peaks_at_exactly_full_scale_by_accident() {
+        // The signature of the misread: a run of header zeroes decoding to a
+        // string of identical full-scale samples at the head of the buffer.
+        let snd = extended_snd(22050, 8, 8, &[0x80; 8]);
+        let out = decode(&snd, Endian::Big).unwrap();
+        assert!(
+            out.samples.iter().all(|&s| s == 0),
+            "silence in must be silence out, got {:?}",
+            &out.samples[..4]
+        );
+    }
+
+    #[test]
+    fn sixteen_bit_payloads_are_read_as_pairs() {
+        let payload: Vec<u8> = [1000i16, -1000, 32767, -32768]
+            .iter()
+            .flat_map(|s| s.to_be_bytes())
+            .collect();
+        let snd = extended_snd(44100, 4, 16, &payload);
+        let out = decode(&snd, Endian::Big).unwrap();
+        assert_eq!(out.samples, vec![1000, -1000, 32767, -32768]);
+        assert_eq!(out.sample_rate, 44100);
+    }
+
+    #[test]
+    fn a_truncated_payload_yields_what_is_there_rather_than_reading_past_it() {
+        let snd = extended_snd(22050, 64, 8, &[0x80, 0x90]);
+        let out = decode(&snd, Endian::Big).unwrap();
+        assert_eq!(out.samples.len(), 2, "frame count is a claim, not a promise");
+    }
+
+    #[test]
+    fn eight_bit_conversion_is_centred_on_128() {
+        assert_eq!(u8_to_i16(128), 0);
+        assert_eq!(u8_to_i16(0), -32768);
+        assert_eq!(u8_to_i16(255), 32512);
+    }
+
+    #[test]
+    fn an_unknown_format_is_refused_rather_than_guessed() {
+        assert!(decode(&[0x00, 0x09, 0, 0], Endian::Big).is_err());
+    }
+}

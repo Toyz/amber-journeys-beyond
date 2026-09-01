@@ -184,3 +184,76 @@ impl State {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Each of these is a bug that shipped. The list operations in particular
+    // were written months apart and never checked against one another.
+
+    #[test]
+    fn trim_removes_an_item_rather_than_the_flag() {
+        // `trimState( #hauntsRemaining, #gazebo2 )` takes an item out of a
+        // list. Removing the flag named by the second argument instead left
+        // the pool untouched, so every haunt repeated for ever.
+        let mut s = State::new();
+        s.set(
+            "hauntsRemaining",
+            Value::List(vec![
+                Value::Symbol("gazebo1".into()),
+                Value::Symbol("gazebo2".into()),
+            ]),
+        );
+        s.trim_item("hauntsRemaining", &Value::Symbol("gazebo2".into()));
+        let left = s.get("hauntsRemaining");
+        let items = left.as_list().expect("still a list");
+        assert_eq!(items.len(), 1);
+        assert!(items[0].loosely_eq(&Value::Symbol("gazebo1".into())));
+    }
+
+    #[test]
+    fn add_builds_a_set_rather_than_replacing_it() {
+        // The control panel collects pressed buttons. Treating addState as a
+        // plain write left only the last button, so the puzzle had no solution.
+        let mut s = State::new();
+        s.add_item("panelGuess", Value::Symbol("A1".into()));
+        s.add_item("panelGuess", Value::Symbol("B2".into()));
+        s.add_item("panelGuess", Value::Symbol("A1".into())); // already there
+        let held = s.get("panelGuess");
+        assert_eq!(held.as_list().unwrap().len(), 2, "no duplicates, both kept");
+    }
+
+    #[test]
+    fn trim_and_add_are_inverses() {
+        let mut s = State::new();
+        s.add_item("k", Value::Symbol("x".into()));
+        s.trim_item("k", &Value::Symbol("x".into()));
+        assert!(s.get("k").as_list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn taking_an_item_sets_its_possession_flag() {
+        // Rooms hide a taken object with a plate gated on playerHas<Item>.
+        // The flag is written when the item is taken; the schema seeds all of
+        // them to zero, so it cannot be derived when read.
+        let mut s = State::new();
+        s.set("playerHasCrowbar", Value::Int(0));
+        assert_eq!(s.get("playerHasCrowbar").as_int(), Some(0));
+        s.add_inventory("Crowbar");
+        assert_eq!(s.get("playerHasCrowbar").as_int(), Some(1));
+        s.delete_inventory("crowbar"); // case-insensitive
+        assert_eq!(s.get("playerHasCrowbar").as_int(), Some(0));
+    }
+
+    #[test]
+    fn item_in_use_reads_back_as_none_when_empty() {
+        let mut s = State::new();
+        assert!(s.get("itemInUse").loosely_eq(&Value::Symbol("None".into())));
+        s.add_inventory("ScanDevice");
+        s.set("itemInUse", Value::Symbol("ScanDevice".into()));
+        assert_eq!(s.item_in_use(), Some("ScanDevice"));
+        s.stow();
+        assert!(s.get("itemInUse").loosely_eq(&Value::Symbol("None".into())));
+    }
+}

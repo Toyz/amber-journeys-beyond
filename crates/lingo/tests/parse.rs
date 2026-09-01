@@ -57,3 +57,47 @@ fn symbols_compare_case_insensitively() {
     let b = Value::Symbol("forward".into());
     assert!(a.loosely_eq(&b));
 }
+
+// The cases below are regressions. Each is a bug that shipped and was found
+// by playing the game rather than by any check, so each gets a test naming
+// what went wrong.
+
+#[test]
+fn boolean_literals_are_the_integers_guards_compare_against() {
+    // `setState( ..., #FrontDoorIsOpen, TRUE )` has to satisfy `= 1`. Parsed
+    // as a bare word it became a symbol matching neither 1 nor 0, and the
+    // door could be opened but never walked through.
+    assert_eq!(parse_value("TRUE").unwrap(), Value::Int(1));
+    assert_eq!(parse_value("FALSE").unwrap(), Value::Int(0));
+    assert_eq!(parse_value("true").unwrap(), Value::Int(1));
+    assert_eq!(parse_value("False").unwrap(), Value::Int(0));
+}
+
+#[test]
+fn property_lists_keep_repeated_keys() {
+    // A compound guard is two entries under one key. Storing them in a map
+    // drops one clause, which unlocked every locked thing in the game.
+    let v = parse_value("[#and: [#equals: [#a, 1], #equals: [#b, 2]]]").unwrap();
+    let inner = v.get("and").unwrap();
+    assert_eq!(inner.entries().len(), 2, "both clauses must survive");
+    assert_eq!(inner.get_all("equals").len(), 2);
+}
+
+#[test]
+fn integer_property_keys_parse() {
+    // A movie's event track keys cues by frame number. Rejecting these failed
+    // the whole enclosing list, which in one chapter was its entire sound bank.
+    let v = parse_value(r#"[165: 90, 167: ["assertSound #x"], 173: 120]"#).unwrap();
+    assert_eq!(v.entries().len(), 3);
+    assert_eq!(v.get("165").and_then(Value::as_int), Some(90));
+    assert!(v.get("167").unwrap().as_list().is_some());
+}
+
+#[test]
+fn first_entry_wins_for_a_repeated_key() {
+    // Lingo's own behaviour, and what `get` has to do so a guard reads the
+    // clause the authors wrote first.
+    let v = parse_value("[#k: 1, #k: 2]").unwrap();
+    assert_eq!(v.get_int("k"), Some(1));
+    assert_eq!(v.get_all("k").len(), 2);
+}

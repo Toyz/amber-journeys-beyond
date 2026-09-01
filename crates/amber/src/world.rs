@@ -575,3 +575,161 @@ fn walk_cond(cond: &Cond, out: &mut std::collections::HashSet<String>) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::State;
+    use lingo::parse_value;
+
+    fn cond(src: &str) -> Cond {
+        Cond::parse(&parse_value(src).expect("guard parses"))
+    }
+
+    fn spot(verb: Verb, bounds: Rect) -> Hotspot {
+        Hotspot {
+            verb,
+            bounds,
+            actions: vec!["goTo #somewhere".into()],
+            condition: Cond::Always,
+        }
+    }
+
+    fn room(hotspots: Vec<Hotspot>) -> Node {
+        Node {
+            index: 0,
+            name: None,
+            domain: "test".into(),
+            preload: Vec::new(),
+            sprites: Vec::new(),
+            hotspots,
+            custom_palette: None,
+            storage_cast: None,
+            ambience: HashMap::new(),
+        }
+    }
+
+    // --- guards ---------------------------------------------------------
+    // A compound guard nests two clauses under repeated keys. Reading the
+    // operand as a flat list found neither, leaving an empty `And` that was
+    // vacuously true: every locked door in the game opened.
+
+    #[test]
+    fn compound_and_reads_both_clauses() {
+        let c = cond("[#and: [#equals: [#hasKey, 1], #equals: [#doorUnlocked, 1]]]");
+        let Cond::And(parts) = &c else {
+            panic!("expected And, got {c:?}");
+        };
+        assert_eq!(parts.len(), 2, "an empty And is vacuously true");
+
+        let mut s = State::new();
+        s.set("hasKey", Value::Int(1));
+        assert!(!s.test(&c), "one clause satisfied is not enough");
+        s.set("doorUnlocked", Value::Int(1));
+        assert!(s.test(&c));
+    }
+
+    #[test]
+    fn compound_or_reads_both_clauses() {
+        let c = cond("[#or: [#equals: [#a, 1], #equals: [#b, 1]]]");
+        let Cond::Or(parts) = &c else { panic!("expected Or") };
+        assert_eq!(parts.len(), 2);
+
+        let mut s = State::new();
+        assert!(!s.test(&c), "an empty Or must not be vacuously false either");
+        s.set("b", Value::Int(1));
+        assert!(s.test(&c));
+    }
+
+    #[test]
+    fn nested_compounds_recurse() {
+        let c = cond("[#and: [#equals: [#a, 1], #or: [#equals: [#b, 1], #equals: [#c, 1]]]]");
+        let mut s = State::new();
+        s.set("a", Value::Int(1));
+        assert!(!s.test(&c));
+        s.set("c", Value::Int(1));
+        assert!(s.test(&c));
+    }
+
+    #[test]
+    fn an_unreadable_guard_opens_rather_than_seals() {
+        // A stray operator must not make a room permanently unreachable;
+        // the failure mode has to be a passable door, not a dead end.
+        assert!(matches!(cond("[#wobble: [#a, 1]]"), Cond::Always));
+        assert!(matches!(cond("[]"), Cond::Always));
+        assert!(matches!(cond("[#and: []]"), Cond::Always));
+    }
+
+    #[test]
+    fn always_is_spelled_as_an_equality() {
+        assert!(matches!(cond("[#equals: [#always, 1]]"), Cond::Always));
+    }
+
+    #[test]
+    fn includes_and_lacks_read_pools() {
+        let inc = cond("[#includes: [#hauntsRemaining, #gazebo2]]");
+        let lacks = cond("[#lacks: [#hauntsRemaining, #gazebo2]]");
+        let mut s = State::new();
+        s.set(
+            "hauntsRemaining",
+            Value::List(vec![Value::Symbol("gazebo2".into())]),
+        );
+        assert!(s.test(&inc) && !s.test(&lacks));
+        s.trim_item("hauntsRemaining", &Value::Symbol("gazebo2".into()));
+        assert!(!s.test(&inc) && s.test(&lacks));
+    }
+
+    // --- hotspot resolution ---------------------------------------------
+
+    #[test]
+    fn overlapping_exits_resolve_by_order_not_by_area() {
+        // The front porch offers two forward exits whose guards can both
+        // hold. Director takes the first. Taking the smaller sent the player
+        // into a lit house they had never turned the lights on in.
+        let dark = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
+        let lit = spot(Verb::Forward, Rect { left: 50, top: 50, right: 100, bottom: 100 });
+        let n = room(vec![dark, lit]);
+        let hit = n.hit_test(75, 75, |_| true).expect("inside both");
+        assert_eq!(hit.bounds.right, 200, "first listed wins, though it is larger");
+    }
+
+    #[test]
+    fn verb_priority_outranks_order() {
+        // An examine target drawn over a walk region should be examinable.
+        let walk = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
+        let look = spot(Verb::Examine, Rect { left: 50, top: 50, right: 100, bottom: 100 });
+        let n = room(vec![walk, look]);
+        assert_eq!(n.hit_test(75, 75, |_| true).unwrap().verb, Verb::Examine);
+        // and outside the examine box the walk region still answers
+        assert_eq!(n.hit_test(150, 150, |_| true).unwrap().verb, Verb::Forward);
+    }
+
+    #[test]
+    fn a_failing_guard_hides_its_hotspot() {
+        let mut locked = spot(Verb::Forward, Rect { left: 0, top: 0, right: 100, bottom: 100 });
+        locked.condition = Cond::Equals { key: "open".into(), value: Value::Int(1) };
+        let n = room(vec![locked]);
+        let s = State::new();
+        assert!(n.hit_test(50, 50, |c| s.test(c)).is_none());
+    }
+
+    #[test]
+    fn a_hotspot_with_no_actions_is_not_a_target() {
+        // Browse regions are usually a commented-out line. They must not
+        // swallow a click that a live region underneath would handle.
+        let mut inert = spot(Verb::Examine, Rect { left: 0, top: 0, right: 200, bottom: 200 });
+        inert.actions.clear();
+        let live = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
+        let n = room(vec![inert, live]);
+        assert_eq!(n.hit_test(50, 50, |_| true).unwrap().verb, Verb::Forward);
+    }
+
+    #[test]
+    fn a_click_outside_every_region_hits_nothing() {
+        let n = room(vec![spot(Verb::Forward, Rect { left: 0, top: 0, right: 10, bottom: 10 })]);
+        assert!(n.hit_test(500, 500, |_| true).is_none());
+        // right and bottom edges are exclusive
+        assert!(n.hit_test(10, 5, |_| true).is_none());
+        assert!(n.hit_test(9, 9, |_| true).is_some());
+    }
+}

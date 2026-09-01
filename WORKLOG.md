@@ -1518,3 +1518,58 @@ is worth saying why it is not. The blocker was named from the outside, by
 counting handlers that call `stillDown`; the digit range and the solve check
 are only visible from inside the handler. Two different unknowns, and only one
 of them was the one I had measured.
+
+## 53. Tests, chosen from the bug history
+
+helba asked for unit tests where they were needed. The useful question was not
+where coverage was thin -- it was thin everywhere, seven tests in one crate --
+but which failures had actually reached a player. The log above is a list of
+them, so I used it as the specification.
+
+Four bug classes, all in pure functions, none previously covered:
+
+  - `TRUE` parsed as a symbol rather than 1, so the front door opened and
+    could not be walked through.
+  - A compound guard read with `as_list()` found neither clause and became a
+    vacuously true `And([])`. Every locked thing in the game opened.
+  - `trimState` deleted the flag named by its second argument instead of
+    removing that item from the list the flag holds; `addState` overwrote
+    instead of accumulating. The control panel had no solution.
+  - `hit_test` broke ties by smallest area. Director takes the first match,
+    so the porch sent the player into a lit house they had never lit.
+
+That is 27 tests across `lingo`, `state` and `world`. Then the decoders, which
+is where the two bugs I am least proud of lived: the reversed palette, and the
+`snd ` samples read twelve bytes early. Both had survived checks at the time --
+the palette because both of my implementations shared the assumption and the
+frame I compared was nearly grey, the sound because all nine loops reported a
+peak of exactly 32768 and I wrote a paragraph explaining why that was fine
+rather than treating it as the alarm it was. A synthetic CLUT whose ends differ
+catches the first in one line. A synthetic extended `snd ` catches the second.
+
+Every test here was then checked by reverting the fix it guards and confirming
+it goes red. A regression test that has only ever been green is a guess about
+what the bug was; four of them proved they bite on the palette-order, guard,
+list-op and sample-offset mutations. The `trimState` mutation also took down
+`includes_and_lacks_read_pools` in `world`, which is the correct blast radius:
+the pool guards read what the list ops write.
+
+Writing them turned up one live bug. `unpack`, the PackBits decoder, clamps the
+repeat branch to the declared pixel count and does not clamp the literal
+branch:
+
+    assert_eq!(unpack(&[0x05, 1, 2, 3, 4, 5, 6], 3), vec![1, 2, 3]);
+    // left: [1, 2, 3, 4, 5, 6]
+
+A `BITD` whose final literal run overruns its declared geometry returns a
+buffer longer than width*height. Nothing had rendered visibly wrong, which is
+why it survived: the extra pixels sit past the end of the last row and the
+blitter indexes by geometry. It is still the same shape of defect as the
+sample-offset bug -- trusting a length claim from one place while reading from
+another -- and it would have sheared an image the moment anything downstream
+sized itself from the buffer instead. Clamped, with the asymmetry noted in a
+comment so the next reader sees the two branches agree.
+
+44 tests, up from 7. The point is not the number. It is that each one names a
+failure that actually happened, so the file reads as a list of things this
+engine is now known not to do.

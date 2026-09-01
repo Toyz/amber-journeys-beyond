@@ -100,7 +100,12 @@ fn unpack(src: &[u8], want: usize) -> Vec<u8> {
         if n < 0x80 {
             let count = n as usize + 1;
             let end = (p + count).min(src.len());
-            out.extend_from_slice(&src[p..end]);
+            // Clamped to the geometry the cast entry declares, as the repeat
+            // branch below already is. A final literal run that overruns the
+            // declared pixel count would otherwise grow the buffer past
+            // width*height.
+            let take = count.min(want - out.len());
+            out.extend_from_slice(&src[p..(p + take).min(end)]);
             p = end;
         } else {
             let count = 0x101 - n as usize;
@@ -142,4 +147,52 @@ pub fn decode_raw(raw: &[u8], width: u16, height: u16, stride: u16) -> Result<Ve
         pixels.extend_from_slice(&row[..width as usize]);
     }
     Ok(pixels)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // PackBits: a byte below 0x80 introduces n+1 literals, one at or above
+    // introduces 0x101-n copies of the byte that follows.
+
+    #[test]
+    fn literal_runs_copy_verbatim() {
+        assert_eq!(unpack(&[0x02, b'a', b'b', b'c'], 3), b"abc");
+    }
+
+    #[test]
+    fn repeat_runs_expand() {
+        assert_eq!(unpack(&[0xfd, b'z'], 4), b"zzzz");
+    }
+
+    #[test]
+    fn a_row_mixes_both_kinds() {
+        let src = [0x01, b'a', b'b', 0xfe, b'c', 0x00, b'd'];
+        assert_eq!(unpack(&src, 7), b"abcccd");
+    }
+
+    #[test]
+    fn output_never_exceeds_the_expected_length() {
+        // Geometry comes from the cast entry, the payload from the chunk. A
+        // disagreement must not grow the row buffer and shear the image.
+        assert_eq!(unpack(&[0x80, b'x'], 4).len(), 4);
+        assert_eq!(unpack(&[0x05, 1, 2, 3, 4, 5, 6], 3), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn truncated_input_stops_instead_of_panicking() {
+        // A literal run promising more bytes than the chunk holds, and a
+        // repeat run whose value byte was cut off.
+        assert_eq!(unpack(&[0x7f, b'a'], 128), b"a");
+        assert_eq!(unpack(&[0xfd], 4), b"");
+        assert_eq!(unpack(&[], 16), b"");
+    }
+
+    #[test]
+    fn a_run_of_one_is_the_boundary_case() {
+        // 0x80 is 0x101-0x80 = 129 copies, not zero; 0x7f is 128 literals.
+        assert_eq!(unpack(&[0x80, b'q'], 200).len(), 129);
+        assert_eq!(unpack(&[0xff, b'q'], 200), b"qq");
+    }
 }
