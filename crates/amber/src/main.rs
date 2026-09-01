@@ -688,6 +688,11 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path, force: &[String]) -> Res {
         println!("  movie {} did not load", game.video().unwrap_or_default());
     }
     game.draw(&mut frame, W, H);
+    // The bar too. The window draws it over the stage and this did not, so a
+    // headless render answered a slightly different question than the one the
+    // player is looking at -- which is how the portal's trouble stayed
+    // invisible here while being the first thing on screen there.
+    game.draw_inventory(&mut frame, W, H);
 
     // The framebuffer is BGRA-in-a-u32; the writer wants straight RGBA bytes.
     let mut rgba = Vec::with_capacity(frame.len() * 4);

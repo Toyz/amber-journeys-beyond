@@ -4598,3 +4598,32 @@ wants: doubling a 160 by 120 film with anything smoother invents detail the
 original never had.
 
 245 tests.
+
+## 110. Making the screenshot answer the same question as the window
+
+helba sent a picture of the portal with a tall white panel over the left of the
+stage, black inside, a red line down one edge. Nothing like it appears in any
+headless render of that room, in any montage state.
+
+Because `shot` did not draw the inventory bar. The window composes the stage
+and then draws the bar over it; `shot` only did the first half, so for the
+whole life of this tool a screenshot has been answering a slightly different
+question than the one the player is looking at. It draws the bar now.
+
+That did not produce helba's panel either -- but it did show something else
+wrong. An item in hand renders as a small dark shape with yellow and green
+edges where there should be a scanner: a palette fault, plainly, and
+reproducible from the terminal.
+
+The icon table is read once from whichever chapter yields one, and the comment
+above that code says it is the same in every chapter. It is not: only Roxy's
+movie carries it. The numbers in it are therefore Roxy's cast numbers, and
+`draw_inventory` resolves them against **whichever chapter the player is
+currently in** -- so an icon is right in Roxy's rooms and is some other
+member entirely everywhere else.
+
+That is not what is wrong in Roxy's own portal, where the render is still off,
+so there is a second fault in the same few lines and I have not found it yet.
+
+I have stopped guessing at helba's state. The recorder from entry 64 exists for
+exactly this and I have not once asked for a recording.
