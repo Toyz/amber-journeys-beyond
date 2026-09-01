@@ -60,6 +60,17 @@ pub enum Effect {
     SpriteCastNamed { channel: u8, name: String },
     /// Point a channel at one of an inventory item's icons, by position.
     SpriteCastIcon { channel: u8, item: String, index: usize },
+    /// Move the player, in timeline order.
+    ///
+    /// `Outcome::destination` moves before any of a handler's effects run,
+    /// which is right for a click on an exit and wrong for a scripted
+    /// sequence: Margaret's opening plays a film, *then* fades to the room
+    /// where her body is, then steps a montage over the top. Expressing that
+    /// move as an effect is the same reasoning as `SetState` below.
+    GoToRoom {
+        room: String,
+        transition: Option<String>,
+    },
     /// Write a flag in timeline order, for a value that must land between two
     /// waits rather than when the handler ran.
     SetState { key: String, value: Value },

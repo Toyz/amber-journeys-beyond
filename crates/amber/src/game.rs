@@ -202,6 +202,14 @@ impl Game {
             .or_else(|| self.world.domains.get(domain).map(|(s, _)| *s));
         if let Some(t) = target {
             self.move_to(t);
+            // Director runs `exitFrame` as each frame ends, and a chapter's
+            // opening sequence lives inside it. This engine has no score, so
+            // the chapter's own frame script is offered the room once, here.
+            // Only handlers that recognise the room do anything.
+            let mut outcome = crate::script::Outcome::default();
+            if crate::natives::call("exitframe", &[], &mut self.state, &mut outcome) {
+                self.apply(&outcome);
+            }
         }
     }
 
@@ -706,6 +714,26 @@ impl Game {
             }
             Effect::TrimState { key, item } => {
                 self.state.trim_item(key, item);
+            }
+            Effect::GoToRoom { room, transition } => {
+                if let Some(kind) = transition {
+                    self.transition = Some(kind.clone());
+                }
+                let from = self.node().domain.clone();
+                match self.world.resolve(room, Some(&from)) {
+                    Some(next) => {
+                        trace!(crate::trace::Topic::Room, "scripted move to {room}");
+                        if next != self.room {
+                            self.history.push(self.room);
+                        }
+                        self.move_to(next);
+                        self.start_room_video();
+                    }
+                    None => trace!(
+                        crate::trace::Topic::Room,
+                        "scripted move names {room}, which is not a room"
+                    ),
+                }
             }
             Effect::SetTransition { kind } => {
                 trace!(crate::trace::Topic::Room, "transition armed: {kind}");

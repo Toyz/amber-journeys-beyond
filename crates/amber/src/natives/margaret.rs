@@ -256,6 +256,96 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on exitFrame                                    -- the frame script
+        //   repeat with i = 1 to 48: puppetSprite i, 1
+        //   moveToLocation( oPuppeteer )
+        //   gStaticFrame = 0
+        //   gStaticWhere = getState( #tunedIn )
+        //   if getState( #currentLocation ) = #bedrm_fadeIn then
+        //     cursorOff
+        //     fadeOutTransit
+        //     setaProp( oStoryteller.states, #soundChannels,
+        //       [ 1: [#sndType: #virtualLoop, #sndName: #BRradio, #volume: 0],
+        //         2: [#sndType: #loop,        #sndName: #BRclock, #volume: 0],
+        //         3: [#sndType: #None,        #sndName: #None,    #volume: 0],
+        //         4: [#sndType: #None,        #sndName: #None,    #volume: 0] ] )
+        //     restoreSounds
+        //     setState( #showMontage, 1 )
+        //     goTo( #bedrm_margaret, #fadeIn )
+        //     setState( #showMontage, 2 ) : setTransition( #fadeIn ) : updateDisplay : wait 45
+        //     setState( #showMontage, 3 ) : setTransition( #fadeIn ) : updateDisplay : wait 45
+        //     setState( #showMontage, 4 ) : setTransition( #fadeIn ) : updateDisplay : wait 60
+        //     setState( #showMontage, 0 ) : setTransition( #fadeIn ) : updateDisplay
+        //     fadeUpRadio( #None, 1 )
+        //     wait 20
+        //     assertSound #awful
+        //
+        // Margaret's chapter opening, and the thing that was missing.
+        //
+        // It is a *frame script* -- Director runs `exitFrame` as each frame
+        // ends -- which is why searching the verbs for an opening handler
+        // found nothing. Entry 78 looked at `startMovie` and `enterFrame` and
+        // concluded there was none. `exitFrame` is the one that matters, and
+        // every chapter has one: Roxy's carries the scan unit's countdown.
+        //
+        // This engine has no score and no frames, so only the `#bedrm_fadeIn`
+        // branch is ported and it is run once, when the chapter is entered,
+        // rather than every frame. The rest of the handler is `moveToLocation`
+        // and static bookkeeping that this engine's own loop already does.
+        //
+        // The sequence: the 1940s film plays out, the stage fades, the bedroom
+        // radio and clock are set up silent, and the player is put in
+        // `bedrm_margaret` -- the room with her body -- while the montage
+        // steps 1, 2, 3, 4 and back to 0 over the top of it. Then the radio
+        // comes up and she says `#awful`.
+        //
+        // The `#volume: 0` on both loops is not a mistake to be corrected:
+        // `fadeUpRadio` at the end is what brings them in.
+        "exitframe" => {
+            if state.get("currentLocation").as_symbol() != Some("bedrm_fadeIn") {
+                return true;
+            }
+            // The opening film first; everything below is what happens after.
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::CursorOff);
+
+            out.effects.push(Effect::StartLoop {
+                name: "BRradio".into(),
+                volume: Some(0),
+            });
+            out.effects.push(Effect::StartLoop {
+                name: "BRclock".into(),
+                volume: Some(0),
+            });
+            out.effects.push(Effect::RestoreSounds { fade: false });
+
+            out.effects.push(Effect::SetState {
+                key: "showMontage".into(),
+                value: Value::Int(1),
+            });
+            out.effects.push(Effect::GoToRoom {
+                room: "bedrm_margaret".into(),
+                transition: Some("fadeIn".into()),
+            });
+            // Each step fades in and holds; the last drops the montage and
+            // leaves the room underneath it on screen.
+            for (step, hold) in [(2, 45), (3, 45), (4, 60)] {
+                out.effects.push(Effect::FadeToMontage(step));
+                out.effects.push(Effect::WaitTicks(hold));
+            }
+            out.effects.push(Effect::FadeToMontage(0));
+
+            out.effects.push(Effect::StartLoop {
+                name: "BRradio".into(),
+                volume: Some(255),
+            });
+            out.effects.push(Effect::WaitTicks(20));
+            out.effects.push(Effect::PlaySound {
+                name: "awful".into(),
+                loudness: None,
+            });
+        }
+
         // on initRadioDial
         //   gStaticMarkers = [ #bedroomWarm: [0, 4, 8], #bedroomCool: [12, 16, 20],
         //                      #diningRmWarm: [48, 52, 56], #diningRmCool: [60, 64, 68],
@@ -847,5 +937,74 @@ mod box_tests {
         let mut out = Outcome::default();
         assert!(call("backawayfromradio", &[], &mut s, &mut out));
         assert!(stopped(&out).is_empty());
+    }
+
+    // -- the chapter opening ------------------------------------------------
+
+    fn opening() -> (State, Outcome) {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all("currentLocation", vec![Value::Symbol("bedrm_fadeIn".into())]);
+        let mut out = Outcome::default();
+        assert!(call("exitframe", &[], &mut s, &mut out));
+        (s, out)
+    }
+
+    #[test]
+    fn the_opening_waits_for_its_film_before_anything_else() {
+        let (_, out) = opening();
+        assert!(matches!(out.effects.first(), Some(Effect::WaitForVideo)));
+    }
+
+    #[test]
+    fn and_then_puts_the_player_where_the_body_is() {
+        let (_, out) = opening();
+        let moved = out.effects.iter().find_map(|e| match e {
+            Effect::GoToRoom { room, transition } => Some((room.clone(), transition.clone())),
+            _ => None,
+        });
+        assert_eq!(
+            moved,
+            Some(("bedrm_margaret".to_string(), Some("fadeIn".to_string())))
+        );
+    }
+
+    #[test]
+    fn the_montage_steps_up_and_then_clears() {
+        let (_, out) = opening();
+        let steps: Vec<i32> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::FadeToMontage(n) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        // One is set before the move, so it arrives as a plain state write.
+        assert_eq!(steps, [2, 3, 4, 0]);
+    }
+
+    #[test]
+    fn the_bedroom_loops_start_silent_and_are_brought_up_after() {
+        let (_, out) = opening();
+        let radio: Vec<Option<i32>> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::StartLoop { name, volume } if name == "BRradio" => Some(*volume),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(radio, [Some(0), Some(255)]);
+    }
+
+    #[test]
+    fn and_nothing_happens_anywhere_else() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all("currentLocation", vec![Value::Symbol("bedrm_A1".into())]);
+        let mut out = Outcome::default();
+        assert!(call("exitframe", &[], &mut s, &mut out));
+        assert!(out.effects.is_empty());
     }
 }

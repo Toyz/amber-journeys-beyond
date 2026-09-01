@@ -3540,3 +3540,83 @@ The Mac is not simply better. It carries 183 sound files to the PC's 325 and 71
 of its sound symbols name a file that is not on the disc, because the Mac keeps
 most of its audio inside the movie resources. For films the Mac is the complete
 release; for sounds the PC is.
+
+## 90. `on exitFrame`
+
+Margaret's chapter opening was never a missing film. It was a missing
+*handler*, and I had walked past it.
+
+```text
+on exitFrame
+  repeat with i = 1 to 48: puppetSprite i, 1
+  moveToLocation( oPuppeteer )
+  gStaticWhere = getState( #tunedIn )
+  if getState( #currentLocation ) = #bedrm_fadeIn then
+    cursorOff
+    fadeOutTransit
+    setaProp( oStoryteller.states, #soundChannels,
+      [ 1: [#sndType: #virtualLoop, #sndName: #BRradio, #volume: 0],
+        2: [#sndType: #loop,        #sndName: #BRclock, #volume: 0], ... ] )
+    restoreSounds
+    setState( #showMontage, 1 )
+    goTo( #bedrm_margaret, #fadeIn )
+    setState( #showMontage, 2 ) : setTransition( #fadeIn ) : updateDisplay : wait 45
+    setState( #showMontage, 3 ) : setTransition( #fadeIn ) : updateDisplay : wait 45
+    setState( #showMontage, 4 ) : setTransition( #fadeIn ) : updateDisplay : wait 60
+    setState( #showMontage, 0 ) : setTransition( #fadeIn ) : updateDisplay
+    fadeUpRadio( #None, 1 )
+    wait 20
+    assertSound #awful
+```
+
+The film plays, the stage fades, the bedroom radio and clock are laid in
+silent, and the player is put down in `bedrm_margaret` -- whose art is called
+`BR-MARG'S BODY` -- while the montage steps 1, 2, 3, 4 and back to 0 over the
+top of it. Then the radio comes up and Margaret says `#awful`.
+
+`exitFrame` is a **frame script**: Director runs it as each frame ends. That is
+why entry 78, which went looking through the verbs for an opening handler,
+found `startMovie` setting a cursor and `enterFrame` doing debug output and
+concluded there was nothing. I checked two of the three frame events and
+stopped.
+
+helba said, at the time: *"what if it's not a playable room? what if its a
+segment of the room where missing like in the lingo code it's self a funciton
+we never ported/flow"*. That is precisely what it was, said plainly, and I went
+and rendered 154 rooms instead.
+
+Every chapter has an `exitFrame`. Roxy's carries the scan unit's countdown --
+its locals are `scanStatus` and `minutesRemaining` -- which is another thing
+helba has reported as not working. Edwin's and Brice's are one line.
+
+This engine has no score and no frames, so only the `#bedrm_fadeIn` branch is
+ported, run once when the chapter is entered rather than every frame. The rest
+of the handler is `moveToLocation` and static bookkeeping this engine's loop
+already does. That divergence is written into the comment above the handler
+rather than left for someone to discover.
+
+### `Effect::GoToRoom`
+
+One new effect. `Outcome::destination` moves the player *before* any of a
+handler's effects run, which is right for clicking an exit and wrong for a
+scripted sequence: this one has to play a film, then fade, then move. So the
+move became an effect, for the same reason `SetState` did in entry 71 -- if it
+has to land between two waits, it belongs in the timeline and not in the
+handler's return value.
+
+The effect-coverage test from entry 84 is already carrying its weight: it would
+have failed the moment I added the variant without an arm to apply it.
+
+```text
+> MARGARET
+  sound: loop BRradio at 0
+  sound: loop BRclock at 0
+  sound: loop BRradio at 255
+  sound: play awful
+
+MARGARET / bedrm_margaret   [BR-MARG'S BODY]
+```
+
+196 tests. Four of helba's reports closed in one afternoon, and not one of them
+was a bug in the engine's own logic: three were films the PC disc does not
+carry, and this one was a handler I did not read.
