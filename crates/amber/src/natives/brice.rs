@@ -69,6 +69,43 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on toggleTrapDoor
+        //   doorIsOpen = getState(oStoryteller, #trapDoorIsOpen)
+        //   if doorIsOpen then
+        //     setState(oStoryteller, #trapDoorIsOpen, 0) : soundEffect #closeTrap
+        //   else
+        //     setState(oStoryteller, #trapDoorIsOpen, 1) : soundEffect #openTrap
+        "toggletrapdoor" => {
+            let open = state.get("trapDoorIsOpen").truthy();
+            state.set("trapDoorIsOpen", Value::Int(!open as i32));
+            out.effects.push(Effect::PlaySound {
+                name: if open { "closeTrap" } else { "openTrap" }.into(),
+                loudness: None,
+            });
+        }
+
+        // on testClosetLock
+        //   if getState(#gazFlag) = #flying then
+        //     if getState(#closetDoorIsOpen) = #ajar then
+        //       goTo #Basement_closet, #backOff
+        //
+        // The closet only opens once the weathervane is flying and the door
+        // has been worked loose; otherwise the click does nothing.
+        "testclosetlock" => {
+            let flying = state
+                .get("gazFlag")
+                .as_str()
+                .is_some_and(|v| v.eq_ignore_ascii_case("flying"));
+            let ajar = state
+                .get("closetDoorIsOpen")
+                .as_str()
+                .is_some_and(|v| v.eq_ignore_ascii_case("ajar"));
+            if flying && ajar {
+                out.destination = Some("Basement_closet".into());
+                out.transition = Some("backOff".into());
+            }
+        }
+
         _ => return false,
     }
     true

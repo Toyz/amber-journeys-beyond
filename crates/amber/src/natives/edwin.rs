@@ -209,6 +209,30 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             });
         }
 
+        // on leaveWhirligig
+        //   set the visible of sprite 44 = 1
+        //   puppetSprite 45, 0
+        //   puppetSprite 44, 0
+        //   enableGust
+        //   enableSongs
+        //
+        // Stepping away from the whirligig: show the plate again, hand both
+        // channels back to the score, and let the wind and the carols resume.
+        "leavewhirligig" => {
+            out.effects.push(Effect::SpriteVisible {
+                channel: 44,
+                visible: true,
+            });
+            for channel in [45, 44] {
+                out.effects.push(Effect::PuppetSprite {
+                    channel,
+                    on: false,
+                });
+            }
+            state.set("gustEnabled", Value::Int(1));
+            state.set("carolsEnabled", Value::Int(1));
+        }
+
         _ => return false,
     }
     true
