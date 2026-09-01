@@ -1240,3 +1240,32 @@ It is not ported yet. The cast it points at comes from `getProp(oPuppeteer,
 though the value is sitting in the chapter's `foreground.DATA` config, which
 lists `#doorStatic` among the presentation cast numbers. That table is the
 next piece, and it is a lookup rather than a question.
+
+## 43. The presentation table, and a port that did not use it
+
+Handlers reach for cast members by name - `getProp(oPuppeteer, #doorStatic)` -
+and each chapter's `foreground.DATA` holds the answer. The table is now
+loaded per chapter and checked against the config it came from: Margaret's
+`doorStatic` resolves to 1075, Roxy's `Headgear` to 973, and Edwin's and
+Brice's credit screens to 1056 and 727.
+
+With it, `newDoorStatic` is ported: claim channel 45, point it at the static
+loop, prepare it hidden, start the looping static, duck the ambience and run
+the movie over it. Seven call sites.
+
+I nearly shipped it broken. The first version claimed the channel and never
+set its cast, so the plate would have been claimed and empty - the whole
+point of building the table, skipped in the handler the table was built for.
+The cause was structural rather than careless: `natives::call` takes the state
+and the outcome, not the game, and the table hangs off the game, so the
+lookup simply was not reachable from where I was writing.
+
+Reaching through would have meant handing every handler the whole game. The
+effect carries the name instead and the game resolves it when applying, which
+keeps handlers to state and effects and puts the chapter's table where the
+chapter's data already is.
+
+Worth noticing that the missing lookup did not fail. It compiled, the tests
+passed, the handler count fell by seven, and every number I habitually check
+said the work was done. What caught it was rereading the port next to the
+disassembly it claimed to implement.

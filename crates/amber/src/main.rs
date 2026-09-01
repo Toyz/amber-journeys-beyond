@@ -12,6 +12,7 @@ mod locations;
 mod media;
 mod natives;
 mod player;
+mod presentation;
 mod render;
 mod schema;
 mod walk;
@@ -215,6 +216,22 @@ fn cmd_info(dir: &Path) -> Res {
         let missing = game.sounds.missing();
         if !missing.is_empty() {
             println!("  {} symbols name a file not on the disc", missing.len());
+        }
+    }
+
+    // The presentation table is what handlers reach for by name; a chapter
+    // whose table did not parse would show as zero here rather than failing.
+    {
+        let mut g = game::Game::new(dir)?;
+        for (domain, probe) in [("MARGARET", "doorStatic"), ("ROXY", "Headgear"),
+                                ("EDWIN", "creditScreen"), ("BRICE", "creditScreen")] {
+            if let Some(&(start, _)) = g.world.domains.get(domain) {
+                g.room = start;
+                println!(
+                    "  presentation {domain:<9} {probe} -> {:?}",
+                    g.presentation_cast(probe)
+                );
+            }
         }
     }
 

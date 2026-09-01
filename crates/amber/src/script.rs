@@ -46,6 +46,12 @@ pub enum Effect {
     SpriteCast { channel: u8, cast: u32 },
     /// Move a script-controlled channel.
     SpriteLoc { channel: u8, x: i32, y: i32 },
+    /// Show or hide a script-controlled channel.
+    SpriteVisible { channel: u8, visible: bool },
+    /// Point a channel at a cast the chapter names rather than numbers, as
+    /// `getProp(oPuppeteer, #doorStatic)` does. Resolved when applied, since
+    /// the table belongs to the chapter and handlers do not carry one.
+    SpriteCastNamed { channel: u8, name: String },
     /// A puzzle or set-piece handler that still lives in Director bytecode.
     Native { name: String, args: Vec<Value> },
 }

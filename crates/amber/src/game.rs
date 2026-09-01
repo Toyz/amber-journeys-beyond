@@ -14,6 +14,7 @@ use lingo::Rect;
 
 use crate::inventory::Inventory;
 use crate::media::MovieIndex;
+use crate::presentation::Presentation;
 use crate::player::VideoPlayer;
 use crate::schema::Schema;
 use crate::sound::{self, SoundBank, Source};
@@ -62,6 +63,8 @@ pub struct Game {
     movies: MovieIndex,
     pub sounds: SoundBank,
     pub inventory: Inventory,
+    /// Per chapter, the cast members its handlers name rather than number.
+    presentation: HashMap<String, Presentation>,
     /// The radio or clock programme currently running, if any.
     program: Option<Program>,
     /// Decoded sounds, keyed by symbol. Effects fire repeatedly, so decoding
@@ -93,6 +96,7 @@ impl Game {
             movies: MovieIndex::build(root),
             sounds: SoundBank::new(root),
             inventory: Inventory::from_texts(&[]),
+            presentation: HashMap::new(),
             program: None,
             pcm_cache: HashMap::new(),
             pcm_meta: HashMap::new(),
@@ -109,6 +113,8 @@ impl Game {
                 if game.inventory.is_empty() {
                     game.inventory = Inventory::from_texts(&texts);
                 }
+                game.presentation
+                    .insert(domain.clone(), Presentation::from_texts(&texts));
             }
         }
         game.enter_chapter(Self::FIRST_CHAPTER);
@@ -320,6 +326,14 @@ impl Game {
                 let p = self.puppets.entry(*channel).or_default();
                 p.loc = Some((*x, *y));
             }
+            Effect::SpriteCastNamed { channel, name } => {
+                if let Some(cast) = self.presentation_cast(name) {
+                    self.puppets.entry(*channel).or_default().cast = cast;
+                }
+            }
+            Effect::SpriteVisible { channel, visible } => {
+                self.puppets.entry(*channel).or_default().hidden = !*visible;
+            }
             _ => return false,
         }
         true
@@ -396,7 +410,7 @@ impl Game {
         let puppets: Vec<(u8, Puppet)> =
             self.puppets.iter().map(|(k, v)| (*k, *v)).collect();
         for (_, puppet) in puppets {
-            if puppet.cast == 0 {
+            if puppet.cast == 0 || puppet.hidden {
                 continue;
             }
             let Some(art) = self.art(&domain, puppet.cast) else {
@@ -653,6 +667,14 @@ impl Game {
         out
     }
 
+    /// A cast member the current chapter names, as the original reads it off
+    /// the puppeteer with `getProp(oPuppeteer, #name)`.
+    pub fn presentation_cast(&self, name: &str) -> Option<u32> {
+        self.presentation
+            .get(&self.node().domain)
+            .and_then(|p| p.cast(name))
+    }
+
     /// Whether a cast member in the current room's chapter decodes to art.
     pub fn has_art(&mut self, cast: u32) -> bool {
         let domain = self.node().domain.clone();
@@ -842,6 +864,8 @@ fn merge(into: &mut Outcome, from: Outcome) {
 struct Puppet {
     /// Cast member to draw; zero means the channel is claimed but empty.
     cast: u32,
+    /// A claimed channel can be prepared while hidden and shown later.
+    hidden: bool,
     /// Where the sprite's registration point sits, if the script set it.
     loc: Option<(i32, i32)>,
 }
