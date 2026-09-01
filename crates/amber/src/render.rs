@@ -36,13 +36,32 @@ fn cursor_hint(verb: Verb) -> &'static str {
 pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let mut game = Game::new(root)?;
     if let Some(name) = start {
-        match game.world.resolve(name, None) {
-            Some(i) => game.room = i,
-            None => eprintln!("warning: no room named {name}, starting at the default"),
+        // A chapter name goes to that chapter's own opening, which is what
+        // anyone typing `play <dir> MARGARET` means. A room name goes to the
+        // room. Either way the chapter is seeded first: jumping straight to a
+        // room in another chapter used to leave its flags unwritten, so every
+        // guard there read against a void and the room came up wrong.
+        let chapter = game
+            .world
+            .domains
+            .keys()
+            .find(|d| d.eq_ignore_ascii_case(name))
+            .cloned();
+        match chapter {
+            Some(domain) => game.enter_chapter(&domain),
+            None => match game.world.resolve(name, None) {
+                Some(i) => {
+                    let domain = game.world.nodes[i].domain.clone();
+                    game.seed_chapter(&domain);
+                    game.jump_to(i);
+                }
+                None => eprintln!(
+                    "warning: {name} is neither a room nor a chapter ({}), \
+                     starting at the default",
+                    game.world.domains.keys().cloned().collect::<Vec<_>>().join(", ")
+                ),
+            },
         }
-    }
-
-    if start.is_some() {
         game.start_room_video();
     }
 

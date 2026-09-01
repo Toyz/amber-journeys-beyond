@@ -472,9 +472,12 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                         trace!(crate::trace::Topic::Script, "{setter}({value:?})");
                     } else {
                         if custom {
+                            // Not every single-valued flag has a setter: the
+                            // game defines about half of them, and for the
+                            // rest the plain write is the whole behaviour.
                             trace!(
                                 crate::trace::Topic::Script,
-                                "{setter} not ported, writing {key} directly"
+                                "no {setter} ran, writing {key} directly"
                             );
                         }
                         state.set(&key, value);

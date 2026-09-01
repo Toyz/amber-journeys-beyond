@@ -192,6 +192,19 @@ fn step(game: &mut Game, cmd: &str) -> Result<(), String> {
         return Ok(());
     }
 
+    // A chapter name goes to that chapter's opening, the same as `play`.
+    if let Some(domain) = game
+        .world
+        .domains
+        .keys()
+        .find(|d| d.eq_ignore_ascii_case(cmd))
+        .cloned()
+    {
+        game.enter_chapter(&domain);
+        game.start_room_video();
+        return Ok(());
+    }
+
     // Otherwise treat it as a room name.
     let from = game.node().domain.clone();
     match game.world.resolve(cmd, Some(&from)) {

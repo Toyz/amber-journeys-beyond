@@ -43,7 +43,7 @@ commands:
   cast      <dir> <movie.dxr>  list a movie's cast members
   export    <dir> <movie.dxr> <cast#> <out.png>
                                decode one bitmap cast member
-  play      <dir> [room] [--record <file>]
+  play      <dir> [room|chapter] [--record <file>]
                                open the game window
   shot      <dir> <room> <out.png>
                                render one room headlessly

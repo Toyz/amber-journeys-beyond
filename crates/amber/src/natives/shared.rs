@@ -49,6 +49,161 @@ const OPENABLE: &[(&str, &str, &str, &str)] = &[
     ("ROXY", "setstudydrawerisopen", "drawerOpen", "drawerClose"),
 ];
 
+/// A group of things that open the same way, and the sounds they make.
+struct Parts {
+    members: &'static [&'static str],
+    open_cue: &'static str,
+    close_cue: &'static str,
+    /// Whether this can be opened while something else already is. The kitchen
+    /// bin can: it is not a cupboard door and does not have to wait for one to
+    /// shut.
+    opens_regardless: bool,
+}
+
+/// The cabinets whose flag holds *which* door is open rather than whether one
+/// is.
+///
+/// A kitchen cabinet is not a boolean. `#kitchenCabinetIsOpen` holds
+/// `#upperLeft`, `#drawer`, `#trashCan`, `#None` and so on, and the sound
+/// depends on which: seven cupboard doors share one cue, the cutlery drawer
+/// has its own, and the bin has its own again.
+///
+/// The asymmetry in the bin is real and deliberate. It *closes* with the
+/// cupboard sound and *opens* with the drawer one, and it is the only member
+/// that opens while another is still open. Reproducing that is the point --
+/// a tidier port would sound wrong in a way nobody could name.
+const ONE_OF_MANY: &[(&str, &str, &[Parts])] = &[
+    (
+        "ROXY",
+        "setkitchencabinetisopen",
+        &[
+            Parts {
+                members: &[
+                    "upperLeft",
+                    "upperMiddle",
+                    "upperRight",
+                    "lowerLeft",
+                    "lowerMiddle",
+                    "lowerRight",
+                    "cupboard",
+                ],
+                open_cue: "cabinetOpen",
+                close_cue: "cabinetClose",
+                opens_regardless: false,
+            },
+            Parts {
+                members: &["trashCan"],
+                open_cue: "drawerOpen",
+                close_cue: "cabinetClose",
+                opens_regardless: true,
+            },
+            Parts {
+                members: &["drawer"],
+                open_cue: "drawerOpen",
+                close_cue: "drawerClose",
+                opens_regardless: false,
+            },
+            Parts {
+                members: &["silverDrawer"],
+                open_cue: "silverDrawerOpen",
+                close_cue: "silverDrawerClose",
+                opens_regardless: false,
+            },
+        ],
+    ),
+    (
+        "ROXY",
+        "setbedrmcabinetisopen",
+        &[
+            Parts {
+                members: &["bureau1", "bureau2", "bureau3", "leftTable", "rightTable"],
+                open_cue: "drawerOpen",
+                close_cue: "drawerClose",
+                opens_regardless: false,
+            },
+            Parts {
+                members: &["armoire"],
+                open_cue: "cabinetOpen",
+                close_cue: "cabinetClose",
+                opens_regardless: false,
+            },
+            Parts {
+                members: &["closet"],
+                open_cue: "doorOpen",
+                close_cue: "doorClose",
+                opens_regardless: false,
+            },
+        ],
+    ),
+];
+
+/// The shared body of the cabinets above.
+///
+///   on set<X>IsOpen suggestion
+///     currentState = getState( #X )
+///     if suggestion = #None and currentState <> #None then
+///       cue for whichever group currentState is in, closing
+///       setProp( ..., #X, list(suggestion) ) : updateDisplay
+///     if suggestion <> #None and currentState = #None then
+///       cue for whichever group suggestion is in, opening
+///       setProp( ..., #X, list(suggestion) ) : updateDisplay
+///     if suggestion = #trashCan then
+///       cue( #drawerOpen ) : setProp( ... ) : updateDisplay
+///
+/// The third arm has no guard on the current state, which is what lets the bin
+/// open over an open cupboard. Everything else waits its turn.
+fn one_of_many(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
+    let chapter = state.get("gChapter");
+    let chapter = chapter.as_str().unwrap_or_default();
+    let Some(&(_, _, groups)) = ONE_OF_MANY
+        .iter()
+        .find(|(c, h, _)| *h == name && c.eq_ignore_ascii_case(chapter))
+    else {
+        return false;
+    };
+
+    let flag = &name[3..];
+    let Some(asked) = args
+        .first()
+        .and_then(Value::as_str)
+        .map(|v| v.trim_start_matches('#').to_string())
+    else {
+        return true;
+    };
+    let held = state.get(flag);
+    let current = held.as_str().unwrap_or("None").trim_start_matches('#');
+    let is_none = |v: &str| v.eq_ignore_ascii_case("None");
+    let group_of = |member: &str| {
+        groups
+            .iter()
+            .find(|g| g.members.iter().any(|m| m.eq_ignore_ascii_case(member)))
+    };
+
+    let cue = if is_none(&asked) && !is_none(current) {
+        group_of(current).map(|g| g.close_cue)
+    } else if !is_none(&asked) && is_none(current) {
+        group_of(&asked).map(|g| g.open_cue)
+    } else if group_of(&asked).is_some_and(|g| g.opens_regardless) {
+        group_of(&asked).map(|g| g.open_cue)
+    } else {
+        // Asking for a door while another is open, and this one has to wait.
+        return true;
+    };
+    let Some(cue) = cue else {
+        // Not one of this cabinet's parts, which the original treats as a
+        // write it does not recognise and leaves alone.
+        return true;
+    };
+
+    out.effects.push(Effect::PlaySound {
+        name: cue.into(),
+        loudness: None,
+    });
+    state.set_all(flag, vec![Value::Symbol(asked)]);
+    out.redraw = true;
+    true
+}
+
 /// The shared body of the twenty-five openable setters.
 ///
 ///   on set<X>IsOpen suggestion
@@ -99,7 +254,7 @@ fn openable(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
 
 /// Runs a handler from this chapter, or reports that it is not one of ours.
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
-    if openable(name, args, state, out) {
+    if openable(name, args, state, out) || one_of_many(name, args, state, out) {
         return true;
     }
     // Arguments and effects are unused by some chapters until more handlers
@@ -223,5 +378,102 @@ mod tests {
             &mut state,
             &mut out
         ));
+    }
+}
+
+#[cfg(test)]
+mod cabinet_tests {
+    use super::*;
+
+    fn kitchen(open: &str) -> State {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        state.set_all("kitchenCabinetIsOpen", vec![Value::Symbol(open.into())]);
+        state
+    }
+
+    fn ask(state: &mut State, handler: &str, part: &str) -> Vec<String> {
+        let mut out = Outcome::default();
+        assert!(call(handler, &[Value::Symbol(part.into())], state, &mut out));
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn each_part_of_the_cabinet_sounds_like_itself() {
+        for (part, cue) in [
+            ("upperLeft", "cabinetOpen"),
+            ("cupboard", "cabinetOpen"),
+            ("drawer", "drawerOpen"),
+            ("silverDrawer", "silverDrawerOpen"),
+        ] {
+            let mut s = kitchen("None");
+            assert_eq!(ask(&mut s, "setkitchencabinetisopen", part), [cue], "{part}");
+        }
+    }
+
+    #[test]
+    fn the_bin_closes_like_a_cupboard_and_opens_like_a_drawer() {
+        // Not tidy, and not a mistake: it is what the disc does.
+        let mut s = kitchen("None");
+        assert_eq!(ask(&mut s, "setkitchencabinetisopen", "trashCan"), ["drawerOpen"]);
+        let mut s = kitchen("trashCan");
+        assert_eq!(ask(&mut s, "setkitchencabinetisopen", "None"), ["cabinetClose"]);
+    }
+
+    #[test]
+    fn the_bin_opens_over_an_open_cupboard_and_nothing_else_does() {
+        let mut s = kitchen("upperLeft");
+        assert_eq!(ask(&mut s, "setkitchencabinetisopen", "trashCan"), ["drawerOpen"]);
+        assert!(s
+            .get("kitchenCabinetIsOpen")
+            .as_str()
+            .is_some_and(|v| v == "trashCan"));
+
+        // A second cupboard door has to wait for the first to shut.
+        let mut s = kitchen("upperLeft");
+        assert!(ask(&mut s, "setkitchencabinetisopen", "lowerRight").is_empty());
+        assert!(s
+            .get("kitchenCabinetIsOpen")
+            .as_str()
+            .is_some_and(|v| v == "upperLeft"));
+    }
+
+    #[test]
+    fn closing_sounds_like_whatever_was_open() {
+        let mut s = kitchen("drawer");
+        assert_eq!(ask(&mut s, "setkitchencabinetisopen", "None"), ["drawerClose"]);
+        let mut s = kitchen("cupboard");
+        assert_eq!(ask(&mut s, "setkitchencabinetisopen", "None"), ["cabinetClose"]);
+    }
+
+    #[test]
+    fn the_bedroom_has_drawers_an_armoire_and_a_closet() {
+        let mut state = State::new();
+        state.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        for (part, cue) in [
+            ("bureau2", "drawerOpen"),
+            ("leftTable", "drawerOpen"),
+            ("armoire", "cabinetOpen"),
+            ("closet", "doorOpen"),
+        ] {
+            state.set_all("bedrmCabinetIsOpen", vec![Value::Symbol("None".into())]);
+            assert_eq!(ask(&mut state, "setbedrmcabinetisopen", part), [cue], "{part}");
+        }
+    }
+
+    #[test]
+    fn something_that_is_not_part_of_the_cabinet_is_left_alone() {
+        let mut s = kitchen("None");
+        assert!(ask(&mut s, "setkitchencabinetisopen", "fridge").is_empty());
+        assert!(s
+            .get("kitchenCabinetIsOpen")
+            .as_str()
+            .is_some_and(|v| v == "None"));
     }
 }

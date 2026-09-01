@@ -2379,3 +2379,37 @@ Eight tests. The one I would keep is
 `the_operator_answers_only_after_the_buttons_and_hanging_up`, because it is the
 puzzle rather than the plumbing, and a port that quietly loses a puzzle looks
 exactly like a port that works.
+
+## 68. Cabinets with more than one door, and a jump that had stopped working
+
+The unported list, ranked by call sites, put `setShowMontage` at the top with
+thirty-one. There is no such handler. `#showMontage` is a single-valued flag
+with no custom setter, so the plain write *is* the whole behaviour, and my
+trace was calling that "not ported" -- overstating the gap by half. About half
+the single-valued flags have a setter and the rest do not, and the engine has
+no way to tell which, so the line says "no set<Flag> ran" now and implies
+nothing.
+
+The two real ones left were the cabinets, which are not booleans.
+`#kitchenCabinetIsOpen` holds `#upperLeft`, `#drawer`, `#trashCan`, `#None`,
+and the sound depends on which: seven cupboard doors share a cue, the cutlery
+drawer has its own, the bin has its own again.
+
+The bin is the part worth having. It **closes with the cupboard sound and opens
+with the drawer one**, and it is the only member that opens while another is
+already open -- the third arm of the handler has no guard on the current state
+where the other two do. A tidier port would sound wrong in a way nobody could
+name, and would let a second cupboard door open over the first.
+
+Then helba could not jump to a chapter any more. `play <dir> MARGARET` resolves
+its argument as a *room*, and a chapter is not one, so it warned and started at
+the default. Worse, the room path wrote `game.room` directly, which skips
+seeding: jumping to a room in another chapter left that chapter's flags
+unwritten, so every guard there read against a void. That is the same failure
+as entry 54 in a place I had not looked, and the fix is the one that already
+exists everywhere else -- seed, then move. A chapter name now goes to that
+chapter's own opening, and the walkthrough takes one too, so a route can start
+wherever the fault is.
+
+Six tests on the cabinets. `the_bin_opens_over_an_open_cupboard_and_nothing_else_does`
+is the one that carries the finding.
