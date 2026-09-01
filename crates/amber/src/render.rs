@@ -353,8 +353,8 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                             }
                             // Fades are not modelled yet; the duck itself is
                             // what the scripts rely on.
-                            Effect::SuspendSounds { .. } => a.set_master(0.25),
-                            Effect::RestoreSounds { .. } => a.set_master(1.0),
+                            Effect::SuspendSounds { .. } => a.set_suspended(true),
+                            Effect::RestoreSounds { .. } => a.set_suspended(false),
                             Effect::StopVideo => {
                                 game.player = None;
                                 playing_soundtrack = false;

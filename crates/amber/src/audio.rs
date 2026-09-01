@@ -31,6 +31,10 @@ struct Mixer {
     rate: u32,
     channels: u16,
     master: f32,
+    /// Current level of the ambient bed, ramped rather than switched.
+    duck: f32,
+    /// Set by the scripts' `suspendSounds`, cleared by `restoreSounds`.
+    suspended: bool,
 }
 
 impl Mixer {
@@ -38,6 +42,38 @@ impl Mixer {
         out.fill(0.0);
         let out_channels = self.channels.max(1) as usize;
         let master = self.master;
+        let frames = out.len() / out_channels;
+
+        // The ambient bed steps back while anything is playing over it.
+        //
+        // A room's mix is a balance between its own background sources; it
+        // says nothing about what should happen when a line of speech or a
+        // sound effect arrives, and those are what the player is meant to be
+        // listening to. Without this the house hum sits at the same level
+        // underneath them and competes.
+        //
+        // The scripts ask for the same thing explicitly in twenty places, with
+        // `suspendSounds` before a set piece and `restoreSounds` after. That
+        // used to pull the master down, which ducked the set piece along with
+        // everything else; it belongs on the bed alone.
+        const DUCKED: f32 = 0.35;
+        // Roughly forty milliseconds either way. Switching the level outright
+        // clicks.
+        let ramp = 25.0 / self.rate.max(1) as f32;
+        let target = if self.suspended || self.voices.iter().any(|v| !v.looping) {
+            DUCKED
+        } else {
+            1.0
+        };
+        let mut bed = vec![0.0f32; frames];
+        for slot in bed.iter_mut() {
+            if self.duck < target {
+                self.duck = (self.duck + ramp).min(target);
+            } else {
+                self.duck = (self.duck - ramp).max(target);
+            }
+            *slot = self.duck;
+        }
 
         self.voices.retain_mut(|voice| {
             let frames = voice.samples.len() / voice.channels.max(1) as usize;
@@ -45,7 +81,9 @@ impl Mixer {
                 return false;
             }
             let src = voice.channels.max(1) as usize;
-            for frame in out.chunks_mut(out_channels) {
+            // Only the ambient bed ducks; whatever is playing over it does not.
+            let ducks = voice.looping;
+            for (f, frame) in out.chunks_mut(out_channels).enumerate() {
                 if voice.position >= frames as f64 {
                     if !voice.looping {
                         return false;
@@ -68,11 +106,12 @@ impl Mixer {
                 } else {
                     index
                 };
+                let level = voice.gain * master * if ducks { bed[f] } else { 1.0 };
                 for (c, slot) in frame.iter_mut().enumerate() {
                     let sc = c.min(src - 1);
                     let a = voice.samples[index * src + sc] as f32;
                     let b = voice.samples[next * src + sc] as f32;
-                    *slot += (a + (b - a) * frac) / 32768.0 * voice.gain * master;
+                    *slot += (a + (b - a) * frac) / 32768.0 * level;
                 }
                 voice.position += voice.step;
             }
@@ -81,8 +120,150 @@ impl Mixer {
 
         // Guard against summed voices clipping.
         for s in out.iter_mut() {
-            *s = s.clamp(-1.0, 1.0);
+            *s = saturate(*s);
         }
+    }
+}
+
+/// Keeps the summed mix inside full scale without hard clipping.
+///
+/// Everything below the knee passes through untouched, so ordinary material is
+/// unaffected; above it the curve bends smoothly and approaches full scale
+/// without ever crossing it. A hard clamp squares off the peaks instead, and
+/// squared-off peaks are the crunch that gives a stacked mix away -- speech
+/// suffers worst, because its peaks are frequent and short.
+fn saturate(x: f32) -> f32 {
+    const KNEE: f32 = 0.7;
+    let magnitude = x.abs();
+    if magnitude <= KNEE {
+        return x;
+    }
+    let over = magnitude - KNEE;
+    let headroom = 1.0 - KNEE;
+    (KNEE + headroom * (over / (over + headroom))).copysign(x)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn voice(looping: bool, gain: f32) -> Voice {
+        Voice {
+            key: looping.then(|| "houseHum".to_string()),
+            // A steady full-scale tone, long enough to outlast the ramp, so a
+            // level change is easy to read off.
+            samples: Arc::new(vec![32767i16; 1 << 16]),
+            channels: 1,
+            position: 0.0,
+            step: 1.0,
+            gain,
+            looping,
+        }
+    }
+
+    fn mixer(voices: Vec<Voice>) -> Mixer {
+        Mixer {
+            voices,
+            rate: 44100,
+            channels: 1,
+            master: 1.0,
+            duck: 1.0,
+            suspended: false,
+        }
+    }
+
+    /// Runs long enough for the ramp to settle, and reports the final level.
+    fn settled(m: &mut Mixer) -> f32 {
+        let mut out = vec![0.0f32; 2048];
+        for _ in 0..8 {
+            m.fill(&mut out);
+        }
+        out[out.len() - 1]
+    }
+
+    #[test]
+    fn the_bed_plays_at_its_own_level_when_nothing_is_over_it() {
+        let mut m = mixer(vec![voice(true, 0.5)]);
+        assert!((settled(&mut m) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_bed_steps_back_while_a_one_shot_plays() {
+        // The room's balance says nothing about what should happen when speech
+        // arrives, and speech is what the player is meant to hear.
+        let mut quiet = mixer(vec![voice(true, 0.5)]);
+        let alone = settled(&mut quiet);
+
+        let mut with_speech = mixer(vec![voice(true, 0.5), voice(false, 0.0)]);
+        let ducked = settled(&mut with_speech);
+        assert!(ducked < alone * 0.5, "bed {ducked} should be well under {alone}");
+    }
+
+    #[test]
+    fn what_plays_over_the_bed_does_not_duck_itself() {
+        // The bug this replaced pulled the master down, which quietened the
+        // set piece along with the background.
+        let mut m = mixer(vec![voice(false, 0.5)]);
+        assert!((settled(&mut m) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn suspend_holds_the_bed_down_on_its_own() {
+        let mut m = mixer(vec![voice(true, 0.5)]);
+        m.suspended = true;
+        assert!(settled(&mut m) < 0.25);
+    }
+
+    #[test]
+    fn the_duck_is_ramped_rather_than_switched() {
+        // A level that changes in one sample clicks.
+        let mut m = mixer(vec![voice(true, 0.5), voice(false, 0.0)]);
+        let mut out = vec![0.0f32; 64];
+        m.fill(&mut out);
+        let steps: Vec<f32> = out.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        assert!(
+            steps.iter().all(|d| *d < 0.01),
+            "duck moves too fast: {:?}",
+            &steps[..4]
+        );
+    }
+
+    use super::saturate;
+
+    #[test]
+    fn quiet_material_passes_through_untouched() {
+        for x in [-0.7, -0.5, 0.0, 0.25, 0.7] {
+            assert_eq!(saturate(x), x, "{x} is below the knee");
+        }
+    }
+
+    #[test]
+    fn a_stacked_mix_stays_inside_full_scale() {
+        // The living room asks for nearly three times full scale.
+        for x in [1.0, 2.0, 2.82, 50.0] {
+            assert!(saturate(x) < 1.0, "{x} saturated to {}", saturate(x));
+            assert!(saturate(-x) > -1.0);
+        }
+    }
+
+    #[test]
+    fn the_curve_is_monotone_so_it_does_not_fold() {
+        // A saturator that turns back on itself inverts loud peaks, which
+        // sounds far worse than the clipping it replaced.
+        let mut previous = f32::NEG_INFINITY;
+        for i in 0..2000 {
+            let x = -5.0 + i as f32 * 0.005;
+            let y = saturate(x);
+            assert!(y > previous, "not monotone at {x}");
+            previous = y;
+        }
+    }
+
+    #[test]
+    fn it_is_continuous_at_the_knee() {
+        let below = saturate(0.7 - 1e-4);
+        let above = saturate(0.7 + 1e-4);
+        assert!((above - below).abs() < 1e-3, "step at the knee");
     }
 }
 
@@ -108,6 +289,9 @@ impl Audio {
             rate,
             channels,
             master: 1.0,
+            // The bed starts at full and ducks when something plays over it.
+            duck: 1.0,
+            suspended: false,
         }));
 
         let m = Arc::clone(&mixer);
@@ -231,10 +415,18 @@ impl Audio {
         }
     }
 
-    /// Scales every voice, for the script-driven duck and restore.
+    /// Scales every voice.
     pub fn set_master(&self, gain: f32) {
         if let Ok(mut mixer) = self.mixer.lock() {
             mixer.master = gain.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Holds the ambient bed down until it is released, for the scripts'
+    /// `suspendSounds` and `restoreSounds`.
+    pub fn set_suspended(&self, suspended: bool) {
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.suspended = suspended;
         }
     }
 

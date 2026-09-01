@@ -760,6 +760,27 @@ impl Game {
                 out.push(("houseHum".into(), *level as f32 / 255.0));
             }
         }
+
+        // `#earShot` is a balance, not a set of absolute levels: it says how
+        // prominent each source is from where the player is standing. The
+        // living room asks for a clock at 47%, a radio at 47%, a fire at 100%
+        // and the house hum at 88%, and those sources are real recordings --
+        // the hum alone peaks at 96% of full scale. Summed as written that is
+        // nearly three times full scale, and a hundred and one rooms ask for
+        // more than one. Everything below the ceiling is left exactly as the
+        // room asked for it; only a bed that would not fit is scaled, which
+        // keeps the balance and removes the clipping.
+        //
+        // The ceiling sits below unity because speech and sound effects play
+        // over this, and they are what the player is meant to be listening to.
+        const BED_CEILING: f32 = 0.7;
+        let total: f32 = out.iter().map(|(_, g)| *g).sum();
+        if total > BED_CEILING {
+            let scale = BED_CEILING / total;
+            for (_, gain) in out.iter_mut() {
+                *gain *= scale;
+            }
+        }
         out
     }
 

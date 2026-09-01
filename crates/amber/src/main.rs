@@ -382,6 +382,43 @@ fn cmd_export(movie_path: &Path, cast: u32, out: &Path) -> Res {
 
 /// Renders one room to a PNG without opening a window, so the compositor can be
 /// exercised in a terminal or in CI.
+/// Reports how loud each room asks its ambient bed to be.
+///
+/// Every voice is summed into one buffer and the result is clamped, so a room
+/// whose loops already total more than full scale clips before a single sound
+/// effect or line of speech is added on top.
+fn verify_audio_mix(dir: &Path) -> Res {
+    let mut game = game::Game::new(dir)?;
+    let domains: Vec<String> = game.world.domains.keys().cloned().collect();
+    for d in &domains {
+        game.seed_chapter(d);
+    }
+    let mut sums: Vec<(f32, usize)> = Vec::new();
+    for i in 0..game.world.nodes.len() {
+        game.jump_to(i);
+        let mix = game.ambience();
+        if mix.is_empty() {
+            continue;
+        }
+        sums.push((mix.iter().map(|(_, g)| *g).sum(), i));
+    }
+    sums.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let over = sums.iter().filter(|(s, _)| *s > 1.0).count();
+    println!(
+        "ambient mix:         {} rooms, {over} sum above full scale",
+        sums.len()
+    );
+    for (sum, i) in sums.iter().take(4) {
+        let node = &game.world.nodes[*i];
+        println!(
+            "  {sum:.2}  {} / {}",
+            node.domain,
+            node.name.clone().unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
 /// Reports whether every state-indexed sprite can find its art.
 ///
 /// These sprites resolve `table[state[flag]]` at draw time, so a table that
@@ -594,6 +631,7 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
 
 fn cmd_verify(dir: &Path) -> Res {
     verify_cast_lookups(dir)?;
+    verify_audio_mix(dir)?;
     let world = World::load(dir)?;
     let mut unhandled: BTreeMap<String, usize> = BTreeMap::new();
     let mut effects: BTreeMap<String, usize> = BTreeMap::new();

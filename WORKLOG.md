@@ -1839,3 +1839,51 @@ cabinet is the biggest single caller left at sixty-one sites, and it has an
 asymmetry I want to keep -- the trash can closes with the cabinet sound but
 opens with the drawer one, and it opens even when something else is already
 open.
+
+## 57. Crunchy audio: no headroom, and ducking the wrong thing
+
+helba reported voices sounding crunchy, and then described the shape of it
+exactly: "there's the house hum then the rest on top of it". That is a mixing
+fault, not a decoder fault, and saying so saved me from a long detour into the
+IMA ADPCM decoder I had already opened.
+
+Measured rather than guessed. A room declares its bed as `#earShot`, levels out
+of 255, and the living room asks for a clock at 47%, a radio at 47%, a fire at
+100% and the house hum at 88%. That is 2.82 times full scale, and the sources
+are real recordings -- the hum alone peaks at 31488 of 32768. Across the game,
+**101 rooms ask for more than full scale**. The mixer summed them and finished
+with `clamp(-1.0, 1.0)`, so those rooms hard-clipped continuously, before a
+single line of speech was added on top. Squared-off peaks are the crunch, and
+speech suffers worst because its peaks are frequent and short.
+
+`#earShot` is a balance, not a set of absolute levels: it says how prominent
+each source is from where the player is standing. So the bed is scaled only
+when it would not fit, which keeps the balance exactly as written and removes
+the clipping. The ceiling sits at 0.7 rather than 1.0 because speech and
+effects play over this. Nothing below the ceiling is touched.
+
+The final clamp became a saturator with a knee at 0.7: linear below it, bending
+smoothly above and approaching full scale without crossing. Anything that still
+overshoots now compresses instead of squaring off.
+
+helba then asked whether the hum should step back when other audio plays, which
+it should, and the game says so itself: the scripts call `suspendSounds` before
+a set piece and `restoreSounds` after, twenty times. I had wired those to the
+**master**, which pulled down the set piece along with the background -- the one
+sound the call exists to make audible. That now holds the bed down and leaves
+everything else alone, and the same duck applies automatically whenever a
+one-shot is playing, ramped over about forty milliseconds so it does not click.
+
+Six tests on the saturator and the duck, including one that the curve is
+monotone: a saturator that turns back on itself inverts loud peaks, which
+sounds worse than the clipping it replaced.
+
+The second half of the report -- effects missing in some rooms -- is not the
+mixer. Four sounds the rooms ask for do not resolve at all: `BRclock`,
+`DRclock`, `Kclock`, `LRclock`. They are not missing assets. Margaret's chapter
+has an entire clock subsystem behind them -- `moveClock`, `touchClock`,
+`radioDial`, `prodVLoops`, `fadeUpRadio`, `backAwayFromRadio`, and the flags
+`#clockPuzzleActivated`, `#clockPuzzleFrustration`, `#mostRecentClock`,
+`#theseClocks` -- none of which is ported. The ticking is driven from there.
+That is a set piece to port, not a bug to fix, and it is the largest unported
+one I have found.
