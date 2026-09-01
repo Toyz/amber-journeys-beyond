@@ -1395,3 +1395,28 @@ Two ports, same mistake, and neither would have been caught by the reference
 check from entry 45: every name resolved, every cast existed. The check
 answers whether a handler points at real things, not whether it does them in
 the right order.
+
+## 48. The movie was drawing underneath
+
+helba reported the lake haunt playing its sound but never appearing. The
+guard was fine, the movie resolved, the engine reported it live. It was
+drawing behind the room.
+
+The room carries two full-scene plates on channels 1 and 2. `draw` composited
+the movie first and the plates over it, so the haunt played every time,
+underneath six hundred by three hundred pixels of boathouse.
+
+The comment above that code was mine, and it asserted the rule as fact: the
+movie sits behind the sprite channels, which is how the game frames video
+inside static scenery. I wrote that while the intro was the only video room I
+had tested, and the intro has no plates at all, so the ordering it needed was
+unobservable there. One example, a confident comment, and every haunt in the
+game invisible.
+
+It also means the Margaret haunt from entry 47 was never fixed by that entry.
+The trim ordering was a real bug and worth fixing, but the movie would still
+have been hidden underneath the bureau. I reported it as fixed on the strength
+of the guard being live, which is not the same as the picture being visible,
+and helba had to come back twice.
+
+The order is now plates, then the movie, then the script-controlled channels.

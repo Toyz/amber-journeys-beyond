@@ -365,32 +365,6 @@ impl Game {
     pub fn draw(&mut self, frame: &mut [u32], width: u32, height: u32) {
         frame.fill(0xff00_0000);
 
-        // The movie sits behind the sprite channels, which is how the game
-        // frames video inside static scenery.
-        if let Some(player) = &self.player {
-            let centre = self
-                .world
-                .nodes[self.room]
-                .sprites
-                .iter()
-                .find(|s| matches!(s.channel, Channel::Video))
-                .and_then(|s| s.center)
-                .unwrap_or((width as i32 / 2, height as i32 / 2));
-            // The decoder is authoritative: a frame header can disagree with
-            // the container, and it is the decoder that resized its buffer.
-            let (w, h) = player.frame_size();
-            blit(
-                frame,
-                width,
-                height,
-                player.frame(),
-                w,
-                h,
-                centre.0 - w as i32 / 2,
-                centre.1 - h as i32 / 2,
-            );
-        }
-
         let domain = self.node().domain.clone();
         for (_, cast, center) in self.visible() {
             let Some(art) = self.art(&domain, cast) else {
@@ -416,6 +390,35 @@ impl Game {
                 );
             }
             blit(frame, width, height, &art.rgba, art.width, art.height, ox, oy);
+        }
+
+        // The movie draws over the room's plates, not under them. A haunt is
+        // a film of something appearing in a mirror or out on the lake, and
+        // the room it plays in is a full-scene plate; underneath, it is
+        // invisible. The intro, where this was first written, has no plates at
+        // all, so the order it needed could not be observed there.
+        if let Some(player) = &self.player {
+            let centre = self
+                .world
+                .nodes[self.room]
+                .sprites
+                .iter()
+                .find(|s| matches!(s.channel, Channel::Video))
+                .and_then(|s| s.center)
+                .unwrap_or((width as i32 / 2, height as i32 / 2));
+            // The decoder is authoritative: a frame header can disagree with
+            // the container, and it is the decoder that resized its buffer.
+            let (w, h) = player.frame_size();
+            blit(
+                frame,
+                width,
+                height,
+                player.frame(),
+                w,
+                h,
+                centre.0 - w as i32 / 2,
+                centre.1 - h as i32 / 2,
+            );
         }
 
         // Script-controlled channels sit over the room, in channel order.

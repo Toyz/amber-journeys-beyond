@@ -307,7 +307,12 @@ fn cmd_room(dir: &Path, domain: &str, index: usize) -> Res {
         .find(|n| n.domain.eq_ignore_ascii_case(domain) && n.index == index)
         .ok_or("no such room")?;
 
-    println!("{} room {}", node.domain, node.index);
+    println!(
+        "{} room {}  {}",
+        node.domain,
+        node.index,
+        node.name.clone().unwrap_or_else(|| "(unnamed)".into())
+    );
     if let Some((lib, first, last)) = node.storage_cast {
         println!("  storage cast: library {lib}, members {first}-{last}");
     }
