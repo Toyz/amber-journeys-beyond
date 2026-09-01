@@ -2816,3 +2816,46 @@ What I should take from this entry is not the findings but the method. helba
 has been describing what the game does for several entries and I have been
 answering from the data; the video is the data, and I could have read it the
 first time it was mentioned.
+
+## 78. What I could not find
+
+helba is still landing on the ironing board, and asked the right question:
+what if the opening is not a room or a film but a *flow* -- a Lingo handler
+never ported. I tested it and it is not, and the ruling-out is worth recording
+because I would otherwise try the same things again.
+
+Margaret's movie defines 109 handlers. The ones that could plausibly be a
+chapter opening:
+
+  - `startMovie`, Director's own "this movie has loaded" hook, sets the cursor
+    and returns. Three instructions.
+  - `enterFrame` is a `REPORT2` debug trace.
+  - `testmontage` is a two-line debug helper that sets `#showMontage` and
+    prints it.
+  - `initBoxPuzzle` is one byte, already recorded in entry 74.
+
+So there is no opening flow in her chapter. The sequence that crosses is all on
+the Roxy side and is now ported.
+
+I rendered all 154 of Margaret's rooms and matched them against the video frame
+by normalised correlation. Nothing matches: the best distance is 1.74 where a
+real match is near zero. The reason is visible once you look -- **the lamp in
+the video is lit and every one of my renders is dim**. So the room may well be
+among them and I am rendering it in the wrong state, which is a different bug
+from the one I was hunting.
+
+The declared start is a genuine dead end and I have now checked every way out
+of it. `bedrm_fadeIn` draws a seventeen by three palette holder, asks for a
+film with no data anywhere on the disc -- not a file, not embedded, the 292
+`MooV` chunks across all four movies are empty markers -- and its two exits go
+to `#destination`, which is not a room in any chapter. `world.resolve` finds
+nothing by that name.
+
+So I cannot derive the landing room from the data, and what the engine does
+instead is a guess: the first room of the chapter that draws anything, which is
+index order and lands on `bedrm_A1`. That is not a finding, it is a fallback,
+and this entry exists so the next attempt does not mistake it for one.
+
+The thing worth chasing next is the lamp. If the video's opening room is one I
+already render but unlit, then the fault is a state or a light I am missing,
+and matching would find it the moment the render is right.
