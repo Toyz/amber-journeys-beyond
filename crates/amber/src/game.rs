@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use director::{Bitmap, Movie, Palette};
 use lingo::Rect;
 
+use crate::inventory::Inventory;
 use crate::media::MovieIndex;
 use crate::player::VideoPlayer;
 use crate::schema::Schema;
@@ -50,6 +51,7 @@ pub struct Game {
     pub pending: Vec<Effect>,
     movies: MovieIndex,
     pub sounds: SoundBank,
+    pub inventory: Inventory,
     /// The radio or clock programme currently running, if any.
     program: Option<Program>,
     /// Decoded sounds, keyed by symbol. Effects fire repeatedly, so decoding
@@ -77,6 +79,7 @@ impl Game {
             pending: Vec::new(),
             movies: MovieIndex::build(root),
             sounds: SoundBank::new(root),
+            inventory: Inventory::from_texts(&[]),
             program: None,
             pcm_cache: HashMap::new(),
             pcm_meta: HashMap::new(),
@@ -88,6 +91,11 @@ impl Game {
             if let Some(chapter) = game.chapter(&domain) {
                 let texts = chapter.movie.texts();
                 game.sounds.add_tables(&texts);
+                // The icon table is the same in every chapter; take the first
+                // that yields one.
+                if game.inventory.is_empty() {
+                    game.inventory = Inventory::from_texts(&texts);
+                }
             }
         }
         game.enter_chapter(Self::FIRST_CHAPTER);
@@ -568,6 +576,50 @@ impl Game {
     pub fn has_art(&mut self, cast: u32) -> bool {
         let domain = self.node().domain.clone();
         self.art(&domain, cast).is_some()
+    }
+
+    /// Draws the inventory bar over the stage.
+    ///
+    /// The item in hand is drawn lit, which is how the player can tell what a
+    /// click on the scene will be carrying.
+    pub fn draw_inventory(&mut self, frame: &mut [u32], width: u32, height: u32) {
+        let held: Vec<String> = self.state.inventory().to_vec();
+        let in_use = self.state.item_in_use().map(str::to_ascii_lowercase);
+        let placed = self
+            .inventory
+            .layout(&held, width as i32, height as i32);
+        let domain = self.node().domain.clone();
+
+        for (item, x, y) in placed {
+            let Some(icons) = self.inventory.icons(&item) else { continue };
+            let lit = in_use.as_deref() == Some(item.to_ascii_lowercase().as_str());
+            let cast = if lit { icons.lit } else { icons.plain };
+            let Some(art) = self.art(&domain, cast) else { continue };
+            let (w, h) = (art.width, art.height);
+            blit(frame, width, height, &art.rgba, w, h, x, y);
+        }
+    }
+
+    /// Handles a click on the inventory bar, returning true if it was one.
+    ///
+    /// Clicking an item takes it in hand; clicking the item already in hand
+    /// puts it back, which is what `stowInventory` does from script.
+    pub fn click_inventory(&mut self, x: i32, y: i32, width: i32, height: i32) -> bool {
+        let held: Vec<String> = self.state.inventory().to_vec();
+        let Some(item) = self.inventory.hit(&held, width, height, x, y) else {
+            return false;
+        };
+        let already = self
+            .state
+            .item_in_use()
+            .is_some_and(|c| c.eq_ignore_ascii_case(&item));
+        if already {
+            self.state.stow();
+        } else {
+            self.state.stow();
+            self.state.set("itemInUse", lingo::Value::Symbol(item));
+        }
+        true
     }
 
     /// The hotspot under the cursor, if any.

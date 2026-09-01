@@ -183,6 +183,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         }
         if dirty {
             game.draw(&mut frame, STAGE_W as u32, STAGE_H as u32);
+            game.draw_inventory(&mut frame, STAGE_W as u32, STAGE_H as u32);
             dirty = false;
         }
 
@@ -222,6 +223,15 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         let down = window.get_mouse_down(MouseButton::Left);
         if was_down && !down {
             if let Some((x, y)) = pos {
+                // The bar sits over the stage, so it gets first refusal on a
+                // click; otherwise picking an item would also walk the player
+                // through whatever hotspot lies beneath it.
+                if game.click_inventory(x, y, STAGE_W as i32, STAGE_H as i32) {
+                    dirty = true;
+                    was_down = down;
+                    window.update_with_buffer(&frame, STAGE_W, STAGE_H)?;
+                    continue;
+                }
                 let had_movie = game.player.is_some();
                 if let Some(outcome) = game.click(x, y) {
                     // A move cuts whatever the previous scene was playing.

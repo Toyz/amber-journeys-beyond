@@ -6,6 +6,7 @@
 
 mod audio;
 mod game;
+mod inventory;
 mod locations;
 mod media;
 mod natives;

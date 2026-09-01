@@ -836,3 +836,34 @@ data asks for before concluding the data does not ask for anything. Three of
 the last four bugs helba has found were in code I had written, not in logic I
 had yet to write, and I would have been slower to each of them if I had taken
 the accompanying guess at face value.
+
+## 29. Inventory, and 800 hotspots that were unreachable
+
+Asked what was next, the honest answer came from counting rather than
+preference. `#itemInUse` is the single largest hotspot class in the game at
+800 of them, and every one requires the player to be holding something. With
+no way to choose what is held, all 800 were unreachable. That is the
+difference between walking round the house and playing.
+
+The movie carries an `inventory.DATA` cast member giving each item a pair of
+icons, plain and lit, at 67 pixels square: eight items, from the scan device
+to the crowbar. The lit icon marks what is in hand.
+
+The bar draws along the bottom of the stage, which is clear of the art since
+rooms are at most 452 pixels tall on a 480 stage and centred. It takes first
+refusal on a click, so picking up an item does not also walk the player
+through whatever hotspot lies underneath it.
+
+`walk` gained `give` and `use`, which is how this was checked without playing
+to the point where an item is found: standing at the kitchen's rear door with
+the scan device in hand, two `#itemInUse` hotspots appear that were not there
+before. That door is the one helba walked through when it should have been
+locked, and the scan unit is what the guard was waiting for.
+
+### What "next" should mean
+
+I nearly reached for the largest remaining handler, `chippyCries` at 70 call
+sites, because the list was already sorted that way. Sorting by call sites
+measures how often something is invoked, not whether the game is playable
+without it. 800 beats 70, and no amount of set-piece work would have mattered
+while the player could not pick anything up.

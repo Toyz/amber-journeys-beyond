@@ -18,7 +18,8 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
     show(&mut game);
     if interactive {
         println!("\ncommands: a verb (forward, left, right, up, down, examine, pointer),");
-        println!("          a room name, `state [filter]`, `blocked`, `quit`");
+        println!("          a room name, `state [filter]`, `blocked`,");
+        println!("          `give <item>`, `use <item>`, `quit`");
     }
 
     let stdin = std::io::stdin();
@@ -51,6 +52,22 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         }
         if cmd == "blocked" {
             show_blocked(&game);
+            continue;
+        }
+        // Granting an item makes the #itemInUse hotspots reachable, which is
+        // most of the game's interaction and otherwise needs real progress.
+        if let Some(item) = cmd.strip_prefix("give ") {
+            game.state.add_inventory(item.trim());
+            println!("  carrying: {}", game.state.inventory().join(", "));
+            continue;
+        }
+        if let Some(item) = cmd.strip_prefix("use ") {
+            let item = item.trim();
+            game.state.stow();
+            game.state
+                .set("itemInUse", lingo::Value::Symbol(item.to_string()));
+            println!("  in hand: {item}");
+            show(&mut game);
             continue;
         }
 
@@ -134,6 +151,11 @@ fn show(game: &mut Game) {
     }
     // The ambient mix is per room, so showing it makes a loop that should
     // have stopped on the way out visible without needing to hear it.
+    let held = game.state.inventory();
+    if !held.is_empty() {
+        let hand = game.state.item_in_use().unwrap_or("nothing");
+        println!("  carrying: {}   in hand: {hand}", held.join(", "));
+    }
     let mix = game.ambience();
     if mix.is_empty() {
         println!("  ambience: (silent)");
