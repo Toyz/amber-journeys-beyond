@@ -4156,3 +4156,45 @@ default state and reported the sprites for the forced one, quietly answering
 half of each question.
 
 211 tests.
+
+## 100. The shaft and three books
+
+Seven of the sixteen setters, ported.
+
+`setDumbWaiter` is the one worth the most. It goes up from the kitchen and down
+from the bedroom and refuses anything else -- asking it to go up while it is
+already up is not an error, it simply does nothing. The flag holds three things
+in turn: where it is, then the direction it is travelling while the film plays,
+then where it has arrived. That middle value is why this cannot be a plain
+write; a sprite keyed on `#dumbWaiter` shows the shaft moving during it, and
+the arrival is an effect so it lands after the film rather than while the shaft
+is still on screen.
+
+And moving it moves the kitchen radio station along the dial, which was entry
+83's finding. Two puzzles, one shaft, and until now the shaft did not move.
+
+The three books -- the dream diary, Realms, and the bar manual -- are one shape
+three times. Turning past either end closes the book rather than stopping at
+it, and opening one always starts at its first page: there is no bookmark,
+which is why the diary is meant to be read straight through.
+
+Their page lists are the detail I would have got wrong:
+
+```text
+dream diary   [1, 2, 3, 5, 6]
+realms        [0, 1, 3, 5, 7, 19, 21, 35, 37, 51, 53]
+bar manual    [0, 1, 2, 3, 4, 5]
+```
+
+Not ranges. They are the frames each page lives on, so the gaps are spreads
+rather than missing pages, and "the page after three" is five. Incrementing the
+number -- which is what I would have written if the bar manual had been the one
+I read first -- turns to a frame that is not a page at all. The test says so in
+those words, because the next person to look at `[0, 1, 2, 3, 4, 5]` will think
+the same thing I did.
+
+Nine setters left: the laptop, the car, the peek unit's two status displays,
+two doors, the tape position, the waffle tracks, and `setcurrentLocation`,
+which is the engine's own business rather than a puzzle's.
+
+217 tests.

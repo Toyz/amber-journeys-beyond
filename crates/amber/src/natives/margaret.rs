@@ -256,6 +256,66 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on setDumbWaiter suggestion
+        //   currentState = getState( #dumbWaiter )
+        //   ok = 0 : validRequest = #none
+        //   if currentState = #kitchen and suggestion = #goingUp then
+        //     ok = 1 : destination = #win_DWgoing  : validRequest = #bedroom
+        //   if currentState = #bedroom and suggestion = #comingDown then
+        //     ok = 1 : destination = #win_DWcoming : validRequest = #kitchen
+        //   if not ok then return
+        //   cursorOff
+        //   setProp( oStoryteller.states, #dumbWaiter, list(suggestion) )
+        //   updateDisplay( oPuppeteer )
+        //   if gCPU = #PC then startSound destination
+        //   pushVideo : wait #videoStop
+        //   setProp( oStoryteller.states, #dumbWaiter, list(validRequest) )
+        //   killVideo : updateDisplay( oPuppeteer )
+        //
+        // The dumb waiter goes up from the kitchen and down from the bedroom,
+        // and refuses anything else -- a request to go up while it is already
+        // up is not an error, it simply does nothing.
+        //
+        // The flag holds three things in turn: where it is, then the direction
+        // it is travelling while the film plays, then where it has arrived.
+        // The middle value is why this cannot be a plain write; a sprite keyed
+        // on `#dumbWaiter` shows the shaft moving during it.
+        //
+        // And moving it moves the kitchen radio station along the dial, which
+        // is `initRadioDial`'s branch in entry 83. Two puzzles, one shaft.
+        //
+        // The win sound is behind `if gCPU = #PC` and is not played here; on
+        // the Macintosh the film carries its own audio.
+        "setdumbwaiter" => {
+            let asked = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|s| s.trim_start_matches('#').to_ascii_lowercase())
+                .unwrap_or_default();
+            let at = state.get("dumbWaiter");
+            let at = at.as_str().unwrap_or("kitchen").trim_start_matches('#');
+
+            let arrives = match (at.to_ascii_lowercase().as_str(), asked.as_str()) {
+                ("kitchen", "goingup") => "bedroom",
+                ("bedroom", "comingdown") => "kitchen",
+                _ => return true,
+            };
+
+            out.effects.push(Effect::CursorOff);
+            // Travelling, for as long as the film runs.
+            state.set_all("dumbWaiter", vec![Value::Symbol(asked)]);
+            out.redraw = true;
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::StopVideo);
+            // Arrived. Written as an effect so it lands after the film rather
+            // than while the shaft is still on screen moving.
+            out.effects.push(Effect::SetState {
+                key: "dumbWaiter".into(),
+                value: Value::Symbol(arrives.into()),
+            });
+        }
+
         // on exitFrame                                    -- the frame script
         //   repeat with i = 1 to 48: puppetSprite i, 1
         //   moveToLocation( oPuppeteer )
@@ -1028,5 +1088,51 @@ mod box_tests {
                 "opening did not run for {spelling}"
             );
         }
+    }
+
+    // -- the dumb waiter ----------------------------------------------------
+
+    fn shaft(at: &str) -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all("dumbWaiter", vec![Value::Symbol(at.into())]);
+        s
+    }
+
+    fn send(state: &mut State, way: &str) -> Outcome {
+        let mut out = Outcome::default();
+        assert!(call(
+            "setdumbwaiter",
+            &[Value::Symbol(way.into())],
+            state,
+            &mut out
+        ));
+        out
+    }
+
+    #[test]
+    fn the_shaft_travels_and_then_arrives() {
+        let mut s = shaft("kitchen");
+        let out = send(&mut s, "goingUp");
+        // While the film runs the flag holds the direction, not a place.
+        assert_eq!(s.get("dumbWaiter"), Value::Symbol("goingup".into()));
+        // And where it ends up lands after the film.
+        let arrives = out.effects.iter().find_map(|e| match e {
+            Effect::SetState { key, value } if key == "dumbWaiter" => Some(value.clone()),
+            _ => None,
+        });
+        assert_eq!(arrives, Some(Value::Symbol("bedroom".into())));
+    }
+
+    #[test]
+    fn and_only_goes_the_way_it_can() {
+        // Already up: asking it to go up again does nothing at all.
+        let mut s = shaft("bedroom");
+        let out = send(&mut s, "goingUp");
+        assert!(out.effects.is_empty());
+        assert_eq!(s.get("dumbWaiter"), Value::Symbol("bedroom".into()));
+
+        let out = send(&mut s, "comingDown");
+        assert!(!out.effects.is_empty());
     }
 }

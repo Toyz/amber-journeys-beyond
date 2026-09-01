@@ -160,6 +160,27 @@ fn bleed_door(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) 
 }
 
 /// Runs a handler from this chapter, or reports that it is not one of ours.
+/// The three books, by the verb that acts on them.
+///
+/// Each entry is the name the flags are built from, the flag that says the
+/// book is open, and the frames its pages live on.
+fn book_for(verb: &str) -> Option<(&'static str, &'static str, &'static [i32])> {
+    const BOOKS: [(&str, &str, &[i32]); 3] = [
+        ("Diary", "playerIsReadingDreamDiary", &[1, 2, 3, 5, 6]),
+        (
+            "Realms",
+            "playerIsReadingRealms",
+            &[0, 1, 3, 5, 7, 19, 21, 35, 37, 51, 53],
+        ),
+        ("BarManual", "playerIsReadingBarManual", &[0, 1, 2, 3, 4, 5]),
+    ];
+    let verb = verb.to_ascii_lowercase();
+    BOOKS.into_iter().find(|(book, reading, _)| {
+        verb.ends_with(&book.to_ascii_lowercase())
+            || verb == format!("set{}", reading.to_ascii_lowercase())
+    })
+}
+
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
     if bleed_door(name, args, state, out) {
         return true;
@@ -963,6 +984,79 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 state.set("PKscanStatus", Value::Symbol(settled.into()));
                 out.redraw = true;
             }
+        }
+
+        // on setcurrentPageIn<Book> suggestion
+        //   cursorOff
+        //   frameStack = getProp( oPuppeteer.frames, #<book> )
+        //   pageList = [ ... ]
+        //   currentPage = getPos( pageList, getState( #currentPageIn<Book> ) )
+        //   if suggestion = #next then
+        //     if currentPage = count(pageList) then
+        //       setState( #playerIsReading<Book>, 0 ) : updateDisplay
+        //     else ... step forward, and slide the page sprite across ...
+        //   if suggestion = #previous then
+        //     if currentPage = 1 then
+        //       setState( #playerIsReading<Book>, 0 ) : updateDisplay
+        //     else ... step back ...
+        //
+        // on setplayerIsReading<Book> suggestion
+        //   setProp( oStoryteller.states, #currentPageIn<Book>, list(<first page>) )
+        //   setProp( oStoryteller.states, #playerIsReading<Book>, list(suggestion) )
+        //   setTransition( oPuppeteer, #fadeIn )
+        //
+        // Three books, one shape. Turning past either end closes the book
+        // rather than stopping at it, and opening one always starts at its
+        // first page -- there is no bookmark, which is why the diary can be
+        // read straight through and not resumed.
+        //
+        // The page lists are not ranges:
+        //
+        //     dream diary   [1, 2, 3, 5, 6]
+        //     realms        [0, 1, 3, 5, 7, 19, 21, 35, 37, 51, 53]
+        //     bar manual    [0, 1, 2, 3, 4, 5]
+        //
+        // They are the frames each page lives on, so the gaps are spreads and
+        // not missing pages. Treating any of them as "first to last" would
+        // turn to a frame that is not a page.
+        "setcurrentpageindiary" | "setcurrentpageinrealms" | "setcurrentpageinbarmanual" => {
+            let Some((book, reading, pages)) = book_for(name) else {
+                return true;
+            };
+            let forward = args
+                .first()
+                .and_then(Value::as_str)
+                .is_some_and(|d| d.trim_start_matches('#').eq_ignore_ascii_case("next"));
+
+            let flag = format!("currentPageIn{book}");
+            let held = state.get(&flag).as_int().unwrap_or(pages[0]);
+            let at = pages.iter().position(|p| *p == held).unwrap_or(0);
+
+            out.effects.push(Effect::CursorOff);
+            let past_the_end = if forward { at + 1 >= pages.len() } else { at == 0 };
+            if past_the_end {
+                state.set_all(reading, vec![Value::Int(0)]);
+            } else {
+                let moved = if forward { at + 1 } else { at - 1 };
+                state.set_all(&flag, vec![Value::Int(pages[moved])]);
+            }
+            out.redraw = true;
+        }
+
+        "setplayerisreadingdreamdiary"
+        | "setplayerisreadingrealms"
+        | "setplayerisreadingbarmanual" => {
+            let Some((book, reading, pages)) = book_for(name) else {
+                return true;
+            };
+            let open = args.first().and_then(Value::as_int).unwrap_or(0);
+            // Always at the first page: opening a book is not resuming it.
+            state.set_all(&format!("currentPageIn{book}"), vec![Value::Int(pages[0])]);
+            state.set_all(reading, vec![Value::Int(open)]);
+            out.effects.push(Effect::SetTransition {
+                kind: "fadeIn".into(),
+            });
+            out.redraw = true;
         }
 
         // on setBarMode whichOne
@@ -2532,5 +2626,69 @@ mod phone_tests {
             panel_press(&mut s, "select");
             assert_eq!(s.get("BarSelection"), Value::Symbol(want.into()));
         }
+    }
+
+    // -- the three books ----------------------------------------------------
+
+    fn reading(book: &str, page: i32) -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all(&format!("currentPageIn{book}"), vec![Value::Int(page)]);
+        s
+    }
+
+    fn turn(state: &mut State, verb: &str, way: &str) {
+        let mut out = Outcome::default();
+        assert!(call(verb, &[Value::Symbol(way.into())], state, &mut out));
+    }
+
+    #[test]
+    fn a_books_pages_are_frames_and_not_a_range() {
+        // The diary lives on frames 1, 2, 3, 5 and 6, so the page after three
+        // is five. Stepping the number would turn to a frame that is not a page.
+        let mut s = reading("Diary", 3);
+        turn(&mut s, "setcurrentpageindiary", "next");
+        assert_eq!(s.get("currentPageInDiary"), Value::Int(5));
+        turn(&mut s, "setcurrentpageindiary", "previous");
+        assert_eq!(s.get("currentPageInDiary"), Value::Int(3));
+    }
+
+    #[test]
+    fn turning_past_either_end_closes_the_book() {
+        let mut s = reading("Diary", 6);
+        s.set_all("playerIsReadingDreamDiary", vec![Value::Int(1)]);
+        turn(&mut s, "setcurrentpageindiary", "next");
+        assert_eq!(s.get("playerIsReadingDreamDiary"), Value::Int(0));
+
+        let mut s = reading("Diary", 1);
+        s.set_all("playerIsReadingDreamDiary", vec![Value::Int(1)]);
+        turn(&mut s, "setcurrentpageindiary", "previous");
+        assert_eq!(s.get("playerIsReadingDreamDiary"), Value::Int(0));
+    }
+
+    #[test]
+    fn and_opening_one_is_not_resuming_it() {
+        // Realms starts at frame 0 whatever page it was left on.
+        let mut s = reading("Realms", 35);
+        let mut out = Outcome::default();
+        assert!(call(
+            "setplayerisreadingrealms",
+            &[Value::Int(1)],
+            &mut s,
+            &mut out
+        ));
+        assert_eq!(s.get("currentPageInRealms"), Value::Int(0));
+        assert_eq!(s.get("playerIsReadingRealms"), Value::Int(1));
+    }
+
+    #[test]
+    fn each_book_has_its_own_pages() {
+        let mut s = reading("Realms", 7);
+        turn(&mut s, "setcurrentpageinrealms", "next");
+        assert_eq!(s.get("currentPageInRealms"), Value::Int(19));
+
+        let mut s = reading("BarManual", 3);
+        turn(&mut s, "setcurrentpageinbarmanual", "next");
+        assert_eq!(s.get("currentPageInBarManual"), Value::Int(4));
     }
 }
