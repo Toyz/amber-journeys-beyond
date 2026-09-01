@@ -595,6 +595,108 @@ fn cmd_verify(dir: &Path) -> Res {
         println!("sprites decoding:    {drawn} ok, {failed} failed ({bad_rooms} rooms affected)");
     }
 
+    // Every name a ported handler reaches for must resolve to something. A
+    // handler that compiles, drops the unimplemented count and then names a
+    // cast or sound that does not exist looks finished and does nothing; that
+    // has happened twice, and both times every number I check said it was fine.
+    //
+    // Handlers are called directly rather than through their hotspots. Driving
+    // them from the rooms only exercises the ones whose guards hold at the
+    // start of the game, which is almost none of them: the first version of
+    // this check passed a deliberately broken handler because the handler
+    // returned early and emitted nothing at all.
+    {
+        let mut game = game::Game::new(dir)?;
+        // A reference is only a fault if it fails in every chapter the
+        // handler runs in. Handlers are dispatched by name across all the
+        // chapter modules, so Margaret's door static is reachable from Roxy's
+        // rooms, where Roxy's table has no such cast and never would.
+        let mut misses: BTreeMap<String, usize> = BTreeMap::new();
+        let mut hits: BTreeMap<String, usize> = BTreeMap::new();
+        let mut fired = 0usize;
+
+        // Every name the scripts call, so newly ported handlers are picked up
+        // without being listed here.
+        let mut names: Vec<String> = world
+            .nodes
+            .iter()
+            .flat_map(|n| &n.hotspots)
+            .flat_map(|h| &h.actions)
+            .filter_map(|a| a.split(['(', ' ']).next())
+            .map(|a| a.trim().to_ascii_lowercase())
+            .collect();
+        names.sort();
+        names.dedup();
+
+        for domain in ["ROXY", "MARGARET", "EDWIN", "BRICE"] {
+            let Some(&(start, _)) = world.domains.get(domain) else { continue };
+            for name in &names {
+                game.room = start;
+                // Permissive state, so a handler runs its body rather than
+                // returning at its guard.
+                let mut probe = state::State::new();
+                for flag in ["gPeekAlertEnabled", "playerHasPeekUnit", "chippyFreed"] {
+                    probe.set(flag, lingo::Value::Int(1));
+                }
+                probe.set("chippyFreed", lingo::Value::Int(0));
+                let mut out = script::Outcome::default();
+                if !natives::call(name, &[], &mut probe, &mut out) {
+                    continue;
+                }
+                for effect in &out.effects {
+                    fired += 1;
+                    let missing = match effect {
+                        script::Effect::PlaySound { name, .. }
+                        | script::Effect::StartLoop { name, .. } => (!(game
+                            .sounds
+                            .source(name)
+                            .is_some()
+                            || game.sounds.is_group(name)
+                            || game.sounds.file(name).is_some()))
+                        .then(|| format!("sound {name}")),
+                        script::Effect::SpriteCastNamed { name, .. } => game
+                            .presentation_cast(name)
+                            .is_none()
+                            .then(|| format!("cast {name}")),
+                        script::Effect::SpriteCastIcon { item, index, .. } => game
+                            .inventory
+                            .icon_at(item, *index)
+                            .is_none()
+                            .then(|| format!("icon {item}[{index}]")),
+                        _ => None,
+                    };
+                    match (missing, effect) {
+                        (Some(what), _) => *misses.entry(what).or_default() += 1,
+                        (None, script::Effect::PlaySound { name, .. })
+                        | (None, script::Effect::StartLoop { name, .. }) => {
+                            *hits.entry(format!("sound {name}")).or_default() += 1;
+                        }
+                        (None, script::Effect::SpriteCastNamed { name, .. }) => {
+                            *hits.entry(format!("cast {name}")).or_default() += 1;
+                        }
+                        (None, script::Effect::SpriteCastIcon { item, index, .. }) => {
+                            *hits.entry(format!("icon {item}[{index}]")).or_default() += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let dangling: BTreeMap<&String, &usize> = misses
+            .iter()
+            .filter(|(what, _)| !hits.contains_key(*what))
+            .collect();
+        println!("handler effects:     {fired}");
+        if dangling.is_empty() {
+            println!("dangling references: none");
+        } else {
+            println!("dangling references:");
+            for (what, n) in &dangling {
+                println!("  {what:<34} {n:>5}");
+            }
+        }
+    }
+
     println!("rooms parsed:        {}", world.len());
     println!("actions with a move: {destinations}");
     println!("actions, no move:    {no_destination}");

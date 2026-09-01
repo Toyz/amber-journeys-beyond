@@ -1297,3 +1297,35 @@ anything.
 The icons are addressed by position now, as the original's `getAt` reads them,
 and the inventory table keeps every cast an item lists rather than the first
 two.
+
+## 45. A check for the mistake I keep making
+
+Twice now I have written a handler that compiles, drops the unimplemented
+count and does nothing, because it names a cast or an icon that does not
+exist. Both times every number I habitually check said the work was done.
+Rereading the port against its disassembly caught both, but that is a habit,
+not a mechanism.
+
+`verify` now walks every ported handler and checks that each cast, icon and
+sound it reaches for actually resolves.
+
+The first version was worthless, and the control is what proved it. I drove
+the handlers through their hotspots, which only exercises the ones whose
+guards hold at the start of the game - almost none of them. `peekAlert`
+returns immediately unless the alert is enabled and the unit carried, so
+pointing it at a deliberately invalid icon changed nothing and the check
+still reported a clean run.
+
+Calling the handlers directly, with permissive state so they run their
+bodies rather than returning at the guard, took the effects checked from
+none that matter to 164.
+
+That turned up something worth knowing rather than a bug. `natives::call`
+dispatches by name across every chapter module, so Margaret's door static is
+reachable from Roxy's rooms, where Roxy's presentation table has no such cast
+and never will. A reference is therefore only reported when it fails in every
+chapter it ran in.
+
+With the control repeated on the corrected version, a wrong icon index shows
+up as 24 dangling references and a right one as none. The check can fail,
+which is the only reason its passing means anything.
