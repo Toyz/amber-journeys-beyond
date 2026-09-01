@@ -65,6 +65,53 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on shedAutoSlam
+        //   if getState(oStoryteller, #shedDoorIsOpen) = 1 then
+        //     setState(oStoryteller, #shedDoorIsOpen, 0)
+        //     setLoop #Shed
+        //
+        // The door swings shut by itself, and the ambience changes with it.
+        "shedautoslam" => {
+            if state.get("shedDoorIsOpen").as_int() == Some(1) {
+                state.set("shedDoorIsOpen", Value::Int(0));
+                out.effects.push(Effect::StartLoop {
+                    name: "Shed".into(),
+                    volume: None,
+                });
+            }
+        }
+
+        // on stashClick
+        //   gClickLoc = point(the mouseH, the mouseV)
+        //
+        // Records where the last click landed, for handlers that need the
+        // position rather than just the fact of a click. The engine writes the
+        // live position into state on every click, so this copies it across.
+        "stashclick" => {
+            let point = state.get("gMouseLoc");
+            state.set("gClickLoc", point);
+        }
+
+        // on curseWeeds howLikely
+        //   clamps howLikely into 1..6, defaulting to 3 when not a number,
+        //   then draws a curse from a list.
+        //
+        // Only the clamp is ported; the drawn line is a spoken cue and goes
+        // out as a sound so the pacing is right even before the list is read.
+        "curseweeds" => {
+            let likely = args
+                .first()
+                .and_then(Value::as_int)
+                .unwrap_or(3)
+                .clamp(1, 6);
+            if roll(state, 6) <= likely {
+                out.effects.push(Effect::PlaySound {
+                    name: "damnWeeds".into(),
+                    loudness: None,
+                });
+            }
+        }
+
         // These are `nothing` in the shipped movies: hooks the authors left
         // wired up but empty. Implemented as no-ops so they stop being
         // reported as missing.

@@ -531,6 +531,9 @@ impl Game {
 
     /// Handles a click, moving the player if the hotspot says to.
     pub fn click(&mut self, x: i32, y: i32) -> Option<Outcome> {
+        // Handlers such as `stashClick` want the click position, which the
+        // scripts read from the mouse rather than being passed.
+        self.state.set("gMouseLoc", lingo::Value::Point(x, y));
         let actions = {
             let state = &self.state;
             self.node()

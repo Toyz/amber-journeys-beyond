@@ -5,6 +5,7 @@ rather than guessed at. If the identified opcodes are right, the result should
 read as sensible code; if they are wrong, it will not.
 """
 import sys, struct
+_argv = list(sys.argv)          # the shim below clobbers argv
 sys.argv = ['x', 'extract/BRICE/BRICE.DXR']
 sys.path.insert(0, 'tools')
 import io, contextlib
@@ -44,7 +45,7 @@ def literals_of(s, be):
         q = dato + off
         if kind == 1 and q + 4 <= len(s):
             n = rd(s, be, q, 4)
-            out.append(repr(s[q + 4:q + 4 + n].decode('latin1')))
+            out.append(f'<string {n}>')
         elif q + 4 <= len(s):
             out.append(str(struct.unpack('>i' if be else '<i', s[q:q + 4])[0]))
         else:
@@ -124,5 +125,5 @@ def disasm(path, want):
             return
     print(f"no handler named {want}")
 
-disasm(sys.argv[1] if len(sys.argv) > 1 else 'extract/BRICE/BRICE.DXR',
-       sys.argv[2] if len(sys.argv) > 2 else 'setGrateIsOpen')
+disasm(_argv[1] if len(_argv) > 1 else 'extract/BRICE/BRICE.DXR',
+       _argv[2] if len(_argv) > 2 else 'setGrateIsOpen')

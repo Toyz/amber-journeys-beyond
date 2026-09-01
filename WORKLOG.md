@@ -614,3 +614,42 @@ sound being the rarer outcome rather than the commoner one. Every ported
 handler so far is unconditional and so does not depend on it; the first
 conditional handler will, and that is where it needs a harder check than
 plausibility.
+
+## 23. Polarity settled, and three more ported
+
+The jump convention was the last thing resting on plausibility, and
+`setGrateIsOpen` settles it because the handler is a mirror:
+
+  suggestion = 0  and  currentState = 1  ->  close cue, store 0
+  suggestion = 1  and  currentState = 0  ->  open cue,  store 1
+
+Three identifiers flip together across the two branches: the animation cue,
+the stored value, and the constants compared against. That is not an appeal
+to which outcome seems likelier; it is the same fact stated three ways in the
+same handler. So `0x0f` is equality, `0x12` is a logical and, and the jump is
+taken when the condition is false.
+
+`shedAutoSlam` confirms it independently: read the shed door state, compare to
+1, and on the branch that runs when it is open, set it to 0 and change the
+ambience. A door that slams itself shut only when it is currently open is the
+right behaviour, and the opposite polarity would make it slam only when
+already closed.
+
+Thirty-six handlers share the door-setter shape, found structurally rather
+than by name. They are not called from room scripts though - the scripts call
+a dispatcher - so porting them alone would not move the engine. Ported
+instead were the small handlers the scripts do call directly:
+`shedAutoSlam`, `stashClick` and `curseWeeds`. The report moves from 57
+distinct handlers over 384 call sites to 54 over 357.
+
+### Two tool faults worth recording
+
+`tools/disasm.py` overwrote `sys.argv` at import, to satisfy a module that
+reads it at import time, and so ignored its own command line and disassembled
+the same handler whatever it was asked for. I only noticed because a lookup
+for a handler that does not exist returned a listing for one that does. A
+tool that silently answers a different question than the one asked is worse
+than one that fails.
+
+It also printed the contents of the literal pool, which is game text and
+serves no purpose in a listing. It now prints lengths instead.
