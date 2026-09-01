@@ -165,6 +165,42 @@ impl Audio {
         });
     }
 
+    /// Makes the set of playing loops match `wanted`, which is `(name, gain)`.
+    ///
+    /// A room's ambience is not just which loops play but how loud each is:
+    /// the house hum sits at 224 indoors, drops through 160 and 96 nearer the
+    /// doors, and reaches 0 out on the grounds. Starting loops without ever
+    /// stopping or re-levelling them leaves every loop the player has ever
+    /// triggered running at full volume, stacked, for the rest of the session.
+    ///
+    /// Loops already playing keep their position so the sound is continuous
+    /// across a move; only their gain changes.
+    pub fn set_loops(&self, wanted: &[(String, f32)]) {
+        let Ok(mut mixer) = self.mixer.lock() else {
+            return;
+        };
+        mixer.voices.retain(|v| match &v.key {
+            Some(k) => wanted.iter().any(|(n, _)| n == k),
+            // One-shots are not loops and are left alone.
+            None => true,
+        });
+        for voice in mixer.voices.iter_mut() {
+            if let Some(k) = &voice.key {
+                if let Some((_, gain)) = wanted.iter().find(|(n, _)| n == k) {
+                    voice.gain = *gain;
+                }
+            }
+        }
+    }
+
+    /// Names of the loops currently playing.
+    pub fn playing_loops(&self) -> Vec<String> {
+        match self.mixer.lock() {
+            Ok(mixer) => mixer.voices.iter().filter_map(|v| v.key.clone()).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
     /// Stops one named loop.
     pub fn stop(&self, key: &str) {
         if let Ok(mut mixer) = self.mixer.lock() {

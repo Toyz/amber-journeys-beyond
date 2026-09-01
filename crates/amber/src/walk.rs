@@ -132,6 +132,18 @@ fn show(game: &mut Game) {
     if let Some(m) = game.video() {
         println!("  movie: {m}");
     }
+    // The ambient mix is per room, so showing it makes a loop that should
+    // have stopped on the way out visible without needing to hear it.
+    let mix = game.ambience();
+    if mix.is_empty() {
+        println!("  ambience: (silent)");
+    } else {
+        let parts: Vec<String> = mix
+            .iter()
+            .map(|(n, level)| format!("{n} {:.0}%", level * 100.0))
+            .collect();
+        println!("  ambience: {}", parts.join(", "));
+    }
 
     let state = &game.state;
     let mut any = false;

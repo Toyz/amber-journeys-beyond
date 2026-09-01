@@ -804,3 +804,35 @@ That is the fourth time in this project a plausible explanation for a wrong
 number has cost me more than checking would have. The pattern is specific
 enough now to name: when a statistic comes out at exactly a boundary value,
 the boundary is the thing to investigate, not to rationalise.
+
+## 28. Ambience that followed the player outdoors
+
+helba reported the house hum continuing after leaving the study, and still
+playing out on the grounds, and guessed it was missing game logic. It was not:
+the logic was present in the data and the engine was ignoring it.
+
+Ambient loops were started on entering a room and never stopped. There was no
+retirement step at all, so every loop the player triggered kept running for
+the session, stacking. The per-room mix was thrown away too: `#earShot` gives
+`houseHum` at 224 indoors, 160 and 96 nearer the doors, and 0 out on the
+grounds. Across Roxy's chapter that key is 0 in 290 rooms and 224 in 252, so
+the fade as the player steps outside is a designed effect and half the rooms
+in the game specify it.
+
+The fix makes the playing set match the room's mix on every move: loops the
+new room does not want stop, loops it shares keep their position so the sound
+stays continuous, and their gain is reset to the new room's level.
+
+`walk` now prints each room's ambient mix, which is how this was checked
+without listening: the study asks for the hum at 88% and the grounds ask for
+silence.
+
+### On the diagnosis
+
+The report came with a guess attached - that this was missing game logic - and
+it was a reasonable guess, since most of what remains unimplemented is exactly
+that. It was worth checking anyway, and the check was cheap: look at what the
+data asks for before concluding the data does not ask for anything. Three of
+the last four bugs helba has found were in code I had written, not in logic I
+had yet to write, and I would have been slower to each of them if I had taken
+the accompanying guess at face value.

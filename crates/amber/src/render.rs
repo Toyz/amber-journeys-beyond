@@ -91,7 +91,25 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         if game.room != ambience_room {
             ambience_room = game.room;
             if let Some(a) = &audio {
+                // Retire loops this room does not want and re-level the ones
+                // it does, before starting anything new. Without this the
+                // house hum follows the player out onto the grounds, where
+                // the room's own mix asks for silence.
+                let wanted: Vec<(String, f32)> = game
+                    .ambience()
+                    .into_iter()
+                    .map(|(name, level)| {
+                        let gain = level * game.sounds.gain(&name);
+                        (name, gain)
+                    })
+                    .collect();
+                a.set_loops(&wanted);
+                let already = a.playing_loops();
+
                 for (name, level) in game.ambience() {
+                    if already.iter().any(|k| *k == name) {
+                        continue;
+                    }
                     let gain = level * game.sounds.gain(&name);
                     // A radio or clock is a programme of takes played in order,
                     // not one looping voice, so it goes to the sequencer. Some
