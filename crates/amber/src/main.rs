@@ -315,9 +315,10 @@ fn cmd_rooms(dir: &Path, domain: Option<&str>) -> Res {
             })
             .collect();
         println!(
-            "{:<9} {:>4}  {:<16} -> {}",
+            "{:<9} {:>4}  {:<22} {:<16} -> {}",
             node.domain,
             node.index,
+            node.name.clone().unwrap_or_else(|| "-".into()),
             art,
             if exits.is_empty() {
                 "(none)".into()
