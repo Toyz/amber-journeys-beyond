@@ -22,6 +22,25 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // The original rolls a die so the swarm is only sometimes heard. The
         // roll is reproduced rather than firing every time, because the
         // intermittency is the effect.
+        // on resetHeartBox
+        //   if getState( #heartBox ) = #open then return
+        //   setState( #nail_1, #halfway )
+        //   setState( #nail_2, #halfway )
+        //   setState( #nail_3, #halfway )
+        //
+        // Walking away puts the nails back where they started, so the puzzle
+        // has to be solved in one visit -- unless it already has been, in
+        // which case the open box is left alone.
+        "resetheartbox" => {
+            if state.get("heartBox").as_symbol() == Some("open") {
+                return true;
+            }
+            for nail in ["nail_1", "nail_2", "nail_3"] {
+                state.set(nail, Value::Symbol("halfway".into()));
+            }
+            out.redraw = true;
+        }
+
         // on pushNail targetNail
         //   shadowNail = the next nail round: nail_1 -> nail_2 -> nail_3 -> nail_1
         //   targetCurrentState = getState( targetNail )
@@ -505,5 +524,26 @@ mod tests {
             })
             .collect();
         assert_eq!(montage, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn walking_away_puts_the_nails_back() {
+        let mut s = nails();
+        push(&mut s, 1);
+        let mut out = Outcome::default();
+        assert!(call("resetheartbox", &[], &mut s, &mut out));
+        assert_eq!(depths(&s), ["halfway", "halfway", "halfway"]);
+    }
+
+    #[test]
+    fn but_leaves_a_box_that_is_already_open() {
+        let mut s = nails();
+        for nail in [1, 1, 3, 1, 2] {
+            push(&mut s, nail);
+        }
+        s.set("heartBox", Value::Symbol("open".into()));
+        let mut out = Outcome::default();
+        assert!(call("resetheartbox", &[], &mut s, &mut out));
+        assert_eq!(depths(&s), ["out", "out", "out"]);
     }
 }

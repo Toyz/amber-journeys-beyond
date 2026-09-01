@@ -3408,3 +3408,38 @@ why the PC build has to start the sound separately alongside the film. This
 engine decodes film soundtracks, so playing them again would double them.
 
 186 tests. Unported is **16 verbs across 21 call sites**.
+
+## 88. Two dials on one machine
+
+`adjustBarSettings` and `resetHeartBox`, both small, both ported.
+
+`adjustBarSettings` is the psionic bar's other control: three digits -- level,
+gain and FM -- one of them selected by `#BarSelection`, each running 0 to 9.
+The arithmetic is the same trick as the lock in entry 54:
+
+```text
+if upOrDown = #up   then newLevel = (currentLevel + 11) mod 10
+if upOrDown = #down then newLevel = (currentLevel + 9)  mod 10
+```
+
+Adding eleven and nine rather than adding and subtracting one keeps the value
+positive so the modulo behaves.
+
+What is worth stopping on is that these **wrap** while the algorithm columns
+on the same machine, ported in entry 81, **refuse at their limits**. One panel,
+two dials, deliberately different, and nothing about either one predicts the
+other. If I had ported this first and reached the columns second I would have
+carried the wrap across without a second thought -- which is exactly what I
+nearly did in the other direction. Reading both is the only thing that works.
+
+Nothing moves unless `#BarMode` is `#setON`, which is a third rule the panel
+does not advertise.
+
+`resetHeartBox` puts the three nails back to `#halfway` on leaving, so the
+puzzle has to be solved in one visit -- unless it already has been, in which
+case the open box is left alone. Same shape as `resetBoxPuzzle` in Margaret's
+dresser, and the same reason: these puzzles are about a sequence, and letting
+the player accumulate progress across visits would make the sequence
+irrelevant.
+
+191 tests. Unported is **14 verbs across 18 call sites**.

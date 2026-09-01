@@ -843,6 +843,65 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on adjustBarSettings upOrDown
+        //   cursorOff
+        //   whichSetting = getState( #BarSelection )
+        //   if whichSetting = #level then digitStack = getProp( frames, #levelDigits )
+        //   if whichSetting = #gain  then digitStack = getProp( frames, #gainDigits )
+        //   if whichSetting = #FM    then digitStack = getProp( frames, #FMdigits )
+        //   ... find the digit and button sprites in channels 10..48 ...
+        //   startTimer
+        //   ... light the pressed button ...
+        //   repeat while stillDown and lagTime ... and getState( #BarMode ) = #setON
+        //     if whichSetting = #level then
+        //       currentLevel = getState( #BarLevel )
+        //       if upOrDown = #up   then newLevel = (currentLevel + 11) mod 10
+        //       if upOrDown = #down then newLevel = (currentLevel + 9)  mod 10
+        //       setProp( oStoryteller.states, #BarLevel, list(newLevel) )
+        //     ... the same for #gain and #FM ...
+        //
+        // Three digits on the psionic bar -- level, gain and FM -- one of them
+        // selected by `#BarSelection`, each running 0 to 9 and wrapping.
+        //
+        // `(x + 11) mod 10` and `(x + 9) mod 10` is the same trick the lock in
+        // Brice's chapter uses: adding rather than subtracting keeps the value
+        // positive so the modulo behaves. Worth noticing that these wrap while
+        // the algorithm columns on the same machine refuse at their limits --
+        // one panel, two deliberately different dials, and no way to guess
+        // which is which without reading both.
+        //
+        // Nothing moves unless the bar is switched on.
+        "adjustbarsettings" => {
+            const SETTINGS: [(&str, &str); 3] = [
+                ("level", "BarLevel"),
+                ("gain", "BarGain"),
+                ("FM", "BarFM"),
+            ];
+            if state.get("BarMode").as_symbol() != Some("setON") {
+                return true;
+            }
+            let Some(flag) = state.get("BarSelection").as_symbol().and_then(|sel| {
+                let sel = sel.trim_start_matches('#');
+                SETTINGS
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(sel))
+                    .map(|(_, flag)| *flag)
+            }) else {
+                return true;
+            };
+            let up = args
+                .first()
+                .and_then(Value::as_str)
+                .is_some_and(|d| d.trim_start_matches('#').eq_ignore_ascii_case("up"));
+
+            out.effects.push(Effect::CursorOff);
+            let current = state.get(flag).as_int().unwrap_or(0);
+            let moved = (current + if up { 11 } else { 9 }).rem_euclid(10);
+            state.set_all(flag, vec![Value::Int(moved)]);
+            out.repeat_while_held = true;
+            out.redraw = true;
+        }
+
         // on camControl whichBtn
         //   storedPosition = getState( #videoTapePosition )
         //   if integerp( storedPosition ) or gHorsepower = #low then
@@ -1992,5 +2051,58 @@ mod phone_tests {
         let out = press(&mut s, "pause");
         assert!(out.effects.iter().any(|e| matches!(e, Effect::StopVideo)));
         assert_eq!(at(&s), 4432);
+    }
+
+    // -- the bar's three digits ---------------------------------------------
+
+    fn bar_digits() -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("BarMode", vec![Value::Symbol("setON".into())]);
+        s.set_all("BarSelection", vec![Value::Symbol("level".into())]);
+        s.set_all("BarLevel", vec![Value::Int(4)]);
+        s.set_all("BarGain", vec![Value::Int(2)]);
+        s.set_all("BarFM", vec![Value::Int(0)]);
+        s
+    }
+
+    fn nudge(state: &mut State, up: bool) {
+        let mut out = Outcome::default();
+        let dir = if up { "up" } else { "down" };
+        assert!(call(
+            "adjustbarsettings",
+            &[Value::Symbol(dir.into())],
+            state,
+            &mut out
+        ));
+    }
+
+    #[test]
+    fn the_bars_digits_wrap_where_its_columns_refuse() {
+        let mut s = bar_digits();
+        s.set_all("BarLevel", vec![Value::Int(9)]);
+        nudge(&mut s, true);
+        assert_eq!(s.get("BarLevel"), Value::Int(0));
+        nudge(&mut s, false);
+        assert_eq!(s.get("BarLevel"), Value::Int(9));
+    }
+
+    #[test]
+    fn the_selection_decides_which_digit_moves() {
+        let mut s = bar_digits();
+        s.set_all("BarSelection", vec![Value::Symbol("gain".into())]);
+        nudge(&mut s, true);
+        assert_eq!(s.get("BarGain"), Value::Int(3));
+        // The others are untouched.
+        assert_eq!(s.get("BarLevel"), Value::Int(4));
+        assert_eq!(s.get("BarFM"), Value::Int(0));
+    }
+
+    #[test]
+    fn and_nothing_moves_while_the_bar_is_switched_off() {
+        let mut s = bar_digits();
+        s.set_all("BarMode", vec![Value::Symbol("setOFF".into())]);
+        nudge(&mut s, true);
+        assert_eq!(s.get("BarLevel"), Value::Int(4));
     }
 }
