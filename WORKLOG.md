@@ -1164,3 +1164,35 @@ doing before grinding through the thirty-three that do not need it.
 
 `resetBoxPuzzle` is ported: stop the video and empty `#boxList`, so the boxes
 can be worked through again from the start.
+
+## 41. Puppet channels, built halfway on purpose
+
+Director lets a script take a sprite channel away from the score with
+`puppetSprite` and then drive it directly, setting its cast member and
+position frame by frame. The engine had no path for that, and entry 40
+counted the cost: 14 handlers over 53 call sites blocked on it.
+
+The layer is now there. Claimed channels are held apart from the room's
+`#onStage` list and composited over it in channel order, a move hands them all
+back, and the interpreter turns `set the castNum of sprite 39` and `set the
+loc of sprite 39` into effects that drive them.
+
+What is not there is the bytecode side, and the reason is worth recording. A
+compiled sprite write looks like
+
+  push int 45 / push local loopClip / push int 4 / 0x5d 6
+
+Three operands and an opcode operand, and which of them selects the property
+is not established. Guessing would put the right cast member in the wrong
+channel, or the right channel at the wrong position, and both look like a
+puzzle that is subtly broken rather than one that is unimplemented.
+
+So the layer is driven by the six assignments the room scripts spell out in
+text, where the property is named and nothing is inferred. That is a thin
+exercise - four `loc` writes and one `castNum`, all on channel 39 - but it is
+real, and it means the infrastructure is proven before the ambiguous half is
+wired to it.
+
+The 53 blocked call sites are still blocked. What changed is that they are now
+blocked on one identified question, the property index mapping, rather than on
+a missing capability.

@@ -40,6 +40,12 @@ pub enum Effect {
     FadeToMontage(i32),
     /// Hide the cursor for the next scripted beat.
     CursorOff,
+    /// Claim or release a sprite channel for script control.
+    PuppetSprite { channel: u8, on: bool },
+    /// Point a script-controlled channel at a cast member.
+    SpriteCast { channel: u8, cast: u32 },
+    /// Move a script-controlled channel.
+    SpriteLoc { channel: u8, x: i32, y: i32 },
     /// A puzzle or set-piece handler that still lives in Director bytecode.
     Native { name: String, args: Vec<Value> },
 }
@@ -151,6 +157,14 @@ fn parse_call(src: &str) -> Option<Call> {
 /// The separator is `=` or, in a few places, the word `to`. Both spellings are
 /// Lingo and the data uses each.
 fn parse_property_assignment(src: &str) -> Option<(String, String)> {
+    parse_assignment(src).map(|(p, _, v)| (p, v))
+}
+
+/// Splits `set the <property> of <target> = <value>` into all three parts.
+///
+/// The target matters for sprite properties: `set the loc of sprite 39` names
+/// the channel being moved, and dropping it leaves the assignment unusable.
+fn parse_assignment(src: &str) -> Option<(String, String, String)> {
     let lower = src.to_ascii_lowercase();
     let rest = lower.strip_prefix("set the ")?;
     let offset = src.len() - rest.len();
@@ -158,6 +172,7 @@ fn parse_property_assignment(src: &str) -> Option<(String, String)> {
     // Property name runs up to " of ".
     let of = rest.find(" of ")?;
     let property = src[offset..offset + of].trim().to_string();
+    let _ = &property;
 
     // Value follows the assignment operator.
     let tail = &rest[of + 4..];
@@ -169,10 +184,45 @@ fn parse_property_assignment(src: &str) -> Option<(String, String)> {
     };
     let value_start = offset + of + 4 + sep + width;
     let value = src.get(value_start..)?.trim().to_string();
+    let target = src.get(offset + of + 4..value_start.saturating_sub(width))?
+        .trim()
+        .to_string();
     if property.is_empty() || value.is_empty() {
         return None;
     }
-    Some((property, value))
+    Some((property, target, value))
+}
+
+/// Reads the channel from a target like `sprite 39`.
+fn channel_of(target: &str) -> Option<u8> {
+    let rest = target.trim().strip_prefix("sprite")?;
+    rest.trim().parse().ok()
+}
+
+/// Turns a sprite property assignment into the matching effect.
+fn push_sprite_effect(property: &str, channel: u8, value: &str, out: &mut Outcome) {
+    let parsed = parse_value(value).ok();
+    match property.to_ascii_lowercase().as_str() {
+        "castnum" => {
+            if let Some(cast) = parsed.as_ref().and_then(Value::as_int) {
+                out.effects.push(Effect::SpriteCast {
+                    channel,
+                    cast: cast.max(0) as u32,
+                });
+            }
+        }
+        "loc" => {
+            if let Some((x, y)) = parsed.as_ref().and_then(Value::as_point) {
+                out.effects.push(Effect::SpriteLoc { channel, x, y });
+            }
+        }
+        // Other sprite properties are presentation details the renderer does
+        // not model; recording them keeps the count honest.
+        _ => out.effects.push(Effect::Native {
+            name: format!("set the {property} of sprite"),
+            args: Vec::new(),
+        }),
+    }
 }
 
 /// Finds the start of a trailing `--` comment, ignoring one inside a string.
@@ -373,12 +423,18 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                         loudness: None,
                     });
                 }
-                // The remaining forms address sprites and cast members
-                // directly, which the renderer does not expose yet.
-                Some(_) => out.effects.push(Effect::Native {
-                    name: "set".into(),
-                    args: Vec::new(),
-                }),
+                // A sprite property names the channel it acts on, which the
+                // renderer holds as a script-controlled puppet layer.
+                Some(_) => match parse_assignment(text) {
+                    Some((property, target, value)) if channel_of(&target).is_some() => {
+                        let channel = channel_of(&target).unwrap();
+                        push_sprite_effect(&property, channel, &value, out);
+                    }
+                    _ => out.effects.push(Effect::Native {
+                        name: "set".into(),
+                        args: Vec::new(),
+                    }),
+                },
                 None => out.unhandled.push(text.to_string()),
             }
         }

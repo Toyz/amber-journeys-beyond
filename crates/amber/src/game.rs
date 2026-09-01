@@ -4,7 +4,7 @@
 //! Rendering and input live in `render`; this module is the part that would be
 //! identical whatever the front end is.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -49,6 +49,9 @@ pub struct Game {
     chapters: HashMap<String, Chapter>,
     /// Effects the last click produced, for the front end to play back.
     pub pending: Vec<Effect>,
+    /// Sprite channels a script has taken over, keyed by channel so they
+    /// composite in the same back-to-front order as the room's own sprites.
+    puppets: BTreeMap<u8, Puppet>,
     /// Actions still to run from the current hotspot, and what they are
     /// waiting on. In-world animation depends on this: a switch sets a flag,
     /// redraws so the movie appears, waits for it to finish, then clears the
@@ -84,6 +87,7 @@ impl Game {
             root: root.to_path_buf(),
             chapters: HashMap::new(),
             pending: Vec::new(),
+            puppets: BTreeMap::new(),
             script: Vec::new(),
             waiting: None,
             movies: MovieIndex::build(root),
@@ -294,6 +298,42 @@ impl Game {
         out
     }
 
+    /// Applies an effect that acts on a script-controlled sprite channel.
+    ///
+    /// Director lets a script take a channel away from the score with
+    /// `puppetSprite` and then drive it directly. The room's own `#onStage`
+    /// list cannot express that, so these channels are held separately and
+    /// composited over the room.
+    pub fn apply_puppet(&mut self, effect: &Effect) -> bool {
+        match effect {
+            Effect::PuppetSprite { channel, on } => {
+                if *on {
+                    self.puppets.entry(*channel).or_default();
+                } else {
+                    self.puppets.remove(channel);
+                }
+            }
+            Effect::SpriteCast { channel, cast } => {
+                self.puppets.entry(*channel).or_default().cast = *cast;
+            }
+            Effect::SpriteLoc { channel, x, y } => {
+                let p = self.puppets.entry(*channel).or_default();
+                p.loc = Some((*x, *y));
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Releases every claimed channel, which a room change does.
+    pub fn clear_puppets(&mut self) {
+        self.puppets.clear();
+    }
+
+    pub fn puppet_count(&self) -> usize {
+        self.puppets.len()
+    }
+
     /// Draws the current room into a 640x480 BGRA framebuffer.
     pub fn draw(&mut self, frame: &mut [u32], width: u32, height: u32) {
         frame.fill(0xff00_0000);
@@ -349,6 +389,25 @@ impl Game {
                 );
             }
             blit(frame, width, height, &art.rgba, art.width, art.height, ox, oy);
+        }
+
+        // Script-controlled channels sit over the room, in channel order.
+        let domain = self.node().domain.clone();
+        let puppets: Vec<(u8, Puppet)> =
+            self.puppets.iter().map(|(k, v)| (*k, *v)).collect();
+        for (_, puppet) in puppets {
+            if puppet.cast == 0 {
+                continue;
+            }
+            let Some(art) = self.art(&domain, puppet.cast) else {
+                continue;
+            };
+            let (w, h) = (art.width, art.height);
+            let (ox, oy) = match puppet.loc {
+                Some((x, y)) => (x - art.reg_x as i32, y - art.reg_y as i32),
+                None => ((width as i32 - w as i32) / 2, (height as i32 - h as i32) / 2),
+            };
+            blit(frame, width, height, &art.rgba, w, h, ox, oy);
         }
     }
 
@@ -776,6 +835,15 @@ fn merge(into: &mut Outcome, from: Outcome) {
     into.credits |= from.credits;
     into.effects.extend(from.effects);
     into.unhandled.extend(from.unhandled);
+}
+
+/// One sprite channel under script control.
+#[derive(Copy, Clone, Default)]
+struct Puppet {
+    /// Cast member to draw; zero means the channel is claimed but empty.
+    cast: u32,
+    /// Where the sprite's registration point sits, if the script set it.
+    loc: Option<(i32, i32)>,
 }
 
 /// A running radio or clock programme.

@@ -280,6 +280,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 if let Some(outcome) = game.click(x, y) {
                     // A move cuts whatever the previous scene was playing.
                     if outcome.destination.is_some() || outcome.go_back {
+                        game.clear_puppets();
                         if had_movie {
                             if let Some(a) = &audio {
                                 // Keep the house ambience across a move; only
@@ -299,6 +300,12 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                     for effect in effects {
                         if std::env::var_os("AMBER_TRACE").is_some() {
                             eprintln!("  effect: {effect:?}");
+                        }
+                        // Channel effects change what is drawn, not what is
+                        // heard, so they are applied before the audio match.
+                        if game.apply_puppet(&effect) {
+                            dirty = true;
+                            continue;
                         }
                         let Some(a) = &audio else { continue };
                         match effect {
