@@ -843,6 +843,145 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on camControl whichBtn
+        //   storedPosition = getState( #videoTapePosition )
+        //   if integerp( storedPosition ) or gHorsepower = #low then
+        //     set the movieRate of sprite 44 = 0 : updateStage
+        //   buttonStack  = getProp( oPuppeteer.frames, #camButtons )
+        //   buttonSprite = the channel in 10..48 showing one of buttonStack
+        //   markerList   = [44, 2152, 4432, 7898, 12474, 14984]
+        //   ... light the pressed button for 8 ticks, then unlight it ...
+        //   currentPosition = the movieTime of sprite 44
+        //   currentSegment  = the last marker at or before currentPosition
+        //   if whichBtn = #prevMarker or whichBtn = #nextMarker then
+        //     if #prevMarker and currentSegment > 1              then currentSegment = currentSegment - 1
+        //     if #nextMarker and currentSegment < count(markerList) then currentSegment = currentSegment + 1
+        //     newPosition  = getAt( markerList, currentSegment )
+        //     trueLength   = abs( the movieTime of sprite 44 - newPosition ) / 20
+        //     rewindLength = min( trueLength, 300 )
+        //     ... swap in the rewind static on 45 for rewindLength ticks ...
+        //   if whichBtn = #pause then set the movieRate of sprite 44 = 0
+        //   if whichBtn = #play then
+        //     if the movieTime of sprite 44 > 15000 then set the movieTime of sprite 44 = 15000
+        //     set the movieRate of sprite 44 = 1
+        //
+        // The security tape, and a real VCR: six markers, a shuttle between
+        // them whose length is the distance travelled over twenty and capped
+        // at three hundred ticks, and a play button that clamps to the end of
+        // the tape at 15000. That clamp is where the tape's length comes from
+        // -- it is not written down anywhere else.
+        //
+        // Not modelled: the pressed button lights for eight ticks and the
+        // rewind static is a second film swapped onto channel 45. The eight
+        // ticks are kept because they are a beat the player feels; the static
+        // needs a sprite the original finds by scanning channels 10 to 48 for
+        // whichever one is showing a `#camButtons` cast, and this engine
+        // resolves those from state instead.
+        "camcontrol" => {
+            const MARKERS: [i32; 6] = [44, 2152, 4432, 7898, 12474, 14984];
+            const TAPE_END: i32 = 15000;
+
+            let Some(button) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|b| b.trim_start_matches('#').to_ascii_lowercase())
+            else {
+                return true;
+            };
+
+            let position = state.get("videoTapePosition").as_int().unwrap_or(MARKERS[0]);
+            // The button stays lit for eight ticks whichever one it is.
+            out.effects.push(Effect::WaitTicks(8));
+
+            match button.as_str() {
+                "prevmarker" | "nextmarker" => {
+                    // The segment is the last marker at or before where the
+                    // tape is sitting, counting from one.
+                    let mut segment = MARKERS
+                        .iter()
+                        .rposition(|m| *m <= position)
+                        .map_or(0, |i| i as i32);
+                    if button == "prevmarker" && segment > 0 {
+                        segment -= 1;
+                    } else if button == "nextmarker" && segment < MARKERS.len() as i32 - 1 {
+                        segment += 1;
+                    }
+                    let moved = MARKERS[segment as usize];
+                    let shuttle = ((moved - position).abs() / 20).min(300);
+                    state.set_all("videoTapePosition", vec![Value::Int(moved)]);
+                    if shuttle > 0 {
+                        out.effects.push(Effect::WaitTicks(shuttle as u32));
+                    }
+                    out.effects.push(Effect::PlayVideoSegment {
+                        from: moved as u32,
+                        to: moved as u32,
+                    });
+                }
+                "play" => {
+                    let from = position.min(TAPE_END);
+                    state.set_all("videoTapePosition", vec![Value::Int(from)]);
+                    out.effects.push(Effect::PlayVideoSegment {
+                        from: from as u32,
+                        to: TAPE_END as u32,
+                    });
+                }
+                "pause" => out.effects.push(Effect::StopVideo),
+                _ => return true,
+            }
+            out.redraw = true;
+        }
+
+        // on camLogInit
+        //   killVideo
+        //   disablePeekAlert
+        //   if getState( #playerHasVideotape ) = #usedUp then ...
+        //   puppetSprite 45, 1 : updateStage
+        //   set the castNum of sprite 45 = getProp( oPuppeteer.frames, #camRewind )
+        //   set the visible of sprite 45 = 0
+        //
+        // Sitting down at the monitor turns the peek alert off, so the ghost
+        // cannot interrupt while the player is working through the tape.
+        "camloginit" => {
+            out.effects.push(Effect::StopVideo);
+            call("disablepeekalert", &[], state, out);
+            out.effects.push(Effect::PuppetSprite { channel: 45, on: true });
+            out.effects.push(Effect::SpriteCastNamed {
+                channel: 45,
+                name: "camRewind".into(),
+            });
+            out.effects.push(Effect::SpriteVisible { channel: 45, visible: false });
+            out.redraw = true;
+        }
+
+        // on camLogShutdown
+        //   pushVideo
+        //   enablePeekAlert
+        //   storedPosition = getState( #videoTapePosition )
+        //   if storedPosition <> #None then
+        //     setState( #videoTapePosition, the movieTime of sprite 44 )
+        //   set the movieRate of sprite 44 = 0
+        //   puppetSprite 44, 0
+        //
+        // And standing up turns it back on, remembering where the tape was
+        // left -- but only if it had been started. A tape never played keeps
+        // its `#None` rather than being pinned to the beginning.
+        // The original stops the tape and starts the room's film, which are
+        // two movies on two channels. This engine has one player, so stopping
+        // the tape *is* starting the room's film and a `StopVideo` after the
+        // `PlayVideo` would only cancel it.
+        //
+        // The position is not written back here either. The original reads the
+        // live movieTime off the sprite; this port tracks it in
+        // `#videoTapePosition` as `camControl` moves it, which agrees except
+        // while the tape is rolling -- leave mid-play and it remembers where
+        // play began rather than where it had got to.
+        "camlogshutdown" => {
+            call("enablepeekalert", &[], state, out);
+            out.effects.push(Effect::PuppetSprite { channel: 44, on: false });
+            out.effects.push(Effect::PlayVideo(None));
+            out.redraw = true;
+        }
+
         // on setFragmentBias option
         //   checkFrames = getProp( oPuppeteer.frames, #BT_checkBox )
         //   bias1Frames..bias3Frames likewise
@@ -1747,5 +1886,111 @@ mod phone_tests {
         align(&mut s, "toggle");
         assert_eq!(s.get("BT_alignmentLeft"), Value::Symbol("on".into()));
         assert_eq!(s.get("BT_alignmentRight"), Value::Symbol("on".into()));
+    }
+
+
+    // -- the security tape --------------------------------------------------
+
+    fn tape(at: i32) -> State {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("videoTapePosition", vec![Value::Int(at)]);
+        s
+    }
+
+    fn press(state: &mut State, button: &str) -> Outcome {
+        let mut out = Outcome::default();
+        assert!(call(
+            "camcontrol",
+            &[Value::Symbol(button.into())],
+            state,
+            &mut out
+        ));
+        out
+    }
+
+    fn at(state: &State) -> i32 {
+        state.get("videoTapePosition").as_int().unwrap_or(-1)
+    }
+
+    fn waits(out: &Outcome) -> Vec<u32> {
+        out.effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::WaitTicks(t) => Some(*t),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_tape_steps_between_its_six_markers() {
+        let mut s = tape(44);
+        for want in [2152, 4432, 7898, 12474, 14984] {
+            press(&mut s, "nextMarker");
+            assert_eq!(at(&s), want);
+        }
+        for want in [12474, 7898, 4432, 2152, 44] {
+            press(&mut s, "prevMarker");
+            assert_eq!(at(&s), want);
+        }
+    }
+
+    #[test]
+    fn and_stops_at_either_end_of_the_tape() {
+        let mut s = tape(44);
+        press(&mut s, "prevMarker");
+        assert_eq!(at(&s), 44);
+
+        let mut s = tape(14984);
+        press(&mut s, "nextMarker");
+        assert_eq!(at(&s), 14984);
+    }
+
+    #[test]
+    fn the_shuttle_is_as_long_as_the_distance_travelled() {
+        // 2152 back to 44 is 2108 ticks of tape, and a twentieth of that.
+        let mut s = tape(2152);
+        let out = press(&mut s, "prevMarker");
+        // The first wait is the button lighting up.
+        assert_eq!(waits(&out), [8, 105]);
+    }
+
+    #[test]
+    fn but_never_longer_than_three_hundred_ticks() {
+        // Left mid-tape at 14000, the previous marker is 6102 ticks back,
+        // which is 305 -- over the cap.
+        let mut s = tape(14000);
+        let out = press(&mut s, "prevMarker");
+        assert_eq!(at(&s), 7898);
+        assert_eq!(waits(&out), [8, 300]);
+    }
+
+    #[test]
+    fn play_runs_to_the_end_of_the_tape() {
+        let mut s = tape(4432);
+        let out = press(&mut s, "play");
+        let played = out.effects.iter().find_map(|e| match e {
+            Effect::PlayVideoSegment { from, to } => Some((*from, *to)),
+            _ => None,
+        });
+        assert_eq!(played, Some((4432, 15000)));
+    }
+
+    #[test]
+    fn and_will_not_run_past_it() {
+        // The clamp in the original is where the tape's length is written
+        // down at all.
+        let mut s = tape(15600);
+        press(&mut s, "play");
+        assert_eq!(at(&s), 15000);
+    }
+
+    #[test]
+    fn pause_stops_the_tape() {
+        let mut s = tape(4432);
+        let out = press(&mut s, "pause");
+        assert!(out.effects.iter().any(|e| matches!(e, Effect::StopVideo)));
+        assert_eq!(at(&s), 4432);
     }
 }

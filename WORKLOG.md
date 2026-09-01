@@ -3312,3 +3312,52 @@ nobody has to wonder again.
 
 Build warnings: zero. Clippy: zero errors, twenty-nine style lints left
 standing. 173 tests. Unported is **20 verbs across 31 call sites**.
+
+## 86. The security tape
+
+Roxy's camera log, ported: `camControl`, `camLogInit` and `camLogShutdown`.
+
+It is a VCR. Six markers on the tape --
+
+```text
+markerList = [44, 2152, 4432, 7898, 12474, 14984]
+```
+
+-- with previous, next, play and pause. Stepping between markers plays a
+shuttle whose length is the distance travelled over twenty, capped at three
+hundred ticks, so a long jump takes visibly longer than a short one without
+taking forever. Nice touch, and cheap.
+
+The tape's length is **15000**, and the only place that number appears is the
+clamp inside the play button:
+
+```text
+if the movieTime of sprite 44 > 15000 then set the movieTime of sprite 44 = 15000
+```
+
+There is no `#tapeLength` anywhere. If I had needed the end of the tape and not
+read the play branch, I would have had to make a number up -- which, going by
+`carols` in entry 85, I evidently would have done.
+
+Sitting down at the monitor calls `disablePeekAlert` and standing up calls
+`enablePeekAlert`, so the ghost cannot interrupt while the player works through
+the tape. That is a considerate piece of design and it is the sort of thing
+that would have been invisible from play: you would simply never have noticed
+the interruption that did not happen.
+
+Two things are approximated and both are written down in the code. The pressed
+button lights for eight ticks -- kept, because it is a beat the player feels --
+but the rewind static is a second film swapped onto channel 45, and the
+original finds the button sprite by scanning channels 10 to 48 for whichever
+one is showing a `#camButtons` cast. This engine resolves those from state, so
+there is no sprite to find.
+
+I also wrote a bug and caught it in the same minute: `camLogShutdown` starts the
+room's film *and* stops the tape, which in the original is two movies on two
+channels. This engine has one player, so my first draft pushed `PlayVideo`
+followed by `StopVideo` and cancelled itself. Worth noting only because "the
+original does both" is not a reason to do both when the two things were never
+the same object.
+
+180 tests, clippy clean, no warnings. Unported is **17 verbs across 24 call
+sites**, from 27 and 55 at the start of the day.
