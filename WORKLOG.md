@@ -2704,3 +2704,72 @@ different kind of claim. The room that asks for `40sINTRO.mov` is scaffolding
 by every other measure too -- a seventeen by three palette holder, exits to a
 word rather than a place -- so the most likely reading is that the film was cut
 and the record that called for it was left behind.
+
+## 76. The opening was in Roxy's chapter all along
+
+helba said they had watched a playthrough of the Mac build and the chapter
+transition is right there, around thirty-eight minutes in. Entry 75 said there
+was no such film, four ways. Entry 75 was looking in the wrong chapter.
+
+First, the disc. There is no separate Mac tree to find: the image is a single
+ISO9660 volume, and the chapter movies are `RIFX` -- big-endian, Mac-authored.
+The Windows side is a launcher over the same Director files. So what I have
+*is* what the Mac build reads, and a playthrough of it has to come from these
+bytes.
+
+The films are in `ROXY/MOVIES`, and they are named for where they go rather
+than where they are:
+
+```text
+MARGNTRY.MOV    9.4s     BENTRY.MOV   16.6s     EENTRY.MOV   13.8s
+```
+
+One per chapter, all in the frame story, because the frame story is what
+crosses. I had searched Margaret's folder and the whole image for the name her
+own scaffolding room asks for, and never asked the obvious question helba did:
+*what if it is not in Margaret*.
+
+The room is `MargPortal_headOn`, and its examine hotspot is the sequence:
+
+```text
+setState( #showMontage, 1 )   -> margntry.mov
+pushVideo : wait #videoStop
+setState( #showMontage, 2 )   -> 40sFRAME.mov
+pushVideo : wait #videoStop
+setState( #showMontage, 4 )   -> the loading picture
+setState( #showMontage, 0 )
+enterNewDomain( oStoryteller, string(#Margaret), 15 )
+```
+
+`#showMontage` picks the film by gating four video sprites in one room, which
+is the same trick as everything else in this game: the state is the index.
+
+Two bugs stood between that and working. `enterNewDomain` reads its chapter
+from the *second* argument -- the first is the storyteller -- and I was reading
+the first, so the crossing named `oStoryteller` and matched nothing. And
+`Outcome::new_domain` was set, merged, and never acted on: nothing anywhere
+called `enter_chapter`. The player could watch the whole sequence and stay
+where they were.
+
+Both fixed, and the crossing works: portal, film, film, Margaret's bedroom.
+
+Two more of helba's reports resolved on the way.
+
+**Clicking through an animation.** These sequences open with `cursorOff` and
+the original hides the pointer for their duration. A click during one moved the
+room while the film was still playing, which left the film running over the
+room it had moved to. Input is ignored while the effect queue has work.
+
+**The door.** Not decoding: a door film is 82 frames at 0.12 ms each, and
+opening one costs 0.4 ms including its audio. What was wrong was
+`newDoorStatic`, and both halves of it are behind a platform test I had
+flattened:
+
+```text
+if gCPU =  #Mac then setLoop( #loopingStatic, 0 )
+if gCPU <> #Mac then suspendSounds
+```
+
+The static loop is started at volume **zero** -- a placeholder the Mac build
+keeps silent -- and the PC build ducks the bed instead. I was doing both, at
+full volume, so every door in the chapter came with a constant hiss.

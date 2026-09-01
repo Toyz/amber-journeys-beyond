@@ -1300,6 +1300,29 @@ impl Game {
     }
 
     fn apply(&mut self, outcome: &Outcome) {
+        // Crossing into another chapter. The transition rooms end on
+        // `enterNewDomain`, and until this was acted on the player watched the
+        // whole sequence and stayed where they were.
+        if let Some(domain) = &outcome.new_domain {
+            let target = self
+                .world
+                .domains
+                .keys()
+                .find(|d| d.eq_ignore_ascii_case(domain))
+                .cloned();
+            match target {
+                Some(d) => {
+                    trace!(crate::trace::Topic::Room, "entering {d}");
+                    self.enter_chapter(&d);
+                    self.start_room_video();
+                    return;
+                }
+                None => trace!(
+                    crate::trace::Topic::Room,
+                    "enterNewDomain names {domain}, which is not a chapter"
+                ),
+            }
+        }
         if outcome.go_back {
             if let Some(prev) = self.history.pop() {
                 self.move_to(prev);

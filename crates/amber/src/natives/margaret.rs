@@ -296,11 +296,22 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 channel: 45,
                 visible: false,
             });
+            // Both of these are behind a platform test, and the two arms are
+            // opposites:
+            //
+            //   if gCPU = #Mac  then setLoop( #loopingStatic, 0 )
+            //   if gCPU <> #Mac then suspendSounds
+            //
+            // The static is started at volume *zero* -- it is a placeholder
+            // the Mac build keeps silent -- and the PC build ducks the bed
+            // instead. This disc's movies are `RIFX`, which is the Mac
+            // ordering, so the Mac arm is the one that applies. Playing the
+            // static at full volume, as this did, put a constant hiss over
+            // every door in the chapter.
             out.effects.push(Effect::StartLoop {
                 name: "loopingStatic".into(),
-                volume: None,
+                volume: Some(0),
             });
-            out.effects.push(Effect::SuspendSounds { fade: false });
             out.effects.push(Effect::PlayVideo(None));
             out.effects.push(Effect::WaitForVideo);
             out.effects.push(Effect::PuppetSprite {

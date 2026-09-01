@@ -300,7 +300,16 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 }
             }
         }
-        if was_down && !down {
+        // A sequence that is still running takes the click with it.
+        //
+        // These sequences open with `cursorOff` and the original hides the
+        // pointer for their duration: the player watches a door swing or a
+        // chapter change and cannot walk out of it half way. Letting a click
+        // through moved the room while the film was still playing, which left
+        // the film running over the room it had moved to.
+        if game.effects_busy() {
+            was_down = down;
+        } else if was_down && !down {
             if let Some((x, y)) = pos {
                 // The bar sits over the stage, so it gets first refusal on a
                 // click; otherwise picking an item would also walk the player

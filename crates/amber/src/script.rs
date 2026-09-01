@@ -433,7 +433,17 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
             out.transition = name_arg(1).or(out.transition.take());
         }
         "goback" => out.go_back = true,
-        "enternewdomain" => out.new_domain = name_arg(0),
+        // `enterNewDomain( oStoryteller, string(#Margaret), 15 )` -- the
+        // receiver comes first and the chapter second, so reading argument
+        // zero named the storyteller rather than the chapter and no crossing
+        // ever happened.
+        "enternewdomain" => {
+            out.new_domain = args
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.trim_start_matches('#').to_string())
+                .find(|s| !s.eq_ignore_ascii_case("oStoryteller"));
+        }
         "settransition" => out.transition = name_arg(0).or(out.transition.take()),
         "showcreditscreen" => out.credits = true,
 
