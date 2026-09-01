@@ -7,7 +7,7 @@ operands are always small is probably an immediate.
 """
 import struct, sys, collections
 sys.path.insert(0, 'tools')
-from dis import load, body, names_of, frame, rd
+from lingodis import load, body, names_of, frame, rd
 
 paths = sys.argv[1:]
 use = collections.Counter()

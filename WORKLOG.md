@@ -349,3 +349,45 @@ symbol names, `0x84` and `0x81` reach variables including the puzzle state
 (`tumbler`, `lock_C`, `digitStack`, `allboxes`), `0x57` and `0x97` reach
 built-ins - but individual opcodes are not yet pinned down, and nothing is
 decompiled. The 66 handlers remain unimplemented.
+
+## 17. Opcode families, found by algebra and confirmed by a control
+
+Rather than guess at an opcode table, I set the problem up as a constraint:
+every handler must leave the stack as it found it, so each of the 543
+handlers gives one equation over the opcodes it contains. With 75 distinct
+opcodes that system is heavily over-determined.
+
+It did not solve outright - rank 71 of 75 - but the null space was the
+useful part. Its vectors shared an exact pattern: a set of opcodes at +1
+against `0x42` and `0x43` at -1. Read as an equation, that says every call
+is paired with exactly one argument-list push, and the reason the system
+could not separate them is that they are perfectly correlated. The failure
+to solve was itself the finding.
+
+Testing that pairing directly gave 86%, with every discrepancy in one
+direction: more argument lists than calls. So the call set was incomplete
+rather than wrong. Asking what actually follows an argument-list push named
+the missing ones, and they referenced exactly the sort of names a call
+should: `setState`, `getState`, `DoHotspots`.
+
+  call opcodes      0x1e 0x1f 0x46 0x56 0x57 0x63 0x66 0x86 0x97 0xa3 0xa6
+  argument lists    0x42 0x43
+
+With those, the pairing holds for 539 of 543 handlers.
+
+Two things make me trust this more than the earlier attempts. The argument
+counts carried by `0x42` and `0x43` are distributed like function arities -
+1209 calls with no arguments, 3531 with one, 2694 with two, 688 with three,
+tailing off - which is not what an unrelated field looks like. And I ran a
+negative control: adding `0x41`, which is not a call, to the set drops the
+pairing from 99.3% to 29.5%. A test that cannot fail proves nothing, so I
+wanted to watch this one fail on a wrong answer before believing it on a
+right one. That is the check the two contaminated measurements in entry 16
+never had.
+
+### Still not done
+
+Individual stack effects are not separated, because the correlation that
+revealed the families also prevents the algebra from splitting them. Nothing
+is decompiled and the 66 handlers remain unimplemented. What exists now is
+the frame, the handler inventory, and the call structure.

@@ -53,31 +53,32 @@ def frame(code):
         p += 1+width
     return out, p == len(code)
 
-path=sys.argv[1]
-d,be,res=load(path)
-names=names_of(d,be,res)
-lscr=[i for i,r in enumerate(res) if r[0]=='Lscr']
+if __name__ == "__main__":
+    path=sys.argv[1]
+    d,be,res=load(path)
+    names=names_of(d,be,res)
+    lscr=[i for i,r in enumerate(res) if r[0]=='Lscr']
 
-total=exact=0
-jump_ok=jump_bad=0
-for si in lscr:
-    s=body(d,res,si)
-    if len(s) < 0x5c: continue
-    hcount=rd(s,be,0x48,2); hoff=rd(s,be,0x4a,4)
-    for i in range(hcount):
-        p=hoff+i*42
-        if p+42>len(s): break
-        nameID=rd(s,be,p,2); clen=rd(s,be,p+4,4); coff=rd(s,be,p+8,4)
-        if coff+clen > len(s): continue
-        code=s[coff:coff+clen]
-        instrs, ok = frame(code)
-        total+=1; exact += ok
-        # jump targets must land on instruction boundaries
-        starts={o for o,_,_,_ in instrs}
-        for (o,op,arg,w) in instrs:
-            if op in (0x53,0x54,0x55,0x93,0x94,0x95) and arg is not None:
-                tgt = o+arg if op in (0x53,0x55,0x93,0x95) else o-arg
-                if tgt in starts or tgt==len(code): jump_ok+=1
-                else: jump_bad+=1
-print(f"{path.split('/')[-1]}: {total} handlers, {exact} frame exactly ({100*exact//max(total,1)}%)")
-print(f"  jump targets: {jump_ok} aligned, {jump_bad} misaligned")
+    total=exact=0
+    jump_ok=jump_bad=0
+    for si in lscr:
+        s=body(d,res,si)
+        if len(s) < 0x5c: continue
+        hcount=rd(s,be,0x48,2); hoff=rd(s,be,0x4a,4)
+        for i in range(hcount):
+            p=hoff+i*42
+            if p+42>len(s): break
+            nameID=rd(s,be,p,2); clen=rd(s,be,p+4,4); coff=rd(s,be,p+8,4)
+            if coff+clen > len(s): continue
+            code=s[coff:coff+clen]
+            instrs, ok = frame(code)
+            total+=1; exact += ok
+            # jump targets must land on instruction boundaries
+            starts={o for o,_,_,_ in instrs}
+            for (o,op,arg,w) in instrs:
+                if op in (0x53,0x54,0x55,0x93,0x94,0x95) and arg is not None:
+                    tgt = o+arg if op in (0x53,0x55,0x93,0x95) else o-arg
+                    if tgt in starts or tgt==len(code): jump_ok+=1
+                    else: jump_bad+=1
+    print(f"{path.split('/')[-1]}: {total} handlers, {exact} frame exactly ({100*exact//max(total,1)}%)")
+    print(f"  jump targets: {jump_ok} aligned, {jump_bad} misaligned")

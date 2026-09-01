@@ -8,7 +8,7 @@ noise.
 """
 import sys, collections
 sys.path.insert(0, 'tools')
-from dis import load, body, names_of, frame, rd
+from lingodis import load, body, names_of, frame, rd
 
 # Verbs the room scripts fire, established earlier from the .DAT files.
 KNOWN = {n.lower() for n in [
