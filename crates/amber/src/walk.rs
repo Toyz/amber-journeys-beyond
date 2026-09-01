@@ -155,9 +155,12 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
 }
 
 /// Runs out the effect queue, reporting what it carried.
+///
+/// Not only sound: a sequence is films, waits and state writes interleaved,
+/// and the order they come in is usually the thing worth seeing.
 fn settle(game: &mut Game) {
     for line in game.settle() {
-        println!("  sound: {line}");
+        println!("    {line}");
     }
 }
 

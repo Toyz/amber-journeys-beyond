@@ -4524,3 +4524,77 @@ reads it to pick which film to spin, and the boat reads it to decide which way
 it can move. None of the three knows about the others.
 
 Verbs down to 6.
+
+## 109. The portal, and a report that lied
+
+helba: "massive issues around click portal to transition". So back to
+`MargPortal_headOn`, which is the mirror into Margaret's chapter and the room
+in the very first screenshot of this whole project.
+
+### What I got wrong first
+
+I ran the walk, saw this --
+
+```text
+set showmontage = Int(1)
+set showmontage = Int(2)
+set showmontage = Int(0)
+```
+
+-- three writes back to back with no film between them, and concluded that
+`setState` in an action list writes immediately while `pushVideo` and `wait`
+are queued, so the whole sequence was mis-ordered. I measured the blast radius
+(59 of 5909 action lists write state after a wait), wrote the fix, and it
+changed nothing.
+
+It changed nothing because `pump` already blocks at each wait and resumes on a
+later frame. The ordering was right. What was wrong was `settle`, the
+walkthrough's shortcut: it runs the *whole* script and only then drains the
+effects, so every state write is reported before the first film no matter what
+order they actually happen in. I reverted the fix.
+
+That is the second time this week the walk and the window have disagreed and
+the walk has been the liar -- entry 99 was the same shape. Both times I built
+the diagnostic once and then trusted it past the point it was answering the
+question. `settle` now interleaves, and reports films, waits and state writes
+rather than only sound:
+
+```text
+play toMargaret
+film stops
+film margntry.mov
+wait for the film
+film stops
+film 40sFRAME.mov
+wait for the film
+...
+```
+
+Three films live on that room's video channel, chosen by `#showMontage`, and
+the sequence steps 1, film, 2, film, 0. It has been doing that correctly all
+along.
+
+### What was actually wrong
+
+`MEmrloop.mov` is **160 by 120**. Its cast member's rect is **320 by 240**.
+
+Director draws a film into the rect its member declares and scales it to fit;
+this engine drew every film at the size the decoder handed back. So the loop
+behind the portal was a quarter-size patch in the middle of a black screen --
+which is precisely what that first screenshot showed, and what helba has been
+describing since.
+
+It is one film in this room and only a handful across the game, which is why
+nothing else looked obviously wrong. The other two in the same sequence are
+stored at exactly their member's size, so the portal's own transition looked
+fine while the thing it sits on did not.
+
+The member's rect is four `i16`s at the top of the type-specific block, the
+same place a bitmap keeps its own, and it reads identically on both pressings
+once entry 94's layout work is in.
+
+Scaling is nearest neighbour, which is what Director did and what this material
+wants: doubling a 160 by 120 film with anything smoother invents detail the
+original never had.
+
+245 tests.

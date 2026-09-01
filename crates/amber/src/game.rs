@@ -86,6 +86,9 @@ pub struct Game {
     /// The film currently loaded for the room, by name. A room's film can be
     /// conditional, so this is what a state change has to be compared against.
     playing: Option<String>,
+    /// The rect that film's cast member says it occupies, which is not always
+    /// the size the film is stored at.
+    playing_size: Option<(u32, u32)>,
     pub player: Option<VideoPlayer>,
 }
 
@@ -105,6 +108,7 @@ impl Game {
             chapters: HashMap::new(),
             pending: Vec::new(),
             playing: None,
+            playing_size: None,
             effect_wait: None,
             transition: None,
             puppets: BTreeMap::new(),
@@ -513,6 +517,7 @@ impl Game {
         self.player = None;
         let Some(name) = self.video() else {
             self.playing = None;
+            self.playing_size = None;
             return;
         };
         self.playing = Some(name.clone());
@@ -532,10 +537,14 @@ impl Game {
         // it there, which is why nothing in a room's own record says which
         // kind of film it has.
         let domain = self.node().domain.clone();
-        let loops = self
+        let member = self
             .chapter(&domain)
-            .and_then(|c| c.movie.member_by_name(&name).map(|m| m.loops))
-            .unwrap_or(false);
+            .and_then(|c| c.movie.member_by_name(&name))
+            .map(|m| (m.loops, m.width, m.height));
+        let loops = member.map(|(l, ..)| l).unwrap_or(false);
+        self.playing_size = member
+            .map(|(_, w, h)| (w as u32, h as u32))
+            .filter(|(w, h)| *w > 0 && *h > 0);
         if let Some(p) = &mut self.player {
             p.set_looping(loops);
         }
@@ -656,16 +665,59 @@ impl Game {
     /// not. Everything that is sound or picture is dropped, and everything
     /// that is state is applied.
     pub fn settle(&mut self) -> Vec<String> {
-        let mut audio = Vec::new();
-        // A sequence that holds leaves its remaining actions queued, and in
-        // the window the next frame pumps them. Nothing pumps in the
-        // walkthrough, so a route replayed there stopped at the first `wait`
-        // -- the breaker switch threw and the lights never came on.
+        let mut report = Vec::new();
+        // A sequence interleaves: the script runs until it waits, the effects
+        // queued so far play, and then the script goes on. Running the whole
+        // script and *then* draining -- which is what this used to do -- shows
+        // every state write before the first film, which is not the order
+        // anything happens in. It made the portal into Margaret's chapter look
+        // broken when what was broken was the report.
         //
-        // The bound is a guard against a handler that asks to repeat while the
+        // The bound guards against a handler that asks to repeat while a
         // button is held, which in a window is the player's finger and here is
         // nothing at all.
-        for _ in 0..64 {
+        for _ in 0..256 {
+            // Whatever is due now, in order. The waits are the timing and
+            // there is no clock here, so they are named and stepped over.
+            while !self.pending.is_empty() {
+                let effect = self.pending.remove(0);
+                match &effect {
+                    // Sound is reported rather than played: the walkthrough
+                    // has no device, and what a route triggers is exactly what
+                    // is worth seeing when a route sounds wrong.
+                    Effect::PlaySound { name, loudness } => report.push(match loudness {
+                        Some(l) => format!("play {name} ({l})"),
+                        None => format!("play {name}"),
+                    }),
+                    Effect::StartLoop { name, volume } => {
+                        report.push(format!("loop {name} at {}", volume.unwrap_or(255)))
+                    }
+                    Effect::StopLoop { name, .. } => report.push(format!("stop {name}")),
+                    // Which film a room plays depends on state, so a sequence
+                    // that steps a flag between two `pushVideo`s plays two
+                    // different films -- and that is the whole of what these
+                    // sequences are for. Resolved here, not decoded.
+                    Effect::PlayVideo(which) => {
+                        let named = which.clone().or_else(|| self.video());
+                        report.push(match named {
+                            Some(n) => format!("film {n}"),
+                            None => "film (none)".to_string(),
+                        });
+                    }
+                    Effect::PlayVideoSegment { from, to } => {
+                        report.push(format!("film {from}..{to}"))
+                    }
+                    Effect::StopVideo => report.push("film stops".into()),
+                    Effect::WaitForVideo => report.push("wait for the film".into()),
+                    Effect::WaitForSound(n) => report.push(format!("wait for {n}")),
+                    Effect::WaitTicks(t) if *t > 0 => report.push(format!("wait {t}")),
+                    Effect::SetState { key, value } => report.push(format!("{key} = {value:?}")),
+                    Effect::FadeToMontage(n) => report.push(format!("montage {n}")),
+                    _ => {}
+                }
+                self.apply_puppet(&effect);
+            }
+            self.effect_wait = None;
             if self.script.is_empty() {
                 break;
             }
@@ -673,27 +725,7 @@ impl Game {
             self.pump();
         }
         self.repeating = None;
-
-        self.effect_wait = None;
-        while !self.pending.is_empty() {
-            let effect = self.pending.remove(0);
-            // Sound is reported rather than played: the walkthrough has no
-            // device, and what a route triggers is exactly what is worth
-            // seeing when a route sounds wrong.
-            match &effect {
-                Effect::PlaySound { name, loudness } => audio.push(match loudness {
-                    Some(l) => format!("play {name} ({l})"),
-                    None => format!("play {name}"),
-                }),
-                Effect::StartLoop { name, volume } => {
-                    audio.push(format!("loop {name} at {}", volume.unwrap_or(255)))
-                }
-                Effect::StopLoop { name, .. } => audio.push(format!("stop {name}")),
-                _ => {}
-            }
-            self.apply_puppet(&effect);
-        }
-        audio
+        report
     }
 
     /// Takes an armed transition, as the fraction to advance it each frame.
@@ -909,25 +941,35 @@ impl Game {
                 }
                 Layer::Movie => {
                     let Some(player) = &self.player else { continue };
-                    // The decoder is authoritative: a frame header can
-                    // disagree with the container, and it is the decoder that
-                    // resized its buffer.
+                    // The decoder is authoritative for what was decoded: a
+                    // frame header can disagree with the container, and it is
+                    // the decoder that resized its buffer.
                     let (w, h) = player.frame_size();
+                    // But not for how big it is drawn. A film's cast member
+                    // carries the rect it occupies, and that is not always the
+                    // size it is stored at -- `MEmrloop.mov`, the loop behind
+                    // the portal into Margaret's chapter, is a 160 by 120 film
+                    // in a 320 by 240 member. Drawn at its stored size it is a
+                    // small patch in the middle of a black screen, which is
+                    // exactly what that room looked like.
+                    let (dw, dh) = self.playing_size.filter(|(a, b)| *a > 0 && *b > 0).unwrap_or((w, h));
                     let centre =
                         video_centre.unwrap_or((width as i32 / 2, height as i32 / 2));
                     trace!(
                         crate::trace::Topic::Sprite,
-                        "draw ch{channel} movie {w}x{h} at {centre:?}"
+                        "draw ch{channel} movie {w}x{h} as {dw}x{dh} at {centre:?}"
                     );
-                    blit(
+                    blit_scaled(
                         frame,
                         width,
                         height,
                         player.frame(),
                         w,
                         h,
-                        centre.0 - w as i32 / 2,
-                        centre.1 - h as i32 / 2,
+                        dw,
+                        dh,
+                        centre.0 - dw as i32 / 2,
+                        centre.1 - dh as i32 / 2,
                     );
                 }
             }
@@ -1523,6 +1565,55 @@ struct Program {
 }
 
 /// Blits RGBA source pixels onto a BGRA framebuffer, clipped to its bounds.
+/// Draws `src` scaled to `dst_w_out` by `dst_h_out`.
+///
+/// Nearest neighbour, which is what Director did and what the source material
+/// wants: these are 160 by 120 films doubled to 320 by 240, and smoothing them
+/// would invent detail the original never showed.
+#[allow(clippy::too_many_arguments)]
+fn blit_scaled(
+    dst: &mut [u32],
+    dst_w: u32,
+    dst_h: u32,
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    at_x: i32,
+    at_y: i32,
+) {
+    if src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 {
+        return;
+    }
+    // The common case is no scaling at all, and it is worth not paying for.
+    if src_w == out_w && src_h == out_h {
+        blit(dst, dst_w, dst_h, src, src_w, src_h, at_x, at_y);
+        return;
+    }
+    for y in 0..out_h {
+        let ty = at_y + y as i32;
+        if ty < 0 || ty >= dst_h as i32 {
+            continue;
+        }
+        let sy = (y as u64 * src_h as u64 / out_h as u64).min(src_h as u64 - 1) as u32;
+        for x in 0..out_w {
+            let tx = at_x + x as i32;
+            if tx < 0 || tx >= dst_w as i32 {
+                continue;
+            }
+            let sx = (x as u64 * src_w as u64 / out_w as u64).min(src_w as u64 - 1) as u32;
+            let si = ((sy * src_w + sx) * 4) as usize;
+            let Some(px) = src.get(si..si + 4) else { continue };
+            if px[3] == 0 {
+                continue;
+            }
+            dst[(ty as u32 * dst_w + tx as u32) as usize] =
+                u32::from(px[0]) << 16 | u32::from(px[1]) << 8 | u32::from(px[2]);
+        }
+    }
+}
+
 fn blit(
     dst: &mut [u32],
     dst_w: u32,

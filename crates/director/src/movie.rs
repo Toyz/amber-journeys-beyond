@@ -421,6 +421,17 @@ impl Movie {
         // as the room is on screen.
         if kind == CastKind::DigitalVideo {
             m.loops = spec.last().is_some_and(|f| f & 0x10 != 0);
+            // A film's member carries the rect it is meant to occupy, which is
+            // not always the size it is stored at: `MEmrloop.mov` is a 160 by
+            // 120 film in a 320 by 240 member, and Director scales it up.
+            // Drawing it at its stored size put a small patch in the middle of
+            // the portal instead of filling it.
+            if spec.len() >= 8 {
+                let mut r = Reader::new(spec, self.endian);
+                let (top, left, bottom, right) = (r.i16()?, r.i16()?, r.i16()?, r.i16()?);
+                m.width = (right - left).max(0) as u16;
+                m.height = (bottom - top).max(0) as u16;
+            }
         }
         if kind == CastKind::Bitmap && spec.len() >= 10 {
             let mut s = Reader::new(spec, self.endian);
@@ -771,6 +782,46 @@ mod cast_layout_tests {
         // reading used to sail through and produce an unknown cast type.
         let junk = vec![0xff; 40];
         assert!(cast_layout(&junk, Endian::Big).is_none());
+    }
+}
+
+#[cfg(test)]
+mod film_rect_tests {
+    use super::*;
+
+    /// A film's member carries the rect it occupies, which is not always the
+    /// size the film is stored at. `MEmrloop.mov` -- the loop behind the
+    /// portal into Margaret's chapter -- is a 160 by 120 film in a 320 by 240
+    /// member, and Director scales it up. Drawn at its stored size it is a
+    /// small patch in the middle of a black screen.
+    ///
+    /// The record below is that member as the Macintosh disc stores it.
+    #[test]
+    fn a_films_member_says_how_big_it_is_drawn() {
+        let mut d4 = Vec::new();
+        d4.extend_from_slice(&14u16.to_be_bytes()); // data length
+        d4.extend_from_slice(&4u32.to_be_bytes()); // info length
+        d4.extend_from_slice(&[0x0a, 0x00]); // kind: digital video, then flags
+        d4.extend_from_slice(&[
+            0x00, 0x00, // top
+            0x00, 0x00, // left
+            0x00, 0xf0, // bottom: 240
+            0x01, 0x40, // right:  320
+            0x0a, 0x00, 0x0c, 0x3a,
+        ]);
+        d4.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]); // info block
+
+        let l = cast_layout(&d4, Endian::Big).expect("a Director 4 record");
+        assert_eq!(l.kind, 10);
+        let spec = &d4[l.spec.clone()];
+        let mut r = Reader::new(spec, Endian::Big);
+        let (top, left, bottom, right) = (
+            r.i16().unwrap(),
+            r.i16().unwrap(),
+            r.i16().unwrap(),
+            r.i16().unwrap(),
+        );
+        assert_eq!((right - left, bottom - top), (320, 240));
     }
 }
 
