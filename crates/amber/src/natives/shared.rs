@@ -232,22 +232,42 @@ fn openable(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
     };
 
     let flag = &name[3..];
-    let current = state.get(flag).as_int().unwrap_or(0);
-    let Some(suggestion) = args.first().and_then(Value::as_int) else {
+    let Some(suggestion) = args.first() else {
         return true;
     };
 
-    let cue = match (suggestion, current) {
-        (0, 1) => close_cue,
-        (1, 0) => open_cue,
-        // Already in the state asked for, so the original does nothing.
+    // Shut is `0` for the doors and `#None` for the drawers and cabinets, and
+    // open is anything that is not shut. `setOfficeDrawerIsOpen` reads:
+    //
+    //   if suggestion = #None and currentState <> #None then close
+    //   if suggestion <> #None and currentState = #None then open
+    //
+    // which is the same two arms as the boolean version with `#None` where
+    // the `0` is -- so one predicate covers both families.
+    //
+    // Reading the suggestion as an integer instead swallowed every write to a
+    // flag that names which part is open. `#officeDrawerIsOpen` holds `#top`
+    // and `#bottom`, `as_int` gave nothing for either, and the handler
+    // returned having done nothing: the desk drawer could not be opened at
+    // all, which puts the BAR manual -- two of the three settings the machine
+    // in the living room needs -- out of the player's reach entirely.
+    let shut = |v: &Value| v.loosely_eq(&Value::Int(0)) || v.is_symbol("None");
+    let cue = match (shut(suggestion), shut(&state.get(flag))) {
+        (true, false) => close_cue,
+        (false, true) => open_cue,
+        // Already in the state asked for, so the original does nothing. This
+        // is also why moving straight from one drawer to another cannot work
+        // and the rooms shut the chest first: the open arm needs the flag to
+        // be shut before it will take a new part.
         _ => return true,
     };
     out.effects.push(Effect::PlaySound {
         name: cue.into(),
         loudness: None,
     });
-    state.set_all(flag, vec![Value::Int(suggestion)]);
+    // `setProp( states, flag, list(suggestion) )` -- the suggestion itself,
+    // as the only value, so `#top` is what the room's plates then test.
+    state.set_all(flag, vec![suggestion.clone()]);
     out.redraw = true;
     true
 }
@@ -489,5 +509,67 @@ mod cabinet_tests {
             .get("kitchenCabinetIsOpen")
             .as_str()
             .is_some_and(|v| v == "None"));
+    }
+
+    #[test]
+    fn a_drawer_that_names_which_one_is_open_still_opens() {
+        // `#officeDrawerIsOpen` holds `#None`, `#top` and `#bottom`, not 0 and
+        // 1. Reading the suggestion as an integer made every write to it a
+        // no-op, so the desk drawer never opened and the BAR manual inside it
+        // -- two of the three settings the machine in the living room wants --
+        // could not be reached.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("officeDrawerIsOpen", vec![Value::Symbol("None".into())]);
+
+        let mut out = Outcome::default();
+        assert!(call(
+            "setofficedrawerisopen",
+            &[Value::Symbol("top".into())],
+            &mut s,
+            &mut out
+        ));
+        assert!(s.get("officeDrawerIsOpen").is_symbol("top"));
+        assert!(out
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::PlaySound { name, .. } if name == "drawerOpen")));
+
+        // The other drawer while this one is open does nothing, which is why
+        // the room shuts the chest and waits before asking for the next one.
+        let mut out = Outcome::default();
+        call("setofficedrawerisopen", &[Value::Symbol("bottom".into())], &mut s, &mut out);
+        assert!(s.get("officeDrawerIsOpen").is_symbol("top"));
+        assert!(out.effects.is_empty());
+
+        // Shutting it plays the close cue.
+        let mut out = Outcome::default();
+        call("setofficedrawerisopen", &[Value::Symbol("None".into())], &mut s, &mut out);
+        assert!(s.get("officeDrawerIsOpen").is_symbol("None"));
+        assert!(out
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::PlaySound { name, .. } if name == "drawerClose")));
+    }
+
+    #[test]
+    fn and_a_door_that_is_only_ever_shut_or_open_still_works() {
+        // The boolean family has to keep working: shut is 0 there, not #None.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("bathroomDoorIsOpen", vec![Value::Int(0)]);
+
+        let mut out = Outcome::default();
+        call("setbathroomdoorisopen", &[Value::Int(1)], &mut s, &mut out);
+        assert_eq!(s.get("bathroomDoorIsOpen").as_int(), Some(1));
+        assert!(out
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::PlaySound { name, .. } if name == "doorOpen")));
+
+        // And opening one that is already open stays silent.
+        let mut out = Outcome::default();
+        call("setbathroomdoorisopen", &[Value::Int(1)], &mut s, &mut out);
+        assert!(out.effects.is_empty());
     }
 }

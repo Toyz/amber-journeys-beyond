@@ -5069,3 +5069,128 @@ Nothing here changes what the engine does, and I checked rather than assumed:
 Margaret's walkthrough replays to the same rooms.
 
 Clippy clean again, and this time I know what the number means.
+
+## 120. Playing it
+
+helba pointed out that the fun part would be reading the hints and actually
+playing the game, and they were right, though not for the reason either of us
+expected. Four bugs in the first ten minutes of play, and every one of them was
+invisible to `verify`.
+
+### The opening never ended
+
+`Gbhs_playIntro` has exactly one hotspot and its action is the string
+`"nothing"`. There is no way out of it by clicking on the room, and the engine
+sat on `intro.mov` for ever. Anyone starting a new game got the opening film
+and then nothing, which is a fairly complete failure to have noticed.
+
+The way out is in `initInventory`, of all places -- a handler that runs at
+startup and ends with a special case:
+
+```text
+if getState( #currentLocation ) = #Gbhs_playIntro then
+  cursorOff
+  suspendSounds
+  pushVideo
+  repeat while the movieRate of sprite 44 <> 0 and not the mouseDown
+    updateStage
+  end repeat
+  killVideo
+  goTo #Gbhs_gameEntry, #fadeIn
+end if
+```
+
+Worth noting what that loop tests. Every other wait in the game is
+`wait #videoStop`, and that handler loops on the movie rate alone:
+
+```text
+if howLong = #videoStop then
+  repeat while the movieRate of sprite 44 > 0
+    updateStage
+  end repeat
+```
+
+No test on the mouse. So cutscenes are not skippable and the opening is, and
+the skip is a property of this one film rather than a feature to generalise. I
+had a standing temptation to make clicking skip any film; the disassembly says
+don't.
+
+`suspendSounds` is left out: the intro room declares no ambience, so there is
+nothing to suspend, and suspending with no matching restore afterwards would
+only risk silence later.
+
+This also removed a hack. `skip_video` in the walkthrough tool already knew to
+jump from the intro to `Gbhs_gameEntry`, because nothing in the engine did --
+and it moved the room without draining the queue, so the intro's own `goTo`
+stayed pending and fired under the player's next click, sending them back to
+the entry they had just left. Two things doing the same job badly. The
+walkthrough recording then caught the mirror image: its first step is a jump to
+one of Margaret's rooms, and the queued `goTo` dragged it straight back out.
+Jumping now abandons the opening; skipping keeps its destination, because that
+is what the original does.
+
+### Holding something read as holding nothing
+
+Picking up the PeeK unit is `useInventory( #PeekUnit )`, with a comment in the
+room data saying "don't worry; it'll be added automatically when user is
+finished" -- it goes into the hand, and the room-sized `#itemInUse` catcher
+stows it into the bag on the next click.
+
+The walkthrough tool printed the hand only when the bag was not empty, so the
+first thing the player ever holds showed as nothing at all. And `state
+iteminuse` printed the schema's list of every item that could ever be held,
+headed by `#None`, whatever was actually in hand -- because `itemInUse` is not
+in the property store at all; it has its own field, since what is in the hand
+is not one of a flag's declared settings. I spent a while convinced the pickup
+had failed when it had worked perfectly, on the evidence of two displays that
+were both lying.
+
+### `#carrying` was never written
+
+`addInventory` ends with `setState( #playerHas<Item>, #carrying )` and
+`deleteInventory` with `setState( #playerHas<Item>, 0 )`. This engine wrote
+`[Int(1)]` and `[Int(0)]`, replacing the flag's whole declared list.
+
+Two consequences. `setScanStatus` tests
+`getState( #playerHasPeekUnit ) = #carrying`, which could never be true, so the
+interrupted-scan message on the PeeK was unreachable. And a one-entry list is
+this engine's own signal that a `set<Flag>` handler exists, so picking anything
+up quietly changed how writes to that flag were dispatched.
+
+The reason the wrong value was there is that two ported handlers read the flag
+with `as_int`, and a symbol would have read as zero. The scripts always ask
+`getState( #playerHas<Item> ) = 0`, so the predicate is "not zero" -- which
+also means `#usedUp` counts as had, deliberately, and the handlers that need
+the difference test for `#usedUp` by name.
+
+### The desk drawer could not be opened
+
+The worst of the four, and the one that blocks the game. `openable` treated
+every flag it handles as boolean, reading the suggestion with `as_int`. But
+`#officeDrawerIsOpen` holds `#None`, `#top` and `#bottom`, so `as_int` gave
+nothing and the handler returned having done nothing at all. The drawer never
+opened. The BAR manual is in that drawer, and it carries two of the three
+settings the machine in the living room needs.
+
+The real handler is the same two arms as the boolean one with `#None` where
+the `0` is:
+
+```text
+on setOfficeDrawerIsOpen suggestion
+  currentState = getState( #officeDrawerIsOpen )
+  if suggestion = #None and currentState <> #None then cue #drawerClose ...
+  if suggestion <> #None and currentState = #None then cue #drawerOpen ...
+```
+
+One predicate -- shut is `0` or `#None`, open is anything else -- covers both
+families. The second arm needing the flag to be shut first is also why the room
+scripts set `#None`, wait ten ticks, then set `#top`: you cannot move from one
+drawer straight to the other, and the wait is the chest closing.
+
+None of these four could have been found by reading. `verify` reports 1374
+sprites decoded, no dangling references, no unported verbs, and every one of
+those numbers was true the whole time. The first was a room with no exit, the
+second a display, the third a value nobody compared, and the fourth a type. You
+find them by opening the drawer.
+
+263 tests.

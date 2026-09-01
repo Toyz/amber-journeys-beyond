@@ -58,6 +58,9 @@ pub struct Game {
     pub pending: Vec<Effect>,
     /// What the effect queue is holding for, if anything.
     effect_wait: Option<Wait>,
+    /// True while the opening film is playing, because that one film -- and
+    /// only that one -- can be cut short by a click.
+    intro_running: bool,
     /// A transition the scripts have armed for the next stage change.
     transition: Option<String>,
     /// Sprite channels a script has taken over, keyed by channel so they
@@ -132,6 +135,7 @@ impl Game {
             playing_size: None,
             cursor_hidden: false,
             effect_wait: None,
+            intro_running: false,
             transition: None,
             puppets: BTreeMap::new(),
             repeating: None,
@@ -163,8 +167,76 @@ impl Game {
         }
         game.enter_chapter(Self::FIRST_CHAPTER);
         game.start_room_video();
+        game.play_intro();
         game
     }
+
+    /// The room the game opens in, whose only hotspot does nothing at all.
+    const INTRO_ROOM: &'static str = "Gbhs_playIntro";
+
+    /// Plays the opening film and moves into the game behind it.
+    ///
+    /// `Gbhs_playIntro` has one hotspot and its action is the string
+    /// `"nothing"`, so there is no way out of the opening by clicking on the
+    /// room. The way out is in `initInventory`, which runs at startup and ends
+    /// with a special case for this one room:
+    ///
+    /// ```text
+    /// if getState( #currentLocation ) = #Gbhs_playIntro then
+    ///   cursorOff
+    ///   suspendSounds
+    ///   pushVideo
+    ///   repeat while the movieRate of sprite 44 <> 0 and not the mouseDown
+    ///     updateStage
+    ///   end repeat
+    ///   killVideo
+    ///   goTo #Gbhs_gameEntry, #fadeIn
+    /// end if
+    /// ```
+    ///
+    /// Without it the engine sits on `intro.mov` for ever, which is where the
+    /// game actually began for anyone starting a new one.
+    ///
+    /// `suspendSounds` is left out because the intro room declares no
+    /// ambience: there is nothing playing for it to suspend, and suspending
+    /// with nothing to restore afterwards would only risk silence later.
+    fn play_intro(&mut self) {
+        if !self.node().name.as_deref().is_some_and(|n| n == Self::INTRO_ROOM) {
+            return;
+        }
+        self.intro_running = true;
+        self.pending.extend([
+            Effect::CursorOff,
+            Effect::PlayVideo(None),
+            Effect::WaitForVideo,
+            Effect::StopVideo,
+            Effect::GoToRoom {
+                room: "Gbhs_gameEntry".into(),
+                transition: Some("fadeIn".into()),
+            },
+        ]);
+    }
+
+    /// Cuts the opening film short, which is the one film a click can skip.
+    ///
+    /// Every other wait in the game is `wait #videoStop`, and that handler
+    /// loops on the movie rate alone with no test on the mouse. The opening
+    /// is the only place the original watches for a click, so this is not a
+    /// general skip and should not become one.
+    fn skip_intro(&mut self) -> bool {
+        if !self.intro_running {
+            return false;
+        }
+        self.intro_running = false;
+        self.effect_wait = None;
+        self.player = None;
+        self.playing = None;
+        true
+    }
+}
+
+impl Game {
+
 
     /// Seeds state from a chapter's declared schema and moves to the room that
     /// schema names as its starting point.
@@ -306,6 +378,13 @@ impl Game {
     /// chapter's game entry, and anything else falls back to the first room
     /// that draws, so a skip never strands the player on a blank screen.
     pub fn skip_video(&mut self) -> bool {
+        // The opening is skippable in the game itself, so skipping it here is
+        // the same act, and it knows where to go next. Falling through to
+        // `first_playable` instead landed in whatever room happened to have
+        // art, which is not a place the player could have reached.
+        if self.skip_intro() {
+            return true;
+        }
         if self.player.is_none() {
             return false;
         }
@@ -313,13 +392,13 @@ impl Game {
         if !self.draws_nothing() {
             return true;
         }
-        let from = self.node().domain.clone();
-        let onward = self
-            .world
-            .resolve("Gbhs_gameEntry", Some(&from))
-            .filter(|_| self.node().name.as_deref() == Some("Gbhs_playIntro"))
-            .or_else(|| self.first_playable());
-        if let Some(i) = onward {
+        // The opening used to be jumped past from here, because nothing in
+        // the engine knew how to end it. `play_intro` does that now, and
+        // doing it twice was worse than not doing it at all: this moved the
+        // room without draining the queue, so the intro's own `goTo` stayed
+        // pending and fired under the player's next click, sending them back
+        // to the entry they had just left.
+        if let Some(i) = self.first_playable() {
             self.room = i;
             self.start_room_video();
         }
@@ -364,7 +443,24 @@ impl Game {
     /// it up to date, so it held whatever the chapter was seeded with.
     /// Moves without recording history, for the tools that jump to a room.
     pub fn jump_to(&mut self, room: usize) {
+        // Going somewhere deliberately abandons the opening rather than
+        // skipping it. Skipping keeps the `goTo #Gbhs_gameEntry` the original
+        // runs afterwards, which would otherwise fire from the queue a moment
+        // later and drag the player back out of wherever they had jumped to.
+        self.cancel_intro();
         self.move_to(room);
+    }
+
+    /// Throws the opening away, film and destination together.
+    fn cancel_intro(&mut self) {
+        if !self.intro_running {
+            return;
+        }
+        self.intro_running = false;
+        self.effect_wait = None;
+        self.player = None;
+        self.playing = None;
+        self.pending.clear();
     }
 
     fn move_to(&mut self, room: usize) {
@@ -801,6 +897,7 @@ impl Game {
                 self.state.trim_item(key, item);
             }
             Effect::GoToRoom { room, transition } => {
+                self.intro_running = false;
                 if let Some(kind) = transition {
                     self.transition = Some(kind.clone());
                 }
@@ -1434,6 +1531,12 @@ impl Game {
 
     /// Handles a click, moving the player if the hotspot says to.
     pub fn click(&mut self, x: i32, y: i32) -> Option<Outcome> {
+        // The opening film watches for a click and stops early if it gets
+        // one. Its room's own hotspot does nothing, so this has to come first
+        // or the click is swallowed by it.
+        if self.skip_intro() {
+            return Some(Outcome::default());
+        }
         // Handlers such as `stashClick` want the click position, which the
         // scripts read from the mouse rather than being passed.
         self.state.set("gMouseLoc", lingo::Value::Point(x, y));
@@ -1784,6 +1887,37 @@ fn blit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn going_somewhere_deliberately_abandons_the_opening() {
+        // The opening queues its own `goTo #Gbhs_gameEntry` behind the film.
+        // Jumping straight to a room left that queued, and it fired a moment
+        // later and pulled the player back out again -- which is what broke
+        // the recorded walkthrough, whose first step is a jump.
+        let mut game = Game::for_test();
+        game.intro_running = true;
+        game.pending.push(Effect::GoToRoom {
+            room: "Gbhs_gameEntry".into(),
+            transition: Some("fadeIn".into()),
+        });
+        game.jump_to(0);
+        assert!(game.pending.is_empty(), "the opening was still queued");
+        assert!(!game.intro_running);
+    }
+
+    #[test]
+    fn but_skipping_it_still_goes_where_the_opening_was_going() {
+        // Skipping is what a click does in the original, and the `goTo` after
+        // the film runs either way.
+        let mut game = Game::for_test();
+        game.intro_running = true;
+        game.pending.push(Effect::GoToRoom {
+            room: "Gbhs_gameEntry".into(),
+            transition: Some("fadeIn".into()),
+        });
+        assert!(game.skip_intro());
+        assert_eq!(game.pending.len(), 1, "the destination was thrown away");
+    }
 
     #[test]
     fn the_flavour_on_a_move_is_the_transition_for_that_move() {

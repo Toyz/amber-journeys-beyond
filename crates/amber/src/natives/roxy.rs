@@ -518,7 +518,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // every other.
         "peekalert" => {
             let enabled = state.get("gPeekAlertEnabled").as_int().unwrap_or(0) != 0;
-            let carried = state.get("playerHasPeekUnit").as_int().unwrap_or(0) != 0;
+            let carried = state.carrying("PeekUnit");
             if !enabled || !carried {
                 return true;
             }
@@ -1938,7 +1938,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                     .iter()
                     .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(item)))
             };
-            let carrying = state.get("playerHasCrowbar").as_int().unwrap_or(0) != 0;
+            let carrying = state.carrying("Crowbar");
             if !pending("hauntsRemaining", "lakeGhost2")
                 || !carrying
                 || !pending("hauntsRemaining", "lakeGhost")

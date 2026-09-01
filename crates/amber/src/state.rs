@@ -113,8 +113,35 @@ impl State {
     /// The one explicit assignment in the game, setting the headgear to
     /// `#usedUp` once consumed, still applies afterwards and is not disturbed.
     fn sync_possession(&mut self, item: &str, held: bool) {
-        let key = format!("playerhas{}", item.to_ascii_lowercase());
-        self.props.insert(key, vec![Value::Int(held as i32)]);
+        // `addInventory` ends with `setState( #playerHas<Item>, #carrying )`
+        // and `deleteInventory` with `setState( #playerHas<Item>, 0 )`, so
+        // this goes through the same write and keeps the flag's declared
+        // settings behind the current one.
+        //
+        // Replacing the list with a single value instead lost two things.
+        // The flag never held `#carrying`, so `setScanStatus`'s test for it
+        // could not be true and the interrupted-scan message was unreachable;
+        // and a one-entry list is this engine's signal that a `set<Flag>`
+        // handler exists, so picking anything up quietly changed how writes
+        // to that flag were dispatched.
+        let key = format!("playerHas{item}");
+        let value = if held {
+            Value::Symbol("carrying".into())
+        } else {
+            Value::Int(0)
+        };
+        self.set(&key, value);
+    }
+
+    /// Whether the `playerHas<Item>` flag says the player has the item.
+    ///
+    /// The scripts always ask this as `getState( #playerHas<Item> ) = 0`, so
+    /// anything that is not zero counts -- `#carrying`, `#inUse`, and
+    /// `#usedUp` alike. That last one is deliberate on the game's part: an
+    /// item that has been used up is still not zero, and the handlers that
+    /// care about the difference test for `#usedUp` by name.
+    pub fn carrying(&self, item: &str) -> bool {
+        !self.get(&format!("playerHas{item}")).loosely_eq(&Value::Int(0))
     }
 
     pub fn set(&mut self, key: &str, value: Value) {
@@ -366,12 +393,41 @@ mod tests {
         // The flag is written when the item is taken; the schema seeds all of
         // them to zero, so it cannot be derived when read.
         let mut s = State::new();
-        s.set("playerHasCrowbar", Value::Int(0));
-        assert_eq!(s.get("playerHasCrowbar").as_int(), Some(0));
+        // The schema's own settings for one of these flags.
+        s.set_all(
+            "playerHasCrowbar",
+            vec![
+                Value::Int(0),
+                Value::Symbol("carrying".into()),
+                Value::Symbol("inUse".into()),
+                Value::Symbol("usedUp".into()),
+            ],
+        );
+        assert!(!s.carrying("Crowbar"));
+
         s.add_inventory("Crowbar");
-        assert_eq!(s.get("playerHasCrowbar").as_int(), Some(1));
+        // `#carrying`, as `addInventory` writes it -- not 1.
+        assert!(s.get("playerHasCrowbar").is_symbol("carrying"));
+        assert!(s.carrying("Crowbar"));
+        // And the settings it may still take are still behind it, because a
+        // flag left with one value is a flag this engine treats differently.
+        assert_eq!(s.get_all("playerHasCrowbar").len(), 4);
+
         s.delete_inventory("crowbar"); // case-insensitive
         assert_eq!(s.get("playerHasCrowbar").as_int(), Some(0));
+        assert!(!s.carrying("Crowbar"));
+    }
+
+    #[test]
+    fn an_item_used_up_still_counts_as_had() {
+        // The scripts ask `getState( #playerHas<Item> ) = 0`, so `#usedUp` is
+        // not zero and answers yes. The handlers that need the difference
+        // test for `#usedUp` by name.
+        let mut s = State::new();
+        s.set_all("playerHasWeedkiller", vec![Value::Int(0), Value::Symbol("usedUp".into())]);
+        assert!(!s.carrying("Weedkiller"));
+        s.set("playerHasWeedkiller", Value::Symbol("usedUp".into()));
+        assert!(s.carrying("Weedkiller"));
     }
 
     #[test]

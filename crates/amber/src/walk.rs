@@ -96,6 +96,7 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         if cmd == "skip" {
             let skipped = game.skip_video();
             println!("  skip: {}", if skipped { "moved on" } else { "no movie" });
+            settle(&mut game);
             show(&mut game);
             continue;
         }
@@ -256,9 +257,17 @@ fn show(game: &mut Game) {
     // The ambient mix is per room, so showing it makes a loop that should
     // have stopped on the way out visible without needing to hear it.
     let held = game.state.inventory();
-    if !held.is_empty() {
-        let hand = game.state.item_in_use().unwrap_or("nothing");
-        println!("  carrying: {}   in hand: {hand}", held.join(", "));
+    let hand = game.state.item_in_use();
+    // Also when the bag is empty. Picking the PeeK unit up is `useInventory`,
+    // which puts it in the hand without adding it to the bag -- the game adds
+    // it when it is stowed -- so the first thing the player ever holds was
+    // reported as holding nothing at all.
+    if !held.is_empty() || hand.is_some() {
+        println!(
+            "  carrying: {}   in hand: {}",
+            if held.is_empty() { "(nothing)".into() } else { held.join(", ") },
+            hand.unwrap_or("nothing"),
+        );
     }
     let mix = game.ambience();
     if mix.is_empty() {
@@ -312,7 +321,20 @@ fn show_blocked(game: &Game) {
 
 fn dump_state(game: &Game, filter: &str) {
     let mut shown = 0;
+    // `itemInUse` is not in the property store: it has its own field, because
+    // what is in the hand is not one of a flag's declared settings. Dumping
+    // the store alone printed the schema's list of every item that could ever
+    // be held, headed by `#None`, whatever was actually in the hand -- which
+    // reads as "holding nothing" and is why picking up the PeeK unit looked
+    // like it had failed when it had not.
+    if "iteminuse".contains(&filter.to_ascii_lowercase()) {
+        println!("  iteminuse = {:?}", game.state.item_in_use());
+        shown += 1;
+    }
     for (key, value) in game.state.entries() {
+        if key == "iteminuse" {
+            continue;
+        }
         if !filter.is_empty() && !key.contains(&filter.to_ascii_lowercase()) {
             continue;
         }
