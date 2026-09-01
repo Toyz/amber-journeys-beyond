@@ -120,6 +120,25 @@ fn cmd_info(dir: &Path) -> Res {
         }
     }
 
+    // Names that resolve to more than one room in the same chapter are a
+    // correctness hazard: `resolve` has to pick one, so a move can land in the
+    // wrong scene with nothing looking broken.
+    let mut ambiguous: Vec<(&String, usize)> = world
+        .by_name
+        .iter()
+        .filter_map(|(name, rooms)| {
+            let same_chapter = world.domains.values().any(|&(start, end)| {
+                rooms.iter().filter(|&&i| i >= start && i < end).count() > 1
+            });
+            same_chapter.then_some((name, rooms.len()))
+        })
+        .collect();
+    ambiguous.sort();
+    println!("ambiguous names: {}", ambiguous.len());
+    for (name, n) in ambiguous.iter().take(10) {
+        println!("  {name:<28} {n} rooms");
+    }
+
     let sprites: usize = world.nodes.iter().map(|n| n.sprites.len()).sum();
     let hotspots: usize = world.nodes.iter().map(|n| n.hotspots.len()).sum();
     let live: usize = world

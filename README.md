@@ -124,7 +124,8 @@ crates/director  Director 5 movie reader: RIFX container, mmap resource
                  table, KEY*/CAS* indices, BITD bitmaps, CLUT palettes,
                  Mac `snd ` resources
 crates/lingo     Parser for Lingo literals and for the .DAT room files
-crates/qt        QuickTime demuxer, Cinepak and IMA4 decoders
+crates/qt        QuickTime demuxer, Cinepak and IMA ADPCM decoders,
+                 both verified sample- and pixel-exact against ffmpeg
 crates/amber     World model, game state, action interpreter, CLI
 ```
 
@@ -167,7 +168,8 @@ Working:
 Not yet done:
 
 - Audio output; sound and ambience are decoded but not played
-- QuickTime playback (`crates/qt` is a stub)
+- Hooking video playback into the renderer; the codecs are done but the
+  engine does not yet drive them
 - Cursor art, and the transitions `setTransition` selects
 - 66 set-piece handlers, at 438 call sites — the combination locks, the
   radio dial, the weather vane and so on. These are the one part of the

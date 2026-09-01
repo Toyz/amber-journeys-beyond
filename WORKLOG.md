@@ -119,3 +119,80 @@ flag, its starting value, and its legal values. Wiring that in fixed the
 start location and seeds the guard conditions correctly. Worth noting that
 the data describes itself well enough that hard-coding a start room would
 have been the wrong instinct.
+
+## 10. Repository
+
+Committed. `extract/` and the disc image are excluded; the tree carries no
+game content, which the README already promised and now enforces.
+
+## 11. Known-bad: wrong scene on some moves
+
+helba reported walking into the kitchen and getting the wrong scene.
+Checked the obvious mechanical cause first - names resolving to more than
+one room in the same chapter - and found exactly one (`darkup_mbrexit`), so
+that is not it.
+
+The real cause is the missing set-piece handlers. Several doors have
+state-dependent destinations: the schema declares
+`#kitchenDoorIsOpen : [#diningRm, #hall, #exit]`, so the room the door
+leads to depends on progress that nothing currently advances. With state
+seeded to initial values and never updated by the native handlers, those
+moves take the first branch every time.
+
+Worth recording because the failure is silent. The move succeeds, the
+destination resolves, the room renders. Nothing looks broken; it is just
+wrong. Any test that checks "does the exit resolve" passes here, which is
+the same shape of false confidence as the palette cross-check in entry 8.
+
+## 12. QuickTime and the codecs
+
+Wrote a QuickTime reader plus Cinepak and IMA ADPCM decoders, so the engine
+needs no native media library on any platform.
+
+Four bugs, and the way each was found matters more than the bug.
+
+**Chunk headers.** I had them as six bytes with a 32-bit length; they are
+four bytes with a 16-bit length. Everything past the first chunk was
+garbage. Found by dumping a real frame's structure rather than reasoning
+about it.
+
+**Codebook and vector flags.** Cinepak chunk ids are a bit field and the
+flags live in the high byte: 0x0200 selects the V1 codebook, 0x0100 marks a
+partial update, 0x0400 marks luma-only entries. I masked the low byte, so
+every partial update was read as a full one and overwrote the inherited
+codebook from index zero.
+
+**Chroma conversion.** The standard full-range YUV to RGB coefficients are
+wrong for Cinepak, which wants `r = y + 2v`, `g = y - u/2 - v`,
+`b = y + 2u`.
+
+**ADPCM predictor.** The packet header carries the predictor in its top 9
+bits, quantised to a multiple of 128. Treating that as the exact state and
+restarting from it at each packet drifts by up to 127. The running
+predictor has to be carried, and carried across chunk boundaries too, which
+means it is decoder state and not a per-call local.
+
+### On measuring the right thing
+
+I nearly accepted a broken decoder three times, each time because I picked
+a metric that a wrong answer could pass.
+
+First I looked at a frame and it was white, so I counted distinct colours
+instead. A later frame gave 1,945 distinct colours and I took that as
+working. It was noise. Noise has excellent colour variety. That is the same
+mistake as entry 8, made again within the same project, three days of
+lessons later.
+
+What finally worked was luma correlation against a reference, which
+separates structure from colour and cannot be faked: it read 1.000 for the
+strip that was genuinely right and -0.03 for the strip that was noise, in
+the same frame. That one number localised the bug to partial codebook
+updates in a single measurement, after two rounds of confident wrong
+guessing had got nowhere.
+
+The other thing that changed was the oracle. In entry 3 I checked my
+decoder against my own second implementation and learned nothing, because
+both shared my assumptions. Here I checked against ffmpeg, which shares
+none of them. Cinepak now matches it to R 0.0 G 0.0 B 0.0 on a full frame,
+and the ADPCM decoder matches 4,396,096 of 4,396,096 samples exactly. Those
+numbers mean something the earlier 307,200 of 307,200 did not.
