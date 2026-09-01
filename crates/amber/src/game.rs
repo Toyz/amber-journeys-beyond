@@ -537,6 +537,14 @@ impl Game {
     }
 
     fn decode_sound(&mut self, key: &str) -> Option<sound::Pcm> {
+        // A name the bank does not carry is tried as a filename. The ghost
+        // calls are external files named by convention, Bcall1 through
+        // Ecall12, rather than symbols in the bank, and this is how they are
+        // reached.
+        if self.sounds.source(key).is_none() {
+            let path = self.sounds.file(key)?.to_path_buf();
+            return sound::load(&path);
+        }
         match self.sounds.source(key)?.clone() {
             // Several takes of the same sound; the game varies between them,
             // and rotating by a cheap hash keeps that without needing a RNG.

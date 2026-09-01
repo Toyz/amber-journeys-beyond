@@ -193,6 +193,107 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on ghostCalls suggestion, howLoud
+        //   possibleCallLists = [#allGhosts, #Brice_entry, #Margaret_entry,
+        //                        #Edwin_entry, #Brice_warm, ..., #None]
+        //   if getPos(possibleCallLists, suggestion) = 0 then exit
+        //   suggestedCalls = []
+        //   if suggestion = #allGhosts then
+        //     repeat over [#Margaret, #Brice, #Edwin]
+        //       if inState(#ghostsRemaining, theGhost) then append it
+        //     append #nobody three times
+        //   if suggestion = #Brice_entry then
+        //     if inState(#ghostsRemaining, #Brice) then [#Brice]
+        //   if suggestion = #Brice_warm then  [#Brice, #nobody, #nobody]
+        //   if suggestion = #Brice_cool then  [#Brice, #nobody, #nobody, #nobody]
+        //   ... and the same for Margaret and Edwin
+        //
+        // The ghosts telephone the player, and the padding is the weighting:
+        // an entry call always lands, a warm one lands once in three and a
+        // cool one once in four. A ghost already dealt with is not a
+        // candidate, so `#ghostsRemaining` both gates and thins the calls as
+        // the game is solved.
+        "ghostcalls" => {
+            let suggestion = args
+                .first()
+                .and_then(Value::as_str)
+                .unwrap_or("None")
+                .trim_start_matches('#')
+                .to_string();
+            let loudness = args.get(1).and_then(Value::as_str).unwrap_or("medium");
+
+            // Volume by loudness, stored where the mixer can read it.
+            let volume = match loudness.trim_start_matches('#') {
+                "low" => 90,
+                "high" => 255,
+                _ => 160,
+            };
+            state.set("ghostCallVol", Value::Int(volume));
+
+            let remaining = state.get("ghostsRemaining");
+            let present = |who: &str| match &remaining {
+                Value::List(items) => items.iter().any(|i| {
+                    i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(who))
+                }),
+                // Before the list is seeded every ghost is still to be dealt
+                // with, which is the state the game opens in.
+                _ => true,
+            };
+
+            // Build the weighted candidate list exactly as the original does.
+            let mut candidates: Vec<Option<&str>> = Vec::new();
+            let lower = suggestion.to_ascii_lowercase();
+            if lower == "allghosts" {
+                for who in ["Margaret", "Brice", "Edwin"] {
+                    if present(who) {
+                        candidates.push(Some(who));
+                    }
+                }
+                candidates.extend([None, None, None]);
+            } else if let Some((who, kind)) = lower.split_once('_') {
+                let who = match who {
+                    "brice" => "Brice",
+                    "margaret" => "Margaret",
+                    "edwin" => "Edwin",
+                    _ => return true,
+                };
+                if present(who) {
+                    candidates.push(Some(who));
+                    let padding = match kind {
+                        "entry" => 0,
+                        "warm" => 2,
+                        "cool" => 3,
+                        _ => return true,
+                    };
+                    candidates.extend(std::iter::repeat(None).take(padding));
+                }
+            } else {
+                // #None and anything unrecognised place no call.
+                return true;
+            }
+
+            if candidates.is_empty() {
+                return true;
+            }
+            let pick = roll(state, candidates.len() as i32) as usize - 1;
+            let Some(Some(who)) = candidates.get(pick) else {
+                return true;
+            };
+
+            // Each ghost's calls are external files named by initial: Brice
+            // has eleven, Edwin twelve, Margaret ten.
+            let (prefix, count) = match *who {
+                "Brice" => ("BCALL", 11),
+                "Edwin" => ("ECALL", 12),
+                _ => ("MCALL", 10),
+            };
+            let n = roll(state, count);
+            out.effects.push(Effect::PlaySound {
+                name: format!("{prefix}{n}"),
+                loudness: Some(loudness.trim_start_matches('#').to_string()),
+            });
+        }
+
         // Preload hints for the laptop's animated controls; the engine decodes
         // on demand, so there is nothing to prepare.
         "loadmultiframes" | "purgemultiframes" => {}

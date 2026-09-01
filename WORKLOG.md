@@ -1052,3 +1052,37 @@ quantity from the large ones in the solo track.
 Implementing on a guess would produce a ride sequence that plays and is wrong,
 which is worse than one that does not play, because it looks finished. Left
 until the meaning is established rather than inferred.
+
+## 37. The ghost telephone
+
+`ghostCalls` was the largest thing left at 57 call sites, and it is the
+mechanic the game is named for: the dead telephone the player.
+
+  possibleCallLists = [#allGhosts, #Brice_entry, #Margaret_entry,
+                       #Edwin_entry, #Brice_warm, ..., #None]
+  if getPos(possibleCallLists, suggestion) = 0 then exit
+  if suggestion = #Brice_warm then
+    if inState(#ghostsRemaining, #Brice) then [#Brice, #nobody, #nobody]
+
+The padding is the weighting, and reading it that way is what made the
+handler portable. An entry call is a bare `[#Ghost]` and always lands; a warm
+call adds two `#nobody` entries and lands once in three; a cool call adds
+three and lands once in four. `#allGhosts` collects whichever ghosts remain
+and pads with three. A ghost already dealt with never enters the list, so
+`#ghostsRemaining` both gates the calls and thins them as the game is solved.
+
+The calls themselves are external files named by initial rather than symbols
+in the sound bank, which is why nothing resolved when I looked for them
+there: Brice has eleven, Edwin twelve, Margaret ten. Sound lookup now falls
+back to treating an unknown name as a filename, which reaches them without a
+special case.
+
+Native handlers fall from 52 distinct over 315 call sites to 51 over 258.
+
+### A note on the tooling
+
+Three patch attempts this session failed their own assertion because I wrote
+the expected code from memory rather than reading it first. Each time the
+guard refused rather than writing a mangled file, and each time reading the
+function took ten seconds. The assertion is doing work I should not be
+needing it to do.
