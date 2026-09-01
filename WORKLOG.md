@@ -4407,3 +4407,50 @@ then a third that is silence.
 Verbs down from 14 to 11.
 
 236 tests.
+
+## 106. Three ways of choosing what to say
+
+`goodbyeMandy`, `pyramidSpeaks` and `chippySpeaks` -- three handlers that each
+pick a line, and pick it differently.
+
+**`goodbyeMandy`** does not pick at all. It is the end of Brice's chapter: six
+montage steps, two films, one remark, and then `enterNewDomain` to Roxy. The
+middle of it uses `#slowMontage` rather than `#fadeIn`, which is the one
+transition in this game with its own speed -- a third of the rate, found in
+entry 79 and until now used by nothing I had ported. This is what it is for.
+
+**`pyramidSpeaks`** takes `#helpMe` off the front and everything after that at
+random:
+
+```text
+helpTest = getAt( remainingMessages, 1 )
+if helpTest = #helpMe then
+  myAnswer = 6 : deleteAt( remainingMessages, 1 )
+else
+  msgPosition = random( count( remainingMessages ) )
+```
+
+So the pyramid says the same thing first to everyone and a different thing
+second, and once the list is empty it has nothing left to say. The first
+message is not drawn from the pile; it is the pile's lid.
+
+**`chippySpeaks howLikely`** is the other way round -- *whether* he speaks is
+random and *what* he says is not:
+
+```text
+if integerp( howLikely ) then highRoll = howLikely clamped to 1..6
+                         else highRoll = 6
+if random(6) <= highRoll then ...
+```
+
+The argument is how likely out of six, and it defaults to six -- certain --
+when it is not a number at all. So `chippySpeaks 2` is a one-in-three chance
+and a bare `chippySpeaks` always speaks. He then works through `#chippyPleas`
+from the front, so the order he asks for things in is fixed even though whether
+he asks is not.
+
+That default is the part worth having read rather than guessed. A missing
+argument meaning "certain" is the opposite of what I would have assumed, and
+the test walks forty seeds to say so.
+
+Verbs down from 11 to 8. 239 tests.

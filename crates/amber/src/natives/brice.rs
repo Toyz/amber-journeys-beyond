@@ -22,6 +22,87 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // The original rolls a die so the swarm is only sometimes heard. The
         // roll is reproduced rather than firing every time, because the
         // intermittency is the effect.
+        // on goodbyeMandy
+        //   cursorOff : setState( #showMontage, 0 )
+        //   soundEffect #solidDoorOpen
+        //   goTo( #basement_closetOpen, #lookAt )
+        //   endLoop( #Basement, #fadeOut )
+        //   soundEffect #drips : wait 60
+        //   setState( #showMontage, 1 ) : setTransition #slowMontage : updateDisplay : wait 60
+        //   setState( #showMontage, 2 ) : setTransition #slowMontage : updateDisplay : wait 120
+        //   assertSound #atMandy : wait #soundStop, #atMandy
+        //   suspendSounds : pushVideo : wait #videoStop : killVideo : wait 15
+        //   setState( #showMontage, 3 ) : ... #lightsOut ... : updateDisplay : wait 60
+        //   setState( #showMontage, 4 ) : updateDisplay : pushVideo : wait #videoStop
+        //   setState( #showMontage, 5 ) : setTransition #fadeIn : updateDisplay : killVideo
+        //   soundEffect #toRoxy
+        //   enterNewDomain( oStoryteller, string(#Roxy), ... )
+        //
+        // The end of Brice's chapter. Six montage steps, two films and one
+        // remark, and then the game moves to Roxy.
+        //
+        // `#slowMontage` rather than `#fadeIn` for the middle of it, which is
+        // the one transition in the game with its own speed -- a third of the
+        // rate, from entry 79. This is what it is for.
+        "goodbyemandy" => {
+            out.effects.push(Effect::CursorOff);
+            out.effects.push(Effect::SetState {
+                key: "showMontage".into(),
+                value: Value::Int(0),
+            });
+            out.effects.push(Effect::PlaySound {
+                name: "solidDoorOpen".into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::GoToRoom {
+                room: "basement_closetOpen".into(),
+                transition: Some("lookAt".into()),
+            });
+            out.effects.push(Effect::StopLoop {
+                name: "Basement".into(),
+                fade: true,
+            });
+            out.effects.push(Effect::PlaySound {
+                name: "drips".into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::WaitTicks(60));
+
+            // The slow half.
+            for (step, hold) in [(1, 60), (2, 120)] {
+                out.effects.push(Effect::SetTransition {
+                    kind: "slowMontage".into(),
+                });
+                out.effects.push(Effect::SetState {
+                    key: "showMontage".into(),
+                    value: Value::Int(step),
+                });
+                out.effects.push(Effect::WaitTicks(hold));
+            }
+
+            super::assert_sound("atMandy", None, state, out);
+            out.effects.push(Effect::WaitForSound("atMandy".into()));
+            out.effects.push(Effect::SuspendSounds { fade: false });
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::StopVideo);
+            out.effects.push(Effect::WaitTicks(15));
+
+            out.effects.push(Effect::FadeToMontage(3));
+            out.effects.push(Effect::WaitTicks(60));
+            out.effects.push(Effect::FadeToMontage(4));
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::FadeToMontage(5));
+            out.effects.push(Effect::StopVideo);
+            out.effects.push(Effect::PlaySound {
+                name: "toRoxy".into(),
+                loudness: None,
+            });
+            // And into Roxy's chapter.
+            out.new_domain = Some("ROXY".into());
+        }
+
         // on keyholeComments
         //   if inState( #utterancesRemaining, #someTrouble )
         //     then assertSound #someTrouble

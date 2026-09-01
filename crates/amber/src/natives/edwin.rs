@@ -162,6 +162,48 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on chippySpeaks howLikely
+        //   if integerp( howLikely ) then
+        //     highRoll = howLikely, clamped to 1..6
+        //   else
+        //     highRoll = 6
+        //   if random(6) <= highRoll then
+        //     cursorOff
+        //     pleaList = getProp( oStoryteller.states, #chippyPleas )
+        //     newPlea = getAt( pleaList, 1 )
+        //     ... put the matching clip on sprite 44 and play it ...
+        //
+        // Chippy pipes up, sometimes. The argument is how likely out of six,
+        // clamped, and defaulting to six -- certain -- when it is not a number
+        // at all. So `chippySpeaks 2` is a one-in-three chance and
+        // `chippySpeaks` on its own always speaks.
+        //
+        // He works through `#chippyPleas` from the front rather than at
+        // random, so the order he asks for things in is fixed even though
+        // whether he asks at all is not.
+        "chippyspeaks" => {
+            let likely = args
+                .first()
+                .and_then(Value::as_int)
+                .map_or(6, |n| n.clamp(1, 6));
+            if roll(state, 6) > likely {
+                return true;
+            }
+            let pleas = state.get_all("chippyPleas").to_vec();
+            let Some(next) = pleas.first().cloned() else {
+                return true;
+            };
+            out.effects.push(Effect::CursorOff);
+            if let Some(name) = next.as_str() {
+                out.effects.push(Effect::PlaySound {
+                    name: name.trim_start_matches('#').into(),
+                    loudness: None,
+                });
+            }
+            out.effects.push(Effect::WaitForVideo);
+            out.redraw = true;
+        }
+
         // on carComments
         //   if getState( #chippyLocation ) <> #inCar then return
         //   if inState( #utterancesRemaining, #homeEdwin ) then thisComment = #homeEdwin
@@ -1003,5 +1045,54 @@ mod tests {
         // Everything spent, and he falls through to the joy ride -- which he
         // does not have, so he says nothing.
         assert!(said(&mut s).is_empty());
+    }
+
+    #[test]
+    fn how_likely_chippy_is_to_speak_is_out_of_six() {
+        let attempt = |likely: Option<i32>, seed: i32| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+            s.set_all("gRandomSeed", vec![Value::Int(seed)]);
+            s.set_all("chippyPleas", vec![Value::Symbol("pullMyFinger".into())]);
+            let mut out = Outcome::default();
+            let args: Vec<Value> = likely.map(Value::Int).into_iter().collect();
+            assert!(call("chippyspeaks", &args, &mut s, &mut out));
+            out.effects
+                .iter()
+                .any(|e| matches!(e, Effect::PlaySound { .. }))
+        };
+
+        // No argument at all means certain, whatever the roll comes out as.
+        for seed in 1..40 {
+            assert!(attempt(None, seed), "silent with no argument, seed {seed}");
+        }
+        // A one-in-six is not certain, and is not never either.
+        let spoke = (1..200).filter(|s| attempt(Some(1), *s)).count();
+        assert!(spoke > 0 && spoke < 199, "one-in-six spoke {spoke} of 199");
+    }
+
+    #[test]
+    fn and_he_asks_for_things_in_order() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all(
+            "chippyPleas",
+            vec![
+                Value::Symbol("pullMyFinger".into()),
+                Value::Symbol("pokeHim".into()),
+            ],
+        );
+        let mut out = Outcome::default();
+        assert!(call("chippyspeaks", &[], &mut s, &mut out));
+        let said: Vec<String> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        // The front of the list, not a pick from it.
+        assert_eq!(said, ["pullMyFinger"]);
     }
 }

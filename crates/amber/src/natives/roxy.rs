@@ -1249,6 +1249,50 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on pyramidSpeaks
+        //   cursorOff
+        //   remainingMessages = getProp( oStoryteller.states, #pyramidMessagesRemaining )
+        //   messagesStack = getProp( oPuppeteer.frames, #PyramidMsg )
+        //   if count( remainingMessages ) > 0 then
+        //     helpTest = getAt( remainingMessages, 1 )
+        //     if helpTest = #helpMe then
+        //       myAnswer = 6 : deleteAt( remainingMessages, 1 )
+        //     else
+        //       msgPosition = random( count( remainingMessages ) )
+        //       myAnswer = getAt( remainingMessages, msgPosition )
+        //       ...
+        //
+        // The pyramid answers. `#helpMe` is always first and always taken from
+        // the front -- it is the one thing it says before it will say anything
+        // else -- and after that it picks from what is left at random, so two
+        // players get the same first answer and a different second.
+        //
+        // Nothing is said once the list is empty.
+        "pyramidspeaks" => {
+            out.effects.push(Effect::CursorOff);
+            let left = state.get_all("pyramidMessagesRemaining").to_vec();
+            if left.is_empty() {
+                return true;
+            }
+            // The first message is not drawn from the pile; it is the pile's lid.
+            let at = if left[0].is_symbol("helpMe") {
+                0
+            } else {
+                (roll(state, left.len() as i32) - 1).max(0) as usize
+            };
+            let Some(said) = left.get(at).cloned() else {
+                return true;
+            };
+            state.trim_item("pyramidMessagesRemaining", &said);
+            if let Some(name) = said.as_str() {
+                out.effects.push(Effect::PlaySound {
+                    name: name.trim_start_matches('#').into(),
+                    loudness: None,
+                });
+            }
+            out.redraw = true;
+        }
+
         // on setBarMode whichOne
         //   cursorOff
         //   oldMode = getState( #BarMode )
@@ -2986,5 +3030,36 @@ mod phone_tests {
             &mut out
         ));
         assert_eq!(s.get("playerIsUsingLaptop"), Value::Symbol("warmingUp".into()));
+    }
+
+    #[test]
+    fn the_pyramid_says_help_me_before_it_says_anything_else() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("gRandomSeed", vec![Value::Int(7)]);
+        s.set_all(
+            "pyramidMessagesRemaining",
+            vec![
+                Value::Symbol("helpMe".into()),
+                Value::Symbol("aMessage".into()),
+                Value::Symbol("another".into()),
+            ],
+        );
+        let said = |s: &mut State| {
+            let mut out = Outcome::default();
+            assert!(call("pyramidspeaks", &[], s, &mut out));
+            out.effects.iter().find_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+        };
+        assert_eq!(said(&mut s), Some("helpMe".to_string()));
+        // And what it says next is one of the rest, taken out as it goes.
+        let second = said(&mut s).expect("a second message");
+        assert!(["aMessage", "another"].contains(&second.as_str()));
+        let third = said(&mut s).expect("a third message");
+        assert_ne!(second, third);
+        // Then it has nothing left to say.
+        assert_eq!(said(&mut s), None);
     }
 }
