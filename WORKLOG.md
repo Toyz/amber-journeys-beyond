@@ -1134,3 +1134,33 @@ have meant a lookup failure in the engine rather than a deliberate nothing.
 
 Native handlers fall from 50 distinct over 188 call sites to 47 over 155. From
 438 sites when the bytecode work began, that is nearly two thirds retired.
+
+## 40. Margaret's chapter, and a wall worth naming
+
+Margaret's module was the conspicuous gap, so I went at it and got one
+handler. The other five stopped against the same thing, and finding out what
+that thing was mattered more than the handler did.
+
+`newDoorStatic` and `initRadioDial` drive sprite channels directly:
+`puppetSprite` to take a channel over, then assigning that sprite's cast
+member and position frame by frame. The engine draws the sprites a room
+declares in its `#onStage` list and has no path for imperative control of a
+channel at all.
+
+Rather than guess how much of the remainder that blocks, I counted:
+
+  needing puppetSprite   14 handlers,  53 call sites
+  portable as-is         33 handlers, 113 call sites
+
+So the tail is not one long grind of forty-odd decode jobs. It is two thirds
+ordinary porting and one third waiting on a single renderer capability, and
+the blocked third includes most of the puzzle machinery - the radio dial, the
+whirligig, the door static - because a puzzle is exactly the kind of thing
+that animates a channel under script control.
+
+That reframes the work. Adding puppet channels to the renderer is one piece
+of engine work that unblocks fifty-three call sites at once, and it is worth
+doing before grinding through the thirty-three that do not need it.
+
+`resetBoxPuzzle` is ported: stop the video and empty `#boxList`, so the boxes
+can be worked through again from the start.
