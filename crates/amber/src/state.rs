@@ -233,6 +233,12 @@ impl State {
                     _ => false,
                 }
             }
+            Cond::Greater { key, value } => {
+                match (self.get(key).as_int(), value.as_int()) {
+                    (Some(a), Some(b)) => a > b,
+                    _ => false,
+                }
+            }
             Cond::Includes { key, value } => self.list_has(key, value),
             Cond::Lacks { key, value } => !self.list_has(key, value),
             Cond::Not(inner) => !self.test(inner),

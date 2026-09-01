@@ -2773,3 +2773,46 @@ if gCPU <> #Mac then suspendSounds
 The static loop is started at volume **zero** -- a placeholder the Mac build
 keeps silent -- and the PC build ducks the bed instead. I was doing both, at
 full volume, so every door in the chapter came with a constant hiss.
+
+## 77. Reading the playthrough
+
+helba downloaded a Macintosh longplay and told me where to look. Extracting
+frames with `ffmpeg` and comparing them against decoded film frames answered in
+minutes what I had been arguing about for two entries.
+
+The transition films are confirmed frame by frame. `margntry.mov` is the portal
+light expanding to a white flash, and `40sFRAME.mov` is the white photo frame
+settling into place around the chapter. Both match the video exactly, both are
+in `ROXY/MOVIES`, and both now play.
+
+What comes *between* them and the first room is the part I do not have. It is a
+halftone screen-door dissolve from Margaret's body on the living room floor to
+her face -- and the screen-door pattern is the giveaway. That is Director's
+pixel dissolve, not a film. `setTransition` is called **106 times** in the game
+data, all but two of them `#fadeIn`, and I implement none of it: every one of
+those is a cut. That is the "entire thing missing" helba could see and I could
+not.
+
+Three other things fell out.
+
+`#greater` was not implemented. It appears twice in the whole game and both
+fell through to `Cond::Always`, so both sprites drew unconditionally. One of
+them is the telegram in `MLR_FLOOR_CU`, which is the room the chapter opens
+in -- so my render put a telegram over the scene it is meant to follow. The
+same shape as the `#and` bug from entry 47, found the same way: by looking at
+something that should not have been on screen.
+
+Margaret seeds `#showMontage: [1, 2, 3, 4, 5, 0]`. The head is **1**, not 0,
+and every other chapter starts that flag at 0. Her rooms are written expecting
+it.
+
+And `40sINTRO.mov` really is not anywhere. Beyond the earlier four checks, the
+`MooV` chunks that could have carried it embedded are all empty: 43 in
+Margaret, 107 in Roxy, 34 in Brice, 108 in Edwin, and **not one has a single
+byte of data**. They are markers naming an external file. So that film is
+absent from this rip, and the room that asks for it stays a dead end.
+
+What I should take from this entry is not the findings but the method. helba
+has been describing what the game does for several entries and I have been
+answering from the data; the video is the data, and I could have read it the
+first time it was mentioned.

@@ -434,6 +434,19 @@ impl Movie {
         bitmap::decode(m, raw)
     }
 
+    /// The QuickTime data a digital video cast member carries inside the
+    /// movie, when it has any.
+    ///
+    /// Most of the game's films are files on the disc and a cast member only
+    /// names one. Some are `MooV` chunks owned by the member itself, and those
+    /// have no file at all -- which is why five referenced movies looked
+    /// missing, including the one Margaret's chapter opens on.
+    pub fn embedded_movie(&self, cast_number: u32) -> Option<&[u8]> {
+        let m = self.member(cast_number)?;
+        let child = self.child(m.resource, b"MooV")?;
+        self.resource_data(child).ok()
+    }
+
     /// The type-specific block of a cast member, for inspection.
     pub fn cast_spec(&self, cast_number: u32) -> Option<&[u8]> {
         let m = self.member(cast_number)?;

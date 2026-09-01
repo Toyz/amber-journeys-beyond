@@ -98,6 +98,8 @@ pub enum Cond {
     Equals { key: String, value: Value },
     /// State `key` is numerically below `value`.
     Less { key: String, value: Value },
+    /// State `key` is numerically above `value`.
+    Greater { key: String, value: Value },
     /// State `key` is a list containing `value`.
     Includes { key: String, value: Value },
     /// State `key` is a list not containing `value`.
@@ -142,6 +144,7 @@ impl Cond {
                 "equals" if key == "always" => Cond::Always,
                 "equals" => Cond::Equals { key, value },
                 "less" => Cond::Less { key, value },
+                "greater" => Cond::Greater { key, value },
                 "includes" => Cond::Includes { key, value },
                 "lacks" => Cond::Lacks { key, value },
                 // `#not` wraps a bare operand pair rather than a nested
@@ -721,6 +724,21 @@ mod tests {
         let live = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
         let n = room(vec![inert, live]);
         assert_eq!(n.hit_test(50, 50, false, |_| true).unwrap().verb, Verb::Forward);
+    }
+
+    #[test]
+    fn a_greater_guard_compares_rather_than_passing() {
+        // `#greater` is used twice in the game and was falling through to
+        // `Always`, so both sprites showed unconditionally. One of them is the
+        // telegram in the room where Margaret's chapter opens, which drew over
+        // the scene it is supposed to appear after.
+        let c = Cond::parse(&parse_value("[#greater: [#showMontage, 1]]").unwrap());
+        assert!(matches!(c, Cond::Greater { .. }), "parsed as {c:?}");
+        let mut s = State::new();
+        s.set_all("showMontage", vec![Value::Int(1)]);
+        assert!(!s.test(&c), "1 is not greater than 1");
+        s.set_all("showMontage", vec![Value::Int(2)]);
+        assert!(s.test(&c));
     }
 
     #[test]

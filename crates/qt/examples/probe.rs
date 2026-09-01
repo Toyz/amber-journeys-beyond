@@ -61,7 +61,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sum / (f.len() as u64 / 4 * 3)
         );
         if let Some(out) = std::env::args().nth(2) {
-            write_png(&out, dec.width as u32, dec.height as u32, dec.frame())?;
+            if animation {
+                write_png(&out, v.width as u32, v.height as u32, anim.frame())?;
+            } else {
+                write_png(&out, dec.width as u32, dec.height as u32, dec.frame())?;
+            }
             println!("wrote {out}");
         }
     }
