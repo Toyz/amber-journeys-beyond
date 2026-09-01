@@ -4627,3 +4627,32 @@ so there is a second fault in the same few lines and I have not found it yet.
 
 I have stopped guessing at helba's state. The recorder from entry 64 exists for
 exactly this and I have not once asked for a recording.
+
+## 111. A bug I introduced, and one I still cannot see
+
+helba: the panel is "a squished version of the frame". That places it: my own
+sprite trace draws `MARG loadpict` at **(94, 64)**, and the left edge of the
+panel in the screenshot is at 93. Same plate, same position, roughly a quarter
+of the width -- full height, so it is the width alone that is wrong.
+
+Rendering that room headlessly at `showMontage=4` draws it at 452 by 354 and
+looks right, on the same Macintosh data. So I cannot reproduce it from state,
+and everything below is what I found while failing to.
+
+**One real bug, and it was mine, from two entries ago.** `start_room_video`
+remembers the rect a film occupies; `play_movie` with a *named* film did not.
+So a film pushed by name was drawn squeezed into whatever shape the previous
+film had left behind. That is the same kind of fault as the panel and it is
+fixed, but it cannot be the panel: `MARG loadpict` is a bitmap and does not go
+through that path at all.
+
+Every film member's rect is plausible -- I checked all 108 in Roxy's movie for
+a zero or absurd width, and there are none -- so the scaling introduced in
+entry 109 is not mis-firing on bad data either.
+
+What is left is the difference between the window and a screenshot: the
+transition buffer, the real clock, and a window the player has resized. I have
+been reading a screenshot and inferring state for three rounds now, and I got
+one of those rounds wrong badly enough to "fix" working code. That is enough.
+The recorder has existed since entry 64 and I have never once asked for a
+recording.

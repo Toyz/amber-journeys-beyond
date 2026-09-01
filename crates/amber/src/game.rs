@@ -507,6 +507,16 @@ impl Game {
                     }
                     None => trace!(crate::trace::Topic::Video, "no file for movie {n}"),
                 }
+                // The rect this one occupies, not whatever the last film left
+                // behind. Forgetting to move this with the player drew a new
+                // film squeezed into the previous film's shape.
+                let domain = self.node().domain.clone();
+                self.playing = Some(n.clone());
+                self.playing_size = self
+                    .chapter(&domain)
+                    .and_then(|c| c.movie.member_by_name(&n))
+                    .map(|m| (m.width as u32, m.height as u32))
+                    .filter(|(w, h)| *w > 0 && *h > 0);
             }
             None => self.start_room_video(),
         }
