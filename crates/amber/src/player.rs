@@ -49,6 +49,11 @@ pub struct VideoPlayer {
     pub height: u16,
     /// Whether the movie restarts when it reaches its end.
     looping: bool,
+    /// The part of the movie to play, in the track's own timescale.
+    ///
+    /// Director addresses a segment in ticks and the scripts hand over pairs
+    /// like `[36, 60]`; the conversion happens where the timescale is known.
+    segment: Option<(u64, u64)>,
     /// Index of the frame currently in `decoder`.
     current: usize,
     frame_count: usize,
@@ -127,6 +132,7 @@ impl VideoPlayer {
             finished: frame_count == 0,
             // Scenery until a script says otherwise.
             looping: true,
+            segment: None,
             audio,
             audio_rate,
             audio_channels,
@@ -151,7 +157,16 @@ impl VideoPlayer {
             self.finished = true;
             return false;
         };
-        let now = (self.started.elapsed().as_secs_f64() * self.timescale as f64) as u64;
+        let mut now = (self.started.elapsed().as_secs_f64() * self.timescale as f64) as u64;
+        // Inside a segment the clock starts at its first frame, and the movie
+        // is over when it reaches the last.
+        if let Some((from, to)) = self.segment {
+            now += from;
+            if now >= to {
+                self.finished = true;
+                return false;
+            }
+        }
         let target = match video.sample_at(now) {
             Some(i) => i,
             None => 0,
@@ -215,6 +230,27 @@ impl VideoPlayer {
     /// clears.
     pub fn set_looping(&mut self, looping: bool) {
         self.looping = looping;
+    }
+
+    /// Plays only the part of the movie between two times, given in ticks.
+    ///
+    /// Margaret's music boxes are five performances in one film: the script
+    /// names each as a pair of ticks, `[0, 32]` through `[100, 124]`, which
+    /// land four ticks inside the keyframes at every thirty-two so the seams
+    /// do not show. Playing the whole film for each box would play all five.
+    pub fn play_segment(&mut self, from_ticks: u32, to_ticks: u32) {
+        let to_track = |ticks: u32| ticks as u64 * self.timescale as u64 / 60;
+        let (from, to) = (to_track(from_ticks), to_track(to_ticks));
+        self.segment = Some((from, to));
+        self.looping = false;
+        self.finished = false;
+        self.started = Instant::now();
+        self.current = usize::MAX;
+        if let Some(video) = self.movie.track(TrackKind::Video) {
+            if let Some(i) = video.sample_at(from) {
+                self.seek(i);
+            }
+        }
     }
 
     pub fn frame(&self) -> &[u8] {

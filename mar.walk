@@ -1,0 +1,11 @@
+# amber session recording
+# replay with: amber walk <dir> --replay <this file>
+bedrm_A1
+# in bedrm_A1
+click 401 282
+# in bedrm_A1
+click 456 293
+# in bedrm_window2
+click 480 288
+# in bedrm_dresser
+click 455 300

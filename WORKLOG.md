@@ -2450,3 +2450,44 @@ attempts earlier this time.
 
 `verify` prints all four entries now, because the rule that skips a dead start
 is also the rule that could skip a live one.
+
+## 70. Five music boxes and one film
+
+helba's `mar.walk` ended at Margaret's dresser with the boxes silent. Two
+handlers gated it -- `setOpenBox` and `resetBoxPuzzle` -- and between them they
+are the whole puzzle.
+
+Five boxes on a dresser, opened by clicking. `#boxList` keeps the last five
+opened and no more: the count is trimmed from the front before each append. So
+there is no wrong move to undo and no reason to leave and come back. Play them
+in order and the fifth press completes the sequence whatever came before it,
+which is a kinder puzzle than it first looks.
+
+The performances are all in one film. `BOXPLAY.MOV` is forty frames with five
+keyframes, and each box plays its own stretch of it:
+
+```text
+boxTimes = [#snd1: [0, 32], #snd2: [36, 60], #snd3: [68, 92],
+            #snd4: [100, 124], #snd5: [#flipper, #hGap]]
+```
+
+Those numbers took a measurement. They are not frames -- there are only forty.
+The track's timescale is 600 and its duration 1600, which is 2.67 seconds, or
+**160 ticks**; the keyframes fall every 32 ticks, and each pair sits four ticks
+inside a keyframe boundary at both ends. So the units are ticks and the margins
+are the author keeping the seams out of sight. Converting is
+`time = ticks * timescale / 60`.
+
+The fifth pair is two symbols where the other four are numbers, so that box has
+no stretch at all. It still plays its sound -- the original's `startSound` sits
+outside the branch that reads the times -- and my first pass had it silent
+because I had put the sound inside the lookup. One box in five making no noise
+is exactly the kind of thing that reads as a puzzle being subtle.
+
+Segment playback is new and narrow: two handlers in the game use
+`pushQTcarefully`, and `prerollQT` is a no-op here because there is nothing to
+spin up. The player takes a tick range, converts it, seeks, and finishes at the
+end of the stretch rather than the end of the film.
+
+Seven tests. `only_the_last_five_are_remembered_so_a_wrong_start_costs_nothing`
+is the one that carries the design.

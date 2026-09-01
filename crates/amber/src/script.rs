@@ -19,6 +19,8 @@ pub enum Effect {
     /// absent: the room nominates its movie through the sprite it places on the
     /// `#video` channel, and `pushVideo` just starts whatever is loaded there.
     PlayVideo(Option<String>),
+    /// Play only part of the room's movie, between two times in ticks.
+    PlayVideoSegment { from: u32, to: u32 },
     /// Stop whatever movie is playing, from `killVideo`.
     StopVideo,
     /// A one-shot sound effect or a voice line.
@@ -586,6 +588,19 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         // -- video -----------------------------------------------------------
         "pushvideo" => out.effects.push(Effect::PlayVideo(name_arg(0))),
         "killvideo" => out.effects.push(Effect::StopVideo),
+        // `pushQTcarefully start, stop, channel` plays one part of the room's
+        // film. `prerollQT` readies the same part and is a no-op here: there is
+        // nothing to spin up.
+        "pushqtcarefully" => {
+            if let (Some(from), Some(to)) = (int_arg(0), int_arg(1)) {
+                out.effects.push(Effect::PlayVideoSegment {
+                    from: from.max(0) as u32,
+                    to: to.max(0) as u32,
+                });
+                out.effects.push(Effect::WaitForVideo);
+            }
+        }
+        "prerollqt" => {}
 
         // -- audio -----------------------------------------------------------
         // `assertSound` is a voice line, `soundEffect` and `startSound` are
