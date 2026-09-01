@@ -289,3 +289,63 @@ the decoded lengths show exactly that shape: 122.3s, 18.4s, 122.3s, 6.3s,
 122.3s, 14.3s. The tune entries are byte-identical because `#tune1` and
 `#tune2` both point at the same file, which is a detail I would have assumed
 was a bug had the sample counts not matched exactly.
+
+## 16. Lingo bytecode: structure established, semantics partly
+
+Source is stripped from these movies, as expected of a protected Director
+build, so the 66 set-piece handlers exist only as compiled bytecode. What
+survives alongside it is the name table, and it survives complete: 620 names
+in Brice's movie alone, opening with `cursorOff`, `killVideo`, `pushVideo`,
+`goBack`, `inState`, `trimState`, `fadeToMontage`. Those are exactly the
+calls the room scripts make and that the engine currently records as
+unimplemented.
+
+Solid so far:
+
+- The `Lscr` header layout, confirmed by arithmetic rather than assumption:
+  the literal data offset plus its count lands exactly on the chunk size.
+- The handler table, 42 bytes per record, giving each handler its name, its
+  argument and variable counts, and its bytecode extent. **543 handlers**
+  across the five movies, with real names like `setGrateIsOpen` and
+  `setConservatoryDoorIsOpen` - which is the family the kitchen bug lives in.
+- The instruction framing: opcodes below 0x40 take no operand, 0x40 to 0x7f
+  take one byte, 0x80 and above take two. Every one of the 543 handlers
+  decodes to exactly its declared length, and all 3,533 jump targets land on
+  instruction boundaries with none misaligned.
+- `0x93` and `0x95` are jumps. 2,448 operands, none of which escapes its own
+  handler, while every other operand-taking opcode escapes routinely.
+
+### Two contaminated measurements, in one sitting
+
+I tried to classify opcodes by whether their operands were valid name
+indices. With 1,211 names in the table, nearly any small operand qualifies,
+so almost everything scored as "name-index" and the measurement said
+nothing.
+
+Narrowing to "does it resolve to a verb the game actually calls" looked
+better and was worse. The first few entries of the name table are themselves
+the commonest verbs, so an opcode whose operand is a small integer - an
+argument count, say - resolves to `cursorOn` or `killVideo` and scores 84%.
+`0x42`, whose operand never exceeds 4, scored 84% by this test and is not a
+name reference at all.
+
+What settled it was a constraint a wrong answer cannot satisfy: a jump
+operand has to land inside its own handler. That separated `0x93` and `0x95`
+from everything else at 2,448 to nil, and it overturned my earlier reading,
+which had `0x95` as a call because its operands happened to resolve to
+plausible handler names.
+
+Three times now in this project the useful test has been the one with a
+hard constraint in it - a pixel count that must be exact, a sample count
+that must match, an offset that cannot leave its region - and three times
+the misleading one has been a plausibility score. I do not think that is a
+coincidence any more.
+
+### Not done
+
+The opcode table is not finished. The push and call opcodes cluster
+coherently by what they reference - `0x85` and `0x45` reach property and
+symbol names, `0x84` and `0x81` reach variables including the puzzle state
+(`tumbler`, `lock_C`, `digitStack`, `allboxes`), `0x57` and `0x97` reach
+built-ins - but individual opcodes are not yet pinned down, and nothing is
+decompiled. The 66 handlers remain unimplemented.
