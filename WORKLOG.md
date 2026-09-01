@@ -4231,3 +4231,44 @@ leaving it out means the tally cannot tell "this handler does nothing
 interesting" from "nobody has looked at this yet". Now it can.
 
 219 tests.
+
+## 102. A fourth case bug, in my own hands
+
+Going after the last setters, `disasm.py` told me `setshedDoorIsOpen` did not
+exist in any chapter. It does, in two, spelled `setShedDoorIsOpen`. The tool
+compares handler names exactly:
+
+```python
+if hn != want:
+    continue
+```
+
+The schema spells it one way and the score the other, because Lingo does not
+care. That is the fourth time this week: the whirligig's direction tables in
+entry 85, the `.DXR` filenames in entry 89, twelve state comparisons in entry
+91, and now the disassembler. Three of the four were in tooling I wrote after
+already having been bitten.
+
+The rule is not "watch out for case". The rule is that **nothing in this game's
+data is case-sensitive**, and any comparison I write against it that is, is
+wrong -- whether it is in the port, the tools, or a grep I type at the prompt.
+
+### The last of the doors
+
+`setShedDoorIsOpen` is a bleeding door of exactly the shape Roxy's front door
+has: the shed's own doorway is the one place the outside is audible through it,
+so `#outsideLoop` starts and stops only while standing there. Opened from
+anywhere else it makes its noise and leaves the mix alone, because the room you
+walk into declares its own.
+
+`setWaffleTracks` is not a flag but a set -- the tracks the car has been down,
+accumulated. Asking for one already in the list is neither an error nor a
+repeat: the cursor twitches and nothing happens, which is the game saying "you
+have already done that" without saying anything.
+
+Four setters left. `setcurrentLocation` is the engine's own business and the
+other three -- the laptop, the car, the conservatory door -- each carry enough
+of their own machinery to be worth reading properly rather than squeezing in
+here.
+
+222 tests.

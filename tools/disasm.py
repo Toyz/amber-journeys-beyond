@@ -124,7 +124,11 @@ def disasm(path, want, only_chunk=None):
                 break
             nid = rd(s, be, p, 2)
             hn = names[nid] if nid < len(names) else f'?{nid}'
-            if hn != want:
+            # Lingo is case-insensitive and the authors are not consistent:
+            # `setShedDoorIsOpen` in the score, `setshedDoorIsOpen` in the
+            # schema. Matching exactly reported handlers as absent that were
+            # sitting right there.
+            if hn.lower() != want.lower():
                 continue
             clen = rd(s, be, p + 4, 4); coff = rd(s, be, p + 8, 4)
             argc = rd(s, be, p + 12, 2); argo = rd(s, be, p + 14, 4)

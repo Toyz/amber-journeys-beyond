@@ -22,6 +22,57 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // The original rolls a die so the swarm is only sometimes heard. The
         // roll is reproduced rather than firing every time, because the
         // intermittency is the effect.
+        // on setShedDoorIsOpen suggestion
+        //   currentState = getState( #shedDoorIsOpen )
+        //   if suggestion = 0 and currentState = 1 then
+        //     soundEffect #shedDoorClose
+        //     setProp( oStoryteller.states, #shedDoorIsOpen, list(0) )
+        //     updateDisplay( oPuppeteer )
+        //     if getState( #currentLocation ) = #Shed_Door_NW then endLoop #outsideLoop
+        //   if suggestion = 1 and currentState = 0 then
+        //     soundEffect #shedDoorOpen
+        //     setProp( oStoryteller.states, #shedDoorIsOpen, list(1) )
+        //     updateDisplay( oPuppeteer )
+        //     if getState( #currentLocation ) = #Shed_Door_NW then setLoop( #outsideLoop, 90 )
+        //
+        // A bleeding door, the same shape as Roxy's front door in entry 63:
+        // the shed's own doorway is the one place the outside is audible
+        // through it, so the loop is started and stopped only while standing
+        // there. Open it from anywhere else and the sound is somebody else's
+        // problem -- the room you walk into declares its own mix.
+        //
+        // Guarded on the flag changing, so a door already open neither sounds
+        // nor restarts the loop.
+        "setsheddoorisopen" => {
+            let asked = args.first().and_then(Value::as_int).unwrap_or(0);
+            let held = state.get("shedDoorIsOpen").as_int().unwrap_or(0);
+            let opening = match (asked, held) {
+                (1, 0) => true,
+                (0, 1) => false,
+                _ => return true,
+            };
+
+            out.effects.push(Effect::PlaySound {
+                name: if opening { "shedDoorOpen" } else { "shedDoorClose" }.into(),
+                loudness: None,
+            });
+            state.set_all("shedDoorIsOpen", vec![Value::Int(asked)]);
+            if state.get("currentLocation").is_symbol("Shed_Door_NW") {
+                out.effects.push(if opening {
+                    Effect::StartLoop {
+                        name: "outsideLoop".into(),
+                        volume: Some(90),
+                    }
+                } else {
+                    Effect::StopLoop {
+                        name: "outsideLoop".into(),
+                        fade: false,
+                    }
+                });
+            }
+            out.redraw = true;
+        }
+
         // on resetHeartBox
         //   if getState( #heartBox ) = #open then return
         //   setState( #nail_1, #halfway )
@@ -545,5 +596,43 @@ mod tests {
         let mut out = Outcome::default();
         assert!(call("resetheartbox", &[], &mut s, &mut out));
         assert_eq!(depths(&s), ["out", "out", "out"]);
+    }
+
+    #[test]
+    fn the_shed_door_is_only_audible_from_its_own_doorway() {
+        let loops = |at: &str, to: i32, from: i32| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("BRICE".into())]);
+            s.set_all("shedDoorIsOpen", vec![Value::Int(from)]);
+            s.set_all("currentLocation", vec![Value::Symbol(at.into())]);
+            let mut out = Outcome::default();
+            assert!(call("setsheddoorisopen", &[Value::Int(to)], &mut s, &mut out));
+            out.effects
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::StartLoop { name, volume } => Some((name.clone(), *volume)),
+                    Effect::StopLoop { name, .. } => Some((name.clone(), None)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            loops("Shed_Door_NW", 1, 0),
+            [("outsideLoop".to_string(), Some(90))]
+        );
+        assert_eq!(loops("Shed_Door_NW", 0, 1), [("outsideLoop".to_string(), None)]);
+        // Opened from elsewhere it makes its noise and leaves the mix alone.
+        assert!(loops("Shed_Interior", 1, 0).is_empty());
+    }
+
+    #[test]
+    fn and_a_door_already_open_does_nothing() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("BRICE".into())]);
+        s.set_all("shedDoorIsOpen", vec![Value::Int(1)]);
+        s.set_all("currentLocation", vec![Value::Symbol("Shed_Door_NW".into())]);
+        let mut out = Outcome::default();
+        assert!(call("setsheddoorisopen", &[Value::Int(1)], &mut s, &mut out));
+        assert!(out.effects.is_empty());
     }
 }

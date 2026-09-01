@@ -162,6 +162,37 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on setWaffleTracks suggestion
+        //   lsWaffleTracks = getProp( oStoryteller.states, #waffleTracks )
+        //   if suggestion = #None then
+        //     setProp( oStoryteller.states, #waffleTracks, list(#None) )
+        //   else
+        //     if getPos( lsWaffleTracks, suggestion ) = 0
+        //       then append( lsWaffleTracks, suggestion )
+        //       else cursorDance
+        //
+        // Not a flag but a set: the tracks the car has been down, accumulated.
+        // Asking for one already in the list is not an error and not a
+        // repeat -- the cursor twitches and nothing else happens, which is the
+        // game's way of saying "you have already done that".
+        //
+        // `#None` empties it.
+        "setwaffletracks" => {
+            let Some(asked) = args.first() else { return true };
+            if asked.is_symbol("None") {
+                state.set_all("waffleTracks", vec![Value::Symbol("None".into())]);
+                return true;
+            }
+            let already = state
+                .get_all("waffleTracks")
+                .iter()
+                .any(|t| t.loosely_eq(asked));
+            if !already {
+                state.add_item("waffleTracks", asked.clone());
+                out.redraw = true;
+            }
+        }
+
         // on setWeatherVane whichWay
         //   currentDirection = getState( #weatherVane )
         //   if whichWay = #clockwise then deltaList = [#n, #E, #S, #W, #n]
@@ -779,5 +810,39 @@ mod tests {
             &mut out
         ));
         assert!(out.effects.is_empty());
+    }
+
+    #[test]
+    fn the_waffle_tracks_accumulate_and_do_not_repeat() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        let mut add = |t: &str| {
+            let mut out = Outcome::default();
+            assert!(call(
+                "setwaffletracks",
+                &[Value::Symbol(t.into())],
+                &mut s,
+                &mut out
+            ));
+        };
+        add("a");
+        add("b");
+        add("a");
+        let held: Vec<String> = s
+            .get_all("waffleTracks")
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        assert_eq!(held, ["a", "b"]);
+
+        // #None empties it.
+        let mut out = Outcome::default();
+        assert!(call(
+            "setwaffletracks",
+            &[Value::Symbol("None".into())],
+            &mut s,
+            &mut out
+        ));
+        assert_eq!(s.get("waffleTracks"), Value::Symbol("None".into()));
     }
 }
