@@ -978,3 +978,36 @@ reading them as one confirming the other rather than as one contradicting it.
 `walk` now takes `click <x> <y>`, which runs the same hit test the window
 uses, so an overlap that resolves the wrong way can be reproduced exactly
 rather than inferred.
+
+## 34. Waits, and why nothing in the world moved
+
+helba asked where the in-world animations were - the power switch, the
+computer starting. They were never going to appear, because the engine ran
+each hotspot's action list straight through inside one frame.
+
+The emergency switch shows the pattern:
+
+  setState( oStoryteller, #eSwitchInUse, TRUE )
+  updateDisplay( oPuppeteer )
+  wait #videoStop
+  setState( oStoryteller, #eSwitchInUse, FALSE )
+  killVideo
+
+The flag makes the movie sprite eligible, the redraw brings it on screen, and
+the wait holds until it has played. Run without honouring the wait, the flag
+goes up and comes down in the same frame and the movie is killed before a
+single frame of it is drawn. Every animated interaction in the game is built
+this way, and 143 hotspot sequences contain a wait, 55 of them on a movie.
+
+Hotspot scripts are now a queue rather than a batch. Actions run one at a
+time until one asks to wait; the wait is held across frames and the rest of
+the sequence resumes when it clears. A room with no movie treats a video wait
+as already satisfied, so a missing asset cannot stall a sequence for ever.
+
+Worth noting the shape of the mistake, because it is the same one as the
+ambient loops that never stopped and the stage that never recomposed. In each
+case the engine did the thing the script asked for and then failed to do the
+part the script did not have to ask for, because Director did it. The scripts
+are written against a runtime that redraws on its own, retires its own loops,
+and blocks on its own waits. Anywhere the data is silent is somewhere I have
+to supply behaviour rather than take the silence as meaning nothing happens.

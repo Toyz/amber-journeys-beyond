@@ -49,6 +49,13 @@ pub struct Game {
     chapters: HashMap<String, Chapter>,
     /// Effects the last click produced, for the front end to play back.
     pub pending: Vec<Effect>,
+    /// Actions still to run from the current hotspot, and what they are
+    /// waiting on. In-world animation depends on this: a switch sets a flag,
+    /// redraws so the movie appears, waits for it to finish, then clears the
+    /// flag. Running the list straight through does all of that inside one
+    /// frame and nothing is ever seen.
+    script: Vec<String>,
+    waiting: Option<Wait>,
     movies: MovieIndex,
     pub sounds: SoundBank,
     pub inventory: Inventory,
@@ -77,6 +84,8 @@ impl Game {
             root: root.to_path_buf(),
             chapters: HashMap::new(),
             pending: Vec::new(),
+            script: Vec::new(),
+            waiting: None,
             movies: MovieIndex::build(root),
             sounds: SoundBank::new(root),
             inventory: Inventory::from_texts(&[]),
@@ -647,9 +656,61 @@ impl Game {
                 .actions
                 .clone()
         };
-        let outcome = script::run(&actions, &mut self.state);
-        self.apply(&outcome);
-        Some(outcome)
+        // A click abandons whatever the previous one was still waiting on.
+        self.script = actions;
+        self.waiting = None;
+        Some(self.pump())
+    }
+
+    /// True while a script is part-way through, so the caller keeps pumping.
+    pub fn script_running(&self) -> bool {
+        !self.script.is_empty() || self.waiting.is_some()
+    }
+
+    /// Runs queued actions until one asks to wait, or the queue empties.
+    ///
+    /// Returns the outcome of everything that ran this call, so a move or a
+    /// redraw part-way through a sequence still reaches the caller.
+    pub fn pump(&mut self) -> Outcome {
+        let mut combined = Outcome::default();
+
+        if let Some(wait) = &self.waiting {
+            if !self.wait_satisfied(wait) {
+                return combined;
+            }
+            self.waiting = None;
+        }
+
+        while !self.script.is_empty() {
+            let action = self.script.remove(0);
+            let outcome = script::run(std::slice::from_ref(&action), &mut self.state);
+            let hold = outcome.effects.iter().find_map(|e| match e {
+                Effect::WaitTicks(t) => Some(Wait::Until(
+                    Instant::now() + Duration::from_secs_f64(*t as f64 / 60.0),
+                )),
+                Effect::WaitForVideo => Some(Wait::Video),
+                Effect::WaitForSound(_) => Some(Wait::Until(
+                    Instant::now() + Duration::from_millis(250),
+                )),
+                _ => None,
+            });
+            merge(&mut combined, outcome);
+            self.apply(&combined.clone());
+            if let Some(w) = hold {
+                self.waiting = Some(w);
+                break;
+            }
+        }
+        combined
+    }
+
+    fn wait_satisfied(&self, wait: &Wait) -> bool {
+        match wait {
+            Wait::Until(t) => Instant::now() >= *t,
+            // A room with no movie has nothing to wait for; treating that as
+            // satisfied stops a missing video from stalling the sequence.
+            Wait::Video => self.player.as_ref().map_or(true, |p| p.finished),
+        }
     }
 
     /// Applies an outcome from outside the click path, used by the
@@ -689,6 +750,24 @@ fn world_domains(world: &World) -> Vec<String> {
     let mut names: Vec<String> = world.domains.keys().cloned().collect();
     names.sort();
     names
+}
+
+/// What a part-run script is waiting on.
+enum Wait {
+    Until(Instant),
+    Video,
+}
+
+/// Folds one action's outcome into the running total for a sequence.
+fn merge(into: &mut Outcome, from: Outcome) {
+    into.destination = from.destination.or(into.destination.take());
+    into.transition = from.transition.or(into.transition.take());
+    into.new_domain = from.new_domain.or(into.new_domain.take());
+    into.go_back |= from.go_back;
+    into.redraw |= from.redraw;
+    into.credits |= from.credits;
+    into.effects.extend(from.effects);
+    into.unhandled.extend(from.unhandled);
 }
 
 /// A running radio or clock programme.

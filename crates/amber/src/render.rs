@@ -155,6 +155,41 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             );
         }
 
+        // A part-run hotspot script resumes here once whatever it was waiting
+        // on has finished. This is what lets an in-world animation be seen:
+        // the switch sets its flag, the stage recomposes so the movie appears,
+        // and only when the movie ends does the script clear the flag again.
+        if game.script_running() {
+            let outcome = game.pump();
+            if outcome.destination.is_some() || outcome.go_back || outcome.redraw {
+                dirty = true;
+            }
+            if !outcome.effects.is_empty() {
+                dirty = true;
+            }
+            for effect in outcome.effects {
+                let Some(a) = &audio else { continue };
+                match effect {
+                    Effect::PlaySound { name, loudness } => {
+                        let scale = match loudness.as_deref() {
+                            Some("low") => 0.5,
+                            Some("medium") => 0.75,
+                            _ => 1.0,
+                        };
+                        let gain = game.sounds.gain(&name) * scale;
+                        if let Some((pcm, rate, ch)) = game.sound(&name) {
+                            a.play(None, pcm, rate, ch, gain, false);
+                        }
+                    }
+                    Effect::StopVideo => {
+                        game.player = None;
+                        playing_soundtrack = false;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Advance any running programme, queuing its next item as the current
         // one runs out.
         if let Some((pcm, rate, channels, gain)) = game.tick_program() {
