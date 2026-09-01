@@ -121,6 +121,40 @@ rediscovered:
   in its ambient mix, so a shape match collects rooms instead.
 - **`gCPU` is an authoring-time platform switch** left in the shipped
   data. The `#PC` branches are the more complete ones.
+- **Lingo property lists are association lists.** The same key may appear
+  more than once and the game depends on it: a compound guard is written
+  `[#and: [#equals: [a, b], #equals: [c, d]]]`, two entries under one key.
+  Storing them in a map drops half of every compound condition, and reading
+  the operand as a linear list finds nothing and yields an empty `and`, which
+  is vacuously true. Either mistake unlocks every locked thing in the game.
+- **Property keys are not always symbols.** A movie's event track keys cues
+  by frame number: `[165: 90, 167: ["assertSound #aCleverCar"]]`. Rejecting
+  integer keys fails the whole enclosing list, which in one chapter was its
+  entire sound bank.
+- **`TRUE` and `FALSE` are the integers the guards compare against.** Parsed
+  as bare words they become symbols matching neither `= 1` nor `= 0`, and
+  anything set that way becomes permanently unreachable. They appear 227
+  times.
+- **A registration point is in the member's rectangle space**, not the
+  image's. A member whose rectangle has a non-zero origin carries that origin
+  in its registration point too, and 520 of the game's 3,208 bitmaps do.
+- **Overlapping hotspots resolve by order, not by size.** Director takes the
+  first match, and that order is where the authors expressed precedence. The
+  porch offers two forward exits whose guards can both hold, and the one into
+  the darkened house is both first and larger.
+- **A compiled sprite write is** `push channel; push value; push property;
+  0x5d 6`, with `0x5c 6` reading. Property 4 is the cast member and 33 the
+  location. `puppetSprite` claims the channel first.
+- **An extended `snd ` header's samples begin at offset 64**, not where a
+  field-by-field walk lands. Twelve bytes early reads header as audio, and
+  since unsigned eight-bit silence is 0x80, twelve zero bytes are twelve
+  samples at full-scale negative: a click at the head of every sound.
+- **Sound banks are per chapter and their filename extensions are not
+  reliable.** Five cues are listed as `.wav` where the disc holds `.AIF`. The
+  stem identifies the sound.
+- **A `playerHas<Item>` flag is written when the item is taken**, not derived
+  when read; the schema seeds all eight to zero. Rooms hide a taken object by
+  drawing an "object gone" plate gated on that flag.
 
 ## Layout
 
@@ -131,7 +165,15 @@ crates/director  Director 5 movie reader: RIFX container, mmap resource
 crates/lingo     Parser for Lingo literals and for the .DAT room files
 crates/qt        QuickTime demuxer, Cinepak and IMA ADPCM decoders,
                  both verified sample- and pixel-exact against ffmpeg
-crates/amber     World model, game state, action interpreter, CLI
+crates/amber     The engine:
+                   world, locations, schema   rooms and their state
+                   script, natives/           the action interpreter and the
+                                              handlers ported per chapter
+                   game, render, cursor       stage, window and input
+                   audio, sound               mixing and the sound banks
+                   media, player              movie lookup and playback
+                   inventory, presentation    the bar and the named casts
+                   walk                       the terminal walkthrough
 ```
 
 ## Use
@@ -140,50 +182,71 @@ Point the tools at a directory holding the disc's contents:
 
 ```sh
 cargo build --release
-./target/release/amber info    <game-dir>
-./target/release/amber rooms   <game-dir> [domain]
-./target/release/amber room    <game-dir> MARGARET 3
-./target/release/amber cast    <game-dir> MARGARET/MARGARET.DXR
-./target/release/amber export  <game-dir> MARGARET/MARGARET.DXR 566 out.png
-./target/release/amber play    <game-dir> [room]
-./target/release/amber shot    <game-dir> bedrm_A1 out.png
-./target/release/amber verify  <game-dir>
+./target/release/amber play   <game-dir> [room]   open the game window
+./target/release/amber walk   <game-dir> [steps]  walk it in the terminal
+./target/release/amber info   <game-dir>          summarise the data
+./target/release/amber rooms  <game-dir> [domain] list rooms and exits
+./target/release/amber room   <game-dir> ROXY 78  dump one room
+./target/release/amber shot   <game-dir> <room> out.png
+./target/release/amber sfx    <game-dir> [name]   decode sounds
+./target/release/amber cast   <game-dir> ROXY/ROXY.DXR
+./target/release/amber export <game-dir> ROXY/ROXY.DXR 566 out.png
+./target/release/amber verify <game-dir>          parse everything
 ```
 
 `play` opens the game window. `shot` renders one room headlessly, which is
 how the compositor is checked without a display.
 
 `verify` is the regression harness: it parses every room and every action
-script and reports anything the interpreter does not understand.
+script and reports anything the interpreter does not understand, along with
+the handlers still unimplemented.
+
+`walk` is how a bug report gets reproduced. It prints the exits live under the
+current state, and takes `blocked` to list the hotspots whose guards are
+failing and why, `click x y` to run the same hit test the window uses, and
+`give`/`use` to put an item in hand. A route can be passed as arguments, so a
+report becomes a one-liner.
 
 ## State
+
+The game is playable: you can walk the house, open doors, pick things up and
+use them, and the ghosts telephone. Most of the puzzle machinery is not
+implemented yet.
 
 Working:
 
 - Director 5 container parsing, both byte orders
-- Cast, palette and bitmap decoding, verified against an independent
-  reference decoder at 307,200 of 307,200 pixels on a test frame
+- Cast, palette and bitmap decoding
+- QuickTime with Cinepak and IMA ADPCM, both verified against ffmpeg: a full
+  frame matching to zero mean error, and 4,396,096 of 4,396,096 audio samples
+  bit-exact
 - All 1,325 rooms load and every one resolves to a name
-- All 4,926 action scripts parse and execute with nothing unhandled
 - Navigation: 3,697 exits, of which 5 do not resolve
-- Rendering: rooms composite to a 640x480 stage, all 1,478 initially
-  visible sprites decode with no failures
-- A window with hover feedback and click-to-move
+- Rendering: rooms composite to a 640x480 stage, with script-controlled
+  sprite channels layered over them
+- Audio: room ambience mixed per room, sound effects, voice cues, movie
+  soundtracks, and the radio and clock programmes sequenced. Every one of the
+  104 sound symbols the scripts fire resolves
+- Video: room movies play, and space skips one
+- Inventory: the bar, picking things up and using them on the scene
+- Hotspot guards, including the compound conditions, so locked things stay
+  locked
+- 21 set-piece handlers ported from the compiled Lingo, including the ghost
+  telephone, Chippy, the office laptop and the ice white-out
 
 Not yet done:
 
-- Radio and clock programmes, which are declared as playlists of other
-  sounds and need sequencing rather than lookup
-- Hooking video playback into the renderer; the codecs are done but the
-  engine does not yet drive them
-- Cursor art, and the transitions `setTransition` selects
-- 66 set-piece handlers, at 438 call sites — the combination locks, the
-  radio dial, the weather vane and so on. These are the one part of the
-  game whose logic lives in Director bytecode (`Lscr` chunks) rather than
-  in room text, so each needs either decompiling or reimplementing from
-  observed behaviour. The interpreter records them as `Effect::Native` so
-  the surrounding timeline stays intact. The chunks are named, which says
-  where to look: `Brice's domain handlers`, `sound handlers`, and so on.
+- 45 set-piece handlers at 143 call sites, mostly the puzzle machinery: the
+  combination locks, the radio dial, the weather vane, the whirligig, the
+  telegram. The interpreter records each as `Effect::Native` so the
+  surrounding timeline stays intact and the count stays honest
+- Save and load, though the state schema in the data is effectively the save
+  format already
+- The movie event track, which keys cues to frames. Its structure is read but
+  its bare integers are ambiguous, so it is left rather than guessed
+- Cursor art. The pointers are drawn shapes standing in for the game's own
+  1-bit cursors, which need `castCursor` decoded first
+- The transitions `setTransition` selects
 
 ## Legal
 
