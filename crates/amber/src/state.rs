@@ -226,6 +226,7 @@ impl State {
     pub fn test(&self, cond: &Cond) -> bool {
         match cond {
             Cond::Always => true,
+            Cond::Never => false,
             Cond::Equals { key, value } => self.get(key).loosely_eq(value),
             Cond::Less { key, value } => {
                 match (self.get(key).as_int(), value.as_int()) {

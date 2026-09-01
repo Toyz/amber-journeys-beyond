@@ -220,11 +220,19 @@ fn cmd_info(dir: &Path) -> Res {
     // Every movie a room can ask for, and whether the file is present.
     let index = media::MovieIndex::build(dir);
     let mut wanted: BTreeMap<String, usize> = BTreeMap::new();
+    // Separately, the ones only ever named by a sprite that cannot appear.
+    // `[#equals: [#always, 0]]` is how the authors switched a sprite off
+    // without deleting it, and a film named only by one of those is not
+    // missing from the disc in any sense that matters -- it was cut.
+    let mut live: BTreeMap<String, usize> = BTreeMap::new();
     for node in &world.nodes {
         for s in &node.sprites {
             if matches!(s.channel, world::Channel::Video) {
                 if let Some(n) = &s.cast_name {
                     *wanted.entry(n.clone()).or_default() += 1;
+                    if !matches!(s.condition, world::Cond::Never) {
+                        *live.entry(n.clone()).or_default() += 1;
+                    }
                 }
             }
         }
@@ -237,7 +245,11 @@ fn cmd_info(dir: &Path) -> Res {
         missing.len()
     );
     for m in missing.iter().take(8) {
-        println!("  missing {m}");
+        if live.contains_key(*m) {
+            println!("  missing {m}");
+        } else {
+            println!("  missing {m}  (only named by a sprite that never shows)");
+        }
     }
 
     // Sound coverage: every symbol the scripts fire, and whether it resolves.

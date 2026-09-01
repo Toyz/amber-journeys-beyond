@@ -94,6 +94,11 @@ impl Channel {
 #[derive(Clone, Debug)]
 pub enum Cond {
     Always,
+    /// Never true. `#always` is 1, so `[#equals: [#always, 0]]` is how the
+    /// authors switched a sprite off without deleting it -- four of them are
+    /// left in the shipped data, including the panel graphic that otherwise
+    /// covers the psionic bar's readouts, and the sprite for `MEewall.mov`.
+    Never,
     /// State `key` equals `value`.
     Equals { key: String, value: Value },
     /// State `key` is numerically below `value`.
@@ -141,7 +146,17 @@ impl Cond {
         let leaf = |op: &str, operand: &Value| -> Cond {
             let (key, value) = pair(operand);
             match op {
-                "equals" if key == "always" => Cond::Always,
+                // `#always` holds 1, so the value decides: comparing it to
+                // 1 is the ordinary unconditional guard and comparing it to 0
+                // is a sprite the authors turned off. Reading both as `Always`
+                // drew four sprites that are meant never to appear.
+                "equals" if key == "always" => {
+                    if value.truthy() {
+                        Cond::Always
+                    } else {
+                        Cond::Never
+                    }
+                }
                 "equals" => Cond::Equals { key, value },
                 "less" => Cond::Less { key, value },
                 "greater" => Cond::Greater { key, value },
@@ -669,6 +684,11 @@ mod tests {
     #[test]
     fn always_is_spelled_as_an_equality() {
         assert!(matches!(cond("[#equals: [#always, 1]]"), Cond::Always));
+        // `#always` holds 1, so comparing it to 0 is how a sprite is switched
+        // off without being deleted. Four survive in the shipped data, and
+        // reading them as unconditional drew the panel graphic that covers
+        // the psionic bar's readouts.
+        assert!(matches!(cond("[#equals: [#always, 0]]"), Cond::Never));
     }
 
     #[test]

@@ -4042,3 +4042,67 @@ being surprised by this and started expecting a fourth.
 firing, because I grepped the trace for `BarOnline` and the trace prints that
 key lower-cased. Case again, in my own tooling this time, ten minutes after
 fixing twelve instances of it in the port.)*
+
+## 98. `[#equals: [#always, 0]]`
+
+The bar panel had its two setters and still did not work. The readouts were
+missing, and the display showed a waveform that should not have been there.
+
+`#always` holds 1. So `[#equals: [#always, 1]]` is the ordinary unconditional
+guard -- 6356 of them -- and `[#equals: [#always, 0]]` is **never true**: it is
+how the authors switched a sprite off without deleting it. There are four left
+in the shipped data.
+
+I had:
+
+```rust
+"equals" if key == "always" => Cond::Always,
+```
+
+which reads the key and ignores the value, so all four drew. One of them is
+`BPANEL`, a 412 by 252 graphic on channel 10 -- above the digits on 7, 8 and 9
+-- and it was covering the whole readout. The panel was working the entire
+time; I was drawing a lid over it.
+
+With the guard right, the panel does what it should: **SET** shows LEVEL, GAIN
+and FREQ MOD with the selector dash beside whichever is being adjusted; **RUN**
+with the wrong numbers shows `ERR`; RUN with six, five and eight plays
+`BPANEL.MOV`, whose own guard is `[#equals: [#BarOnline, 1]]`.
+
+### A correction to entry 89
+
+The other three disabled sprites are `B_SHED_PEEPL_XCU_mir`, `G_BHPathUp5` --
+and `MEewall.mov`.
+
+Entry 89 said the PC release references five films it does not ship, and used
+that as the headline finding about the two releases. One of those five is this
+sprite. Its room has two video elements:
+
+```text
+MEewall-full   #castNum: 6   [#equals: [#always, 1]]
+MEewall.mov    #castNum: 6   [#equals: [#always, 0]]
+```
+
+Same cast number, one live and one switched off. So `MEewall.mov` is named by
+nothing that can appear, and the PC disc not carrying it is not an omission --
+it was cut, and the Macintosh disc simply still has the file. I went and
+fetched it from the Mac release to fix a hole that was not there.
+
+The honest figure is **four** films the PC release references and does not
+ship: Margaret's opening and the three scan-unit films. Those three are behind
+live guards and are the ones that actually cost helba something.
+
+`info` now marks the difference rather than leaving me to remember it:
+
+```text
+movies: 278 on disc, 196 referenced, 5 unresolved
+  missing 40sINTRO.mov
+  missing MEewall.mov  (only named by a sprite that never shows)
+  missing ST-CPU-LED.multiframe
+  ...
+```
+
+Four disabled sprites out of 6360 guards is a rounding error, and it cost a
+puzzle. The pattern is the same as `#greater` in entry 77 and the vacuous
+`#and` before it: a guard I read loosely because the common case was so common,
+and the rare case was the one that meant something.
