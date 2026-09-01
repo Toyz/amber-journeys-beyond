@@ -332,6 +332,46 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.go_back = true;
         }
 
+        // on assertEdwinGhost
+        //   if not inState(#hauntsRemaining, #lakeGhost2) then exit
+        //   if playerHasCrowbar = 0 or inState(#hauntsRemaining, #lakeGhost) = 0
+        //     then exit
+        //   if gCPU = #PC then suspendSounds #fadeOut
+        //   pushVideo
+        //   wait #videoStop
+        //   if gCPU = #PC then restoreSounds #fadeIn
+        //   trimState #hauntsRemaining, #lakeGhost2
+        //
+        // The second lake ghost, which only appears while the player is
+        // carrying the crowbar and the first has not been seen yet. That is
+        // the exact complement of the guard on the room's own lakegst2 sprite,
+        // which shows when either of those does not hold: between them the two
+        // paths cover every case and never both fire.
+        "assertedwinghost" => {
+            let pending = |key: &str, item: &str| match state.get(key) {
+                Value::List(items) => items
+                    .iter()
+                    .any(|i| i.as_str().is_some_and(|s| s.eq_ignore_ascii_case(item))),
+                _ => false,
+            };
+            let carrying = state.get("playerHasCrowbar").as_int().unwrap_or(0) != 0;
+            if !pending("hauntsRemaining", "lakeGhost2")
+                || !carrying
+                || !pending("hauntsRemaining", "lakeGhost")
+            {
+                return true;
+            }
+            out.effects.push(Effect::SuspendSounds { fade: true });
+            out.effects.push(Effect::PlayVideo(None));
+            out.effects.push(Effect::WaitForVideo);
+            out.effects.push(Effect::RestoreSounds { fade: true });
+            // Queued, so the haunt is still in the pool while its movie plays.
+            out.effects.push(Effect::TrimState {
+                key: "hauntsRemaining".into(),
+                item: Value::Symbol("lakeGhost2".into()),
+            });
+        }
+
         _ => return false,
     }
     true

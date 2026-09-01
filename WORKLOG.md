@@ -1420,3 +1420,21 @@ of the guard being live, which is not the same as the picture being visible,
 and helba had to come back twice.
 
 The order is now plates, then the movie, then the script-controlled channels.
+
+## 49. The two lake ghosts
+
+`assertEdwinGhost` plays the second lake ghost, and its guard is the exact
+complement of the one on the room's own `lakegst2` sprite:
+
+  handler   fires when   lakeGhost2 pending and carrying the crowbar
+                         and lakeGhost still pending
+  sprite    shows when   lakeGhost2 pending and (no crowbar
+                         or lakeGhost already gone)
+
+Between them every case is covered and they never both fire. Reading the two
+side by side is what made the handler safe to port: on its own the guard looks
+arbitrary, and paired with the sprite it is obviously a partition.
+
+The trim is queued rather than written, for the reason entry 47 established -
+the movie is gated on the haunt still being in the pool, so consuming it as
+the handler runs hides the film it belongs to.
