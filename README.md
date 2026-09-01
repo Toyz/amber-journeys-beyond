@@ -236,6 +236,22 @@ away.
 Naming a topic that does not exist reports the ones that do rather than
 silently tracing nothing.
 
+## Recording a session
+
+`play` can write everything it is told to do as a walkthrough script, so a
+route can be handed over and replayed exactly:
+
+```
+AMBER_RECORD=/tmp/run.walk amber play extract
+amber walk extract --replay /tmp/run.walk
+AMBER_TRACE=all amber walk extract --replay /tmp/run.walk
+```
+
+The file is plain text -- a room name to start, then `click x y`, `inv x y`
+and `skip` -- so trimming the tail is how a route is cut down to the shortest
+one that still fails. Blank lines and `#` comments are ignored, and the
+recorder writes the current room as a comment before each click.
+
 ## State
 
 The game is playable: you can walk the house, open doors, pick things up and

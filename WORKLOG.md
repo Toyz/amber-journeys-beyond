@@ -2213,3 +2213,64 @@ ambience declared a sustain inside a longer recording, looping the whole buffer
 would replay its lead every lap. None of the twenty-seven sounds in the movies
 declares one, so the house hum repeating every 3.2 seconds is the asset being
 3.2 seconds long, not a seam I have got wrong.
+
+## 64. Recording a route, and the film flag
+
+helba asked for a way to record a session in the window and replay it in the
+walkthrough, so a fault could be handed over rather than described. That is the
+slow half of every bug this session -- play until it breaks, describe where, and
+I try to reach the same state from the terminal -- and it is now one file:
+
+```text
+AMBER_RECORD=/tmp/run.walk amber play extract
+AMBER_TRACE=all amber walk extract --replay /tmp/run.walk
+```
+
+Two things had to be true for a replay to mean anything. The walkthrough needed
+the commands the window generates, so `inv x y` and `skip` are commands now.
+And it had to run the effect queue: `trimState` and `setState` reach the flags
+through it, and the walkthrough never drained it, so a route replayed in the
+terminal ended somewhere the same route in the window did not. It settles the
+queue after every step, dropping the waits -- they are pacing, and there is no
+clock to pace against -- and applying the state.
+
+Then helba asked the right question about entry 63: how does the game know
+which films loop? My answer there was a heuristic -- loop if the room draws
+anything else -- and a heuristic was the wrong shape of answer. It was also
+actively broken: it deadlocked the breaker switch. `pushVideo` is applied
+*after* the wait that follows it is armed, so my "stop looping while something
+waits" landed on the previous film, the new one came up looping, and
+`wait #videoStop` never cleared. The sequence stopped for good, part way
+through, with the lights half thrown.
+
+The flag is on the cast member. Director stores it there rather than on the
+sprite, which is why nothing in a room's record says which kind of film it has.
+Dumping the type-specific bytes of every digital video member and comparing
+them across the disc, four values occur -- 0x22, 0x2a, 0x32, 0x3a -- and bit
+0x10 is set on exactly the films that should run: the ceiling fans, the door
+scanners, the fireplaces, the bubbling. Clear on the opening, the montages and
+the mirror message. Ninety-one loop and a hundred and ninety-four do not.
+
+Compare that to what I had guessed. The heuristic and the flag agree on the fan
+and disagree on anything a script plays over a scene, which is most of the
+haunts.
+
+## 65. Four hundred and sixty-six unreachable regions
+
+helba could not use the scanner on a door knob. The room has an `itemInUse`
+region over the knob at rect(228, 128, 396, 309), and a `#pointer` region that
+walks through the door at rect(226, 56, 624, 364) -- which contains it. My
+hit test ranks `#pointer` above `#itemInUse`, so the click walked the player
+away rather than using what they were carrying.
+
+That is not a one-room accident. Four hundred and sixty-six of the game's eight
+hundred `itemInUse` regions have their centre inside a higher-priority region,
+so **most of the game's item targets could never fire**. It is the sort of
+fault that reads as "the puzzle is obscure" rather than as a bug, which is why
+it lasted this long.
+
+An item in hand outranks everything. That is what a cursor holding an object
+means, and it is why these regions are drawn over navigation in the first
+place. The condition matters as much as the ordering: six hundred and
+eighty-nine of them are guarded on what is in hand and gate themselves, but
+eighty-one are guarded only on `#always` and would fire with empty hands.

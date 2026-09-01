@@ -13,13 +13,34 @@ use crate::world::Verb;
 
 pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut game = Game::new(root)?;
+
+    // `--replay <file>` takes the steps from a recording made by `play`.
+    // Blank lines and comments are skipped, so a recording can be annotated
+    // and trimmed down to the shortest route that still fails.
+    let mut script_steps = script_steps.to_vec();
+    if let Some(i) = script_steps.iter().position(|a| a == "--replay") {
+        let path = script_steps
+            .get(i + 1)
+            .ok_or("--replay needs a file")?
+            .clone();
+        let text = std::fs::read_to_string(&path)?;
+        script_steps = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(str::to_string)
+            .collect();
+        println!("replaying {} steps from {path}", script_steps.len());
+    }
+    let script_steps = &script_steps[..];
     let interactive = script_steps.is_empty();
 
     show(&mut game);
     if interactive {
         println!("\ncommands: a verb (forward, left, right, up, down, examine, pointer),");
         println!("          a room name, `state [filter]`, `blocked`,");
-        println!("          `give <item>`, `use <item>`, `quit`");
+        println!("          `give <item>`, `use <item>`, `click x y`, `inv x y`,");
+        println!("          `skip`, `quit`");
     }
 
     let stdin = std::io::stdin();
@@ -52,6 +73,32 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         }
         // A click at a point goes through the same hit test the window uses,
         // so an overlap that resolves the wrong way can be reproduced exactly.
+        // A click on the inventory bar, which `play` records separately
+        // because it never reaches the room's hotspots.
+        if let Some(rest) = cmd.strip_prefix("inv ") {
+            let nums: Vec<i32> = rest
+                .split_whitespace()
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            match nums[..] {
+                [x, y] => {
+                    let taken = game.click_inventory(x, y, 640, 480);
+                    println!(
+                        "  inventory ({x}, {y}): {}",
+                        if taken { "taken" } else { "nothing there" }
+                    );
+                    show(&mut game);
+                }
+                _ => println!("  usage: inv <x> <y>"),
+            }
+            continue;
+        }
+        if cmd == "skip" {
+            let skipped = game.skip_video();
+            println!("  skip: {}", if skipped { "moved on" } else { "no movie" });
+            show(&mut game);
+            continue;
+        }
         if let Some(rest) = cmd.strip_prefix("click ") {
             let nums: Vec<i32> = rest
                 .split_whitespace()
@@ -66,6 +113,7 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
                                 println!("  -> {d}");
                             }
                         }
+                        settle(&mut game);
                         show(&mut game);
                     }
                     None => println!("  nothing at ({x}, {y})"),
@@ -96,11 +144,22 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         }
 
         match step(&mut game, cmd) {
-            Ok(()) => show(&mut game),
+            Ok(()) => {
+                settle(&mut game);
+                show(&mut game);
+            }
             Err(msg) => println!("  {msg}"),
         }
     }
     Ok(())
+}
+
+/// Runs out the effect queue, reporting what it carried.
+fn settle(game: &mut Game) {
+    let applied = game.settle();
+    if applied > 0 {
+        println!("  ({applied} deferred effect(s) applied)");
+    }
 }
 
 /// Takes one step: a verb, or a room name to jump to.

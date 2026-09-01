@@ -351,14 +351,41 @@ impl Node {
     /// house, the second into the lit one, and the lit rectangle is the
     /// smaller of the two. Breaking the tie by size therefore sent the player
     /// into a lit house they had not turned the lights on in.
-    pub fn hit_test(&self, x: i32, y: i32, live: impl Fn(&Cond) -> bool) -> Option<&Hotspot> {
+    /// `holding` says whether the player has an item in hand, which changes
+    /// the order: an `itemInUse` region then outranks everything.
+    ///
+    /// Without that, most of them are unreachable. Four hundred and sixty-six
+    /// of the game's eight hundred sit inside a navigation region -- the
+    /// scanner's door knob is inside the rectangle that walks through the
+    /// door -- so ranking them below a `#pointer` means the click walks the
+    /// player away instead of using what they are carrying. Which is exactly
+    /// what a cursor holding an object should not do.
+    ///
+    /// The condition is needed as well as the ordering: six hundred and
+    /// eighty-nine of them are guarded on what is in hand and gate themselves,
+    /// but eighty-one are guarded only on `#always` and would otherwise fire
+    /// with empty hands.
+    pub fn hit_test(
+        &self,
+        x: i32,
+        y: i32,
+        holding: bool,
+        live: impl Fn(&Cond) -> bool,
+    ) -> Option<&Hotspot> {
+        let rank = |verb: Verb| {
+            if holding && verb == Verb::ItemInUse {
+                u8::MAX
+            } else {
+                verb.priority()
+            }
+        };
         self.hotspots
             .iter()
             .filter(|h| h.bounds.contains(x, y))
             .filter(|h| !h.actions.is_empty())
             .filter(|h| live(&h.condition))
             .enumerate()
-            .max_by_key(|(index, h)| (h.verb.priority(), std::cmp::Reverse(*index)))
+            .max_by_key(|(index, h)| (rank(h.verb), std::cmp::Reverse(*index)))
             .map(|(_, h)| h)
     }
 }
@@ -661,7 +688,7 @@ mod tests {
         let dark = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
         let lit = spot(Verb::Forward, Rect { left: 50, top: 50, right: 100, bottom: 100 });
         let n = room(vec![dark, lit]);
-        let hit = n.hit_test(75, 75, |_| true).expect("inside both");
+        let hit = n.hit_test(75, 75, false, |_| true).expect("inside both");
         assert_eq!(hit.bounds.right, 200, "first listed wins, though it is larger");
     }
 
@@ -671,9 +698,9 @@ mod tests {
         let walk = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
         let look = spot(Verb::Examine, Rect { left: 50, top: 50, right: 100, bottom: 100 });
         let n = room(vec![walk, look]);
-        assert_eq!(n.hit_test(75, 75, |_| true).unwrap().verb, Verb::Examine);
+        assert_eq!(n.hit_test(75, 75, false, |_| true).unwrap().verb, Verb::Examine);
         // and outside the examine box the walk region still answers
-        assert_eq!(n.hit_test(150, 150, |_| true).unwrap().verb, Verb::Forward);
+        assert_eq!(n.hit_test(150, 150, false, |_| true).unwrap().verb, Verb::Forward);
     }
 
     #[test]
@@ -682,7 +709,7 @@ mod tests {
         locked.condition = Cond::Equals { key: "open".into(), value: Value::Int(1) };
         let n = room(vec![locked]);
         let s = State::new();
-        assert!(n.hit_test(50, 50, |c| s.test(c)).is_none());
+        assert!(n.hit_test(50, 50, false, |c| s.test(c)).is_none());
     }
 
     #[test]
@@ -693,15 +720,47 @@ mod tests {
         inert.actions.clear();
         let live = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
         let n = room(vec![inert, live]);
-        assert_eq!(n.hit_test(50, 50, |_| true).unwrap().verb, Verb::Forward);
+        assert_eq!(n.hit_test(50, 50, false, |_| true).unwrap().verb, Verb::Forward);
+    }
+
+    #[test]
+    fn what_is_in_hand_outranks_walking_away() {
+        // The scanner's door knob sits inside the region that walks through
+        // the door. Ranked below it, a click carrying the scanner walks the
+        // player away instead of using what they are holding; 466 of the
+        // game's 800 item regions are covered like this.
+        let walk = spot(Verb::Pointer, Rect { left: 0, top: 0, right: 400, bottom: 400 });
+        let apply = spot(Verb::ItemInUse, Rect { left: 100, top: 100, right: 200, bottom: 200 });
+        let n = room(vec![walk, apply]);
+        assert_eq!(
+            n.hit_test(150, 150, true, |_| true).unwrap().verb,
+            Verb::ItemInUse,
+            "carrying something, the click applies it"
+        );
+        assert_eq!(
+            n.hit_test(150, 150, false, |_| true).unwrap().verb,
+            Verb::Pointer,
+            "empty handed, the same click walks"
+        );
+    }
+
+    #[test]
+    fn an_item_region_still_yields_outside_its_bounds() {
+        let walk = spot(Verb::Pointer, Rect { left: 0, top: 0, right: 400, bottom: 400 });
+        let apply = spot(Verb::ItemInUse, Rect { left: 100, top: 100, right: 200, bottom: 200 });
+        let n = room(vec![walk, apply]);
+        assert_eq!(
+            n.hit_test(300, 300, true, |_| true).unwrap().verb,
+            Verb::Pointer
+        );
     }
 
     #[test]
     fn a_click_outside_every_region_hits_nothing() {
         let n = room(vec![spot(Verb::Forward, Rect { left: 0, top: 0, right: 10, bottom: 10 })]);
-        assert!(n.hit_test(500, 500, |_| true).is_none());
+        assert!(n.hit_test(500, 500, false, |_| true).is_none());
         // right and bottom edges are exclusive
-        assert!(n.hit_test(10, 5, |_| true).is_none());
-        assert!(n.hit_test(9, 9, |_| true).is_some());
+        assert!(n.hit_test(10, 5, false, |_| true).is_none());
+        assert!(n.hit_test(9, 9, false, |_| true).is_some());
     }
 }

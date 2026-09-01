@@ -56,6 +56,13 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     let mut playing_soundtrack = false;
     let mut ambience_room = usize::MAX;
     eprintln!("space skips a movie, tab outlines live hotspots, escape quits");
+    // The route has to start somewhere known, so the first line of a
+    // recording is the room the game opened in.
+    if crate::record::active() {
+        if let Some(name) = game.node().name.clone() {
+            crate::record::step(&name);
+        }
+    }
     let opening_movie = game.video();
     eprintln!(
         "starting in {} / {}{}",
@@ -163,6 +170,7 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
         // long and the original had no way past it either, so this is the one
         // deliberate departure from the game's behaviour.
         if window.is_key_pressed(Key::Space, minifb::KeyRepeat::No) && game.skip_video() {
+            crate::record::step("skip");
             if let Some(a) = &audio {
                 a.stop_oneshots();
             }
@@ -314,11 +322,19 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
                 // click; otherwise picking an item would also walk the player
                 // through whatever hotspot lies beneath it.
                 if game.click_inventory(x, y, STAGE_W as i32, STAGE_H as i32) {
+                    crate::record::step(&format!("inv {x} {y}"));
                     dirty = true;
                     was_down = down;
                     continue;
                 }
                 let had_movie = game.player.is_some();
+                // Recorded before the click is taken, so a click that turns
+                // out to crash is still in the file.
+                if crate::record::active() {
+                    let here = game.node().name.clone().unwrap_or_default();
+                    crate::record::note(&format!("in {here}"));
+                    crate::record::step(&format!("click {x} {y}"));
+                }
                 if let Some(outcome) = game.click(x, y) {
                     // A move cuts whatever the previous scene was playing.
                     if outcome.destination.is_some() || outcome.go_back {

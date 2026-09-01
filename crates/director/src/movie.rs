@@ -76,6 +76,14 @@ pub struct CastMember {
     /// boundary, and the high bit is a flag rather than part of the value.
     pub pitch: u16,
     pub bit_depth: u8,
+    /// Whether a digital video member plays again when it reaches its end.
+    ///
+    /// Director stores this on the member, not on the sprite that places it,
+    /// which is why nothing in a room's own record says whether its film is
+    /// scenery or a one-shot. Ninety-two of the game's movies are marked: the
+    /// ceiling fans, the door scanners, the fireplaces, the bubbling. The
+    /// opening, the montages and the haunts are not.
+    pub loops: bool,
     /// Registration point, the anchor Director positions the sprite by.
     ///
     /// Expressed in the member's own rectangle space, not the image's, so a
@@ -97,6 +105,7 @@ impl CastMember {
             number,
             kind: CastKind::Unknown(0),
             name: None,
+            loops: false,
             resource: 0,
             width: 0,
             height: 0,
@@ -317,6 +326,14 @@ impl Movie {
         let spec = cd
             .get(spec_start..spec_start + data_len)
             .unwrap_or(&[]);
+        // The digital video block ends with a flags byte, of which bit 4 is
+        // the loop. Established by comparing members across the whole disc:
+        // the four values that occur are 0x22, 0x2a, 0x32 and 0x3a, and the
+        // ones carrying 0x10 are exactly the films that should run for as long
+        // as the room is on screen.
+        if kind == CastKind::DigitalVideo {
+            m.loops = spec.last().is_some_and(|f| f & 0x10 != 0);
+        }
         if kind == CastKind::Bitmap && spec.len() >= 10 {
             let mut s = Reader::new(spec, self.endian);
             // Top bit is a flag, not stride.

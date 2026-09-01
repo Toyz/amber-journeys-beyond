@@ -434,19 +434,22 @@ impl Game {
             }
         }
 
-        // A movie over a scene is scenery and runs for as long as the player
-        // stands there: the ceiling fan, the scan unit's dial, the monitors.
-        // A room carried entirely by its movie is not scenery -- it is the
-        // opening, a montage, an ending -- and those play once and hold their
-        // last frame.
-        let scenery = !self.draws_nothing();
+        // Whether a film loops is a property of the cast member, not of the
+        // room that places it or of what else is on screen. Director stores
+        // it there, which is why nothing in a room's own record says which
+        // kind of film it has.
+        let domain = self.node().domain.clone();
+        let loops = self
+            .chapter(&domain)
+            .and_then(|c| c.movie.member_by_name(&name).map(|m| m.loops))
+            .unwrap_or(false);
         if let Some(p) = &mut self.player {
-            p.set_looping(scenery);
+            p.set_looping(loops);
         }
         trace!(
             crate::trace::Topic::Video,
             "{name} {}",
-            if scenery { "loops" } else { "plays once" }
+            if loops { "loops" } else { "plays once" }
         );
     }
 
@@ -514,6 +517,18 @@ impl Game {
     /// waits between actions; this honours them within one action's effects.
     pub fn drain_ready(&mut self) -> Vec<Effect> {
         if let Some(wait) = &self.effect_wait {
+            // A movie something is waiting on has to be allowed to end, and
+            // this is the first moment it can be said: the `pushVideo` that
+            // started it is applied *after* the wait is armed, so anything
+            // done at arming time lands on the previous movie and the new one
+            // comes up looping. It then never finishes, and the wait never
+            // clears -- the sequence stops for good part way through.
+            if matches!(wait, Wait::Video) {
+                if let Some(p) = &mut self.player {
+                    p.set_looping(false);
+                }
+            }
+            let wait = self.effect_wait.as_ref().expect("just checked");
             if !self.wait_satisfied(wait) {
                 return Vec::new();
             }
@@ -524,22 +539,39 @@ impl Game {
         while !self.pending.is_empty() {
             let effect = self.pending.remove(0);
             if let Some(w) = wait_for(&effect) {
-                // A movie something is waiting on has to be allowed to end.
-                if matches!(w, Wait::Video) {
-                    if let Some(p) = &mut self.player {
-                        p.set_looping(false);
-                    }
-                }
                 // The wait is armed after the effects before it are handed
                 // over, so the video this is waiting on has been started by
                 // the time the wait is first tested.
-                trace!(crate::trace::Topic::Script, "hold on {effect:?}");
+                trace!(
+                    crate::trace::Topic::Script,
+                    "will hold on {effect:?} once the effects above are applied"
+                );
                 self.effect_wait = Some(w);
                 break;
             }
             ready.push(effect);
         }
         ready
+    }
+
+    /// Runs the whole effect queue at once, ignoring its waits.
+    ///
+    /// The waits are pacing, and the walkthrough has no clock to pace against.
+    /// What it does need is the state the effects carry: `trimState` and
+    /// `setState` reach the flags through this queue, so a route replayed
+    /// without draining it ends somewhere the same route in the window would
+    /// not. Everything that is sound or picture is dropped, and everything
+    /// that is state is applied.
+    pub fn settle(&mut self) -> usize {
+        let mut applied = 0;
+        self.effect_wait = None;
+        while !self.pending.is_empty() {
+            let effect = self.pending.remove(0);
+            if self.apply_puppet(&effect) {
+                applied += 1;
+            }
+        }
+        applied
     }
 
     /// Whether the effect queue still has work, including a wait in progress.
@@ -1058,8 +1090,9 @@ impl Game {
     /// The hotspot under the cursor, if any.
     pub fn hotspot_at(&self, x: i32, y: i32) -> Option<(Verb, Rect)> {
         let state = &self.state;
+        let holding = self.state.item_in_use().is_some();
         self.node()
-            .hit_test(x, y, |c| state.test(c))
+            .hit_test(x, y, holding, |c| state.test(c))
             .map(|h| (h.verb, h.bounds))
     }
 
@@ -1070,8 +1103,9 @@ impl Game {
         self.state.set("gMouseLoc", lingo::Value::Point(x, y));
         let actions = {
             let state = &self.state;
+            let holding = self.state.item_in_use().is_some();
             self.node()
-                .hit_test(x, y, |c| state.test(c))?
+                .hit_test(x, y, holding, |c| state.test(c))?
                 .actions
                 .clone()
         };

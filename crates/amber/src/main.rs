@@ -8,6 +8,7 @@
 mod trace;
 mod audio;
 mod casttable;
+mod record;
 mod cursor;
 mod game;
 mod inventory;
@@ -385,6 +386,32 @@ fn cmd_export(movie_path: &Path, cast: u32, out: &Path) -> Res {
 
 /// Renders one room to a PNG without opening a window, so the compositor can be
 /// exercised in a terminal or in CI.
+/// Reports how many movies are marked to loop.
+///
+/// The flag lives on the cast member, and reading the wrong byte would either
+/// freeze every fan and scanner on its last frame or leave the opening running
+/// for ever. Neither shows up as an error, so the count is worth watching.
+fn verify_movie_loops(dir: &Path) -> Res {
+    let mut looping = 0usize;
+    let mut once = 0usize;
+    for chapter in ["BRICE", "EDWIN", "MARGARET", "ROXY"] {
+        let path = dir.join(chapter).join(format!("{chapter}.DXR"));
+        let Ok(movie) = director::Movie::open(&path) else { continue };
+        for m in movie.members() {
+            if m.kind != director::CastKind::DigitalVideo || m.resource == 0 {
+                continue;
+            }
+            if m.loops {
+                looping += 1;
+            } else {
+                once += 1;
+            }
+        }
+    }
+    println!("movies:              {looping} loop, {once} play once");
+    Ok(())
+}
+
 /// Reports how loud each room asks its ambient bed to be.
 ///
 /// Every voice is summed into one buffer and the result is clamped, so a room
@@ -635,6 +662,7 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
 fn cmd_verify(dir: &Path) -> Res {
     verify_cast_lookups(dir)?;
     verify_audio_mix(dir)?;
+    verify_movie_loops(dir)?;
     let world = World::load(dir)?;
     let mut unhandled: BTreeMap<String, usize> = BTreeMap::new();
     let mut effects: BTreeMap<String, usize> = BTreeMap::new();
