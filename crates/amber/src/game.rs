@@ -710,6 +710,11 @@ impl Game {
                 trace!(crate::trace::Topic::Room, "transition armed: {kind}");
                 self.transition = Some(kind.clone());
             }
+            Effect::FadeToMontage(step) => {
+                trace!(crate::trace::Topic::Room, "montage step {step}");
+                self.state.set("showMontage", lingo::Value::Int(*step));
+                self.transition = Some("fadeIn".into());
+            }
             Effect::PuppetSprite { channel, on } => {
                 if *on {
                     self.puppets.entry(*channel).or_default();

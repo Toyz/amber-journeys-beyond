@@ -2900,3 +2900,38 @@ new one is composed, and the two are mixed across about fourteen frames.
 `#slowMontage`, used twice, takes forty-five. The game asks for a transition a
 hundred and six times -- every door, every close-up, every step of a montage --
 and every one of those was a hard cut.
+
+## 80. An audit of the verbs, and the montage
+
+Rather than port the next handler by call count, I listed every verb the room
+scripts actually call and checked it against what the engine does with it --
+the same shape of audit that found `#greater` in entry 77, which was worth two
+sprites drawn unconditionally.
+
+Sixty-seven distinct verbs. One stood out at **fifty-three call sites**:
+`fadeToMontage`, whose effect was emitted and applied nowhere. Same class as
+`Effect::PlayVideo` in entry 59 and `Outcome::new_domain` in entry 76 -- a
+value produced, merged, carried through the queue, and dropped on the floor.
+Three times now, and all three were found by looking rather than by playing.
+
+The handler is four lines:
+
+```text
+on fadeToMontage whichNumber
+  setState( oStoryteller, #showMontage, whichNumber )
+  setTransition( oPuppeteer, #fadeIn )
+  updateDisplay( oPuppeteer )
+```
+
+So every montage step in the game was a state change nobody made, without even
+the redraw that would have shown it. It stays an effect rather than a direct
+write because the handlers that use it step through several in order -- Edwin's
+snow blindness goes 1, 2, 1, 0 -- and the order *is* the montage.
+
+It needed entry 79's transitions to be worth implementing, which is the only
+reason it was not done sooner: a montage of hard cuts is not a montage.
+
+On helba's remaining complaint, which I cannot fix: the scene after the Margaret
+transition needs `40sINTRO.mov`, and entry 79 established that this disc is the
+PC release and does not carry it. The room the engine picks instead is still
+the fallback recorded in entry 78, and it is still a guess.

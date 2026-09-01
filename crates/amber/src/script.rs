@@ -24,6 +24,8 @@ pub enum Effect {
     /// How the next stage change should be made: a cut by default, or one of
     /// the transitions the game names.
     SetTransition { kind: String },
+    /// Step the montage: set `#showMontage` and fade to the new stage.
+    FadeToMontage(i32),
     /// Stop whatever movie is playing, from `killVideo`.
     StopVideo,
     /// A one-shot sound effect or a voice line.
@@ -42,7 +44,6 @@ pub enum Effect {
     /// Block until a named sound finishes.
     WaitForSound(String),
     /// Cross-fade to one of the five montage sequences.
-    FadeToMontage(i32),
     /// Hide the cursor for the next scripted beat.
     CursorOff,
     /// Claim or release a sprite channel for script control.
@@ -610,7 +611,28 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
 
         "updatedisplay" | "updatestage" => out.redraw = true,
         "cursoroff" => out.effects.push(Effect::CursorOff),
-        "fadetomontage" => out.effects.push(Effect::FadeToMontage(int_arg(0).unwrap_or(1))),
+        // on fadeToMontage whichNumber
+        //   setState( oStoryteller, #showMontage, whichNumber )
+        //   setTransition( oPuppeteer, #fadeIn )
+        //   updateDisplay( oPuppeteer )
+        //
+        // Fifty-three call sites, and the effect it used to emit was never
+        // applied anywhere -- so every montage step was a state change nobody
+        // made, without even the redraw that would have shown it.
+        // on fadeToMontage whichNumber
+        //   setState( oStoryteller, #showMontage, whichNumber )
+        //   setTransition( oPuppeteer, #fadeIn )
+        //   updateDisplay( oPuppeteer )
+        //
+        // Fifty-three call sites, and the effect it emitted was applied
+        // nowhere -- so every montage step was a state change nobody made,
+        // without even the redraw that would have shown it. It stays an effect
+        // rather than a write here because the handlers that use it step
+        // through several in order, and the order is the montage.
+        "fadetomontage" => {
+            out.effects
+                .push(Effect::FadeToMontage(int_arg(0).unwrap_or(1)));
+        }
 
         // -- video -----------------------------------------------------------
         "pushvideo" => out.effects.push(Effect::PlayVideo(name_arg(0))),
