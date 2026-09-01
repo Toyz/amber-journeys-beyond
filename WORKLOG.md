@@ -1011,3 +1011,44 @@ part the script did not have to ask for, because Director did it. The scripts
 are written against a runtime that redraws on its own, retires its own loops,
 and blocks on its own waits. Anywhere the data is silent is somewhere I have
 to supply behaviour rather than take the silence as meaning nothing happens.
+
+## 35. One unrecognised key form cost a chapter's audio
+
+helba asked for the missing voice events. Six of Edwin's 33 voice cues would
+not resolve, and the cause turned out to be two faults stacked.
+
+Lingo permits any value as a property key, and the game keys a movie's event
+track by frame number:
+
+  #alone: [165: 90, 167: ["assertSound #aCleverCar"], 173: 120]
+
+The parser accepted only `#symbol:` and `"string":` keys. Meeting `165` it
+read a list element, hit the colon, and failed the enclosing list - which was
+Edwin's entire sound bank, 10,644 bytes of it.
+
+The failure hid well. Cues that Edwin shares with another chapter still
+resolved from that chapter's bank, so the score read 80 of 91 rather than
+"one chapter has no audio at all". A partial number looked like a small gap.
+
+Underneath that, the bank's filename extensions are unreliable: five cues are
+listed as `.wav` where the disc holds `.AIF`. The stem is what identifies the
+sound, so the extension is now retried, the same lesson as `.multiframe`.
+
+Sound coverage goes from 181 symbols and 80 of 91 references to 259 symbols
+and 104 of 104.
+
+### What the track data is, and why it is not implemented
+
+With the parse fixed, `#trackData` is readable. Each variant pairs a movie
+with two parallel timelines, `#alone` and `#chippy`, according to whether the
+companion is present, and both are keyed by frame number.
+
+Entries take two forms. A list is unambiguous - `167: ["assertSound
+#aCleverCar"]` fires that cue at frame 167. A bare integer is not: `165: 90`,
+`0: 3` and `411: 175` are all consistent with a duration, a target frame, or a
+pose index, and the small values in the companion track look like a different
+quantity from the large ones in the solo track.
+
+Implementing on a guess would produce a ride sequence that plays and is wrong,
+which is worse than one that does not play, because it looks finished. Left
+until the meaning is established rather than inferred.
