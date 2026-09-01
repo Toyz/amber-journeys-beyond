@@ -1196,3 +1196,47 @@ wired to it.
 The 53 blocked call sites are still blocked. What changed is that they are now
 blocked on one identified question, the property index mapping, rather than on
 a missing capability.
+
+## 42. The sprite property mapping
+
+Entry 41 left the puppet layer built but unwired, because a compiled sprite
+write pushes three operands and it was not established which selected the
+property. That is now settled.
+
+My first test was worthless and worth recording as such. I checked whether
+each operand position held a live cast member; every position passed at 100%,
+because 2,385 of the movie's ~2,400 cast slots are live and almost any small
+integer qualifies. A test everything passes measures nothing, which is the
+same contamination as the name-index attempt in entry 16.
+
+Ranges discriminate where membership did not:
+
+  1 back   494 values, 11 distinct, 2..33     the property index
+  2 back   the value, mostly non-literal      what is written
+  3 back   123 values, 9 distinct, 4..45      the channel
+
+The channel is forced rather than inferred. Its literals are 44, 45, 39 and
+30, which is exactly the set `puppetSprite` claims elsewhere in the corpus.
+That correspondence is not something an arbitrary operand would produce.
+
+The properties are then named by what is written to them:
+
+  4    fed by getProp, getAt and cast lookups   castNum
+  33   fed only by point()                      loc
+  15, 25   only ever 0 or 1                     flags
+  13   only ever 70
+
+A property whose values are all `point()` results can only be a location, and
+one fed by cast lookups can only be a cast reference. Both readings are
+independent of the other. `0x5c 6` is the reading counterpart of `0x5d 6`, so
+sprite properties can now be both set and queried.
+
+With that, `newDoorStatic` reads plainly: claim channel 45, point it at the
+door static loop, hide it, position it relative to the origin, start the
+looping static and push the video.
+
+It is not ported yet. The cast it points at comes from `getProp(oPuppeteer,
+#doorStatic)`, and the engine does not model the puppeteer's property table -
+though the value is sitting in the chapter's `foreground.DATA` config, which
+lists `#doorStatic` among the presentation cast numbers. That table is the
+next piece, and it is a lookup rather than a question.

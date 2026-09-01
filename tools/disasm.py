@@ -38,6 +38,12 @@ COMPARE = {0x0c: '<', 0x0d: '<=', 0x0e: '<>', 0x0f: '=', 0x10: '>', 0x11: '>='}
 LOGICAL = {0x12: 'and/or'}
 ARITH = {0x04: 'arith-a', 0x05: 'add', 0x06: 'arith-c', 0x0a: 'arith-d'}
 LOOPBACK = {0x54}
+# A sprite write is `push channel; push value; push property; 0x5d 6`.
+# The channel operand carries exactly the channels puppetSprite claims, and
+# the properties are named by what is written to them: 4 is fed by cast
+# lookups, 33 only ever by point().
+SPRITE_PROP = {4: 'castNum', 33: 'loc', 13: 'ink', 15: 'flag15',
+               16: 'flag16', 25: 'visible', 14: 'prop14'}
 ARGLIST = {0x42, 0x43}
 LITERAL = {0x44, 0x84}
 JUMP = {0x93, 0x95}
@@ -119,6 +125,8 @@ def disasm(path, want):
                     txt = f"logical ({LOGICAL[op]})"
                 elif op in ARITH:
                     txt = f"arith ({ARITH[op]})"
+                elif op == 0x5d and arg == 6:
+                    txt = "set sprite property"
                 elif op in LOOPBACK:
                     txt = f"loop back -> {o - arg}" if arg is not None else "loop back"
                 elif op == 0x01:
