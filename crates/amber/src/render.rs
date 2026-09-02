@@ -216,7 +216,7 @@ pub fn play_with(
         {
             if let Some(cmd) = replay.pop_front() {
                 println!("> {cmd}");
-                crate::walk::command(&mut game, &cmd, false);
+                let _ = crate::walk::command(&mut game, &cmd, false);
                 dirty = true;
                 next_step = std::time::Instant::now() + std::time::Duration::from_millis(600);
                 if replay.is_empty() {

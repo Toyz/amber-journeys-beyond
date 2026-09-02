@@ -308,6 +308,23 @@ away.
 Naming a topic that does not exist reports the ones that do rather than
 silently tracing nothing.
 
+## Recordings as tests
+
+`hints.walk` is the first part of the game as the hint book that shipped on
+the disc describes it: up from the boathouse, in through the front door, the
+breaker, the PeeK unit, the BAR manual, the videotape, and the machine in the
+living room set to 6, 5 and 8. It replays from a cold start:
+
+```sh
+./target/release/amber walk extract --replay hints.walk     # in the terminal
+./target/release/amber play extract --replay hints.walk --mute   # watch it
+```
+
+A replay exits non-zero when a step names a room or an exit that no longer
+resolves, so a recording is a regression test. A click that lands on nothing
+is counted and reported but does not fail the run: a recording replays what a
+player did, and players click the scenery.
+
 ## Recording a session
 
 `play` can write everything it is told to do as a walkthrough script, so a

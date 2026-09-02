@@ -1,0 +1,67 @@
+# The first part of the game, following the hint book that shipped on the disc.
+# Replay in the terminal with:   amber walk <dir> --replay hints.walk
+# or watch it in the window with: amber play <dir> --replay hints.walk --mute
+#
+# Walk up from the boathouse to the front door.
+down
+forward
+right
+forward
+forward
+forward
+forward
+right
+forward
+forward
+# Open the front door and go into the dark house.
+pointer
+forward
+# Through the hall and up to the office, and pull the breaker.
+forward
+forward
+left
+left
+forward
+forward
+forward
+forward
+examine
+pointer
+# The loft: take the PeeK unit, then stow it into the bag.
+OfficeSwall
+forward
+forward
+examine
+pointer
+click 320 200
+# The office desk: open the top drawer and read the BAR manual.
+OfficeDrawersCU
+click 320 160
+click 320 200
+click 320 200
+click 450 200
+click 450 200
+# Back out of the manual and take the videotape from the computer table.
+OfficeVideotapeCU
+click 300 200
+click 300 200
+# The living room: power the BAR, set 6, 5 and 8, and run it.
+LivingRmBarPanel
+click 500 280
+click 495 200
+click 495 200
+click 490 170
+click 495 200
+click 495 200
+click 495 200
+click 490 170
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 490 130
+state baronline

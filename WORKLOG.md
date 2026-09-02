@@ -5662,3 +5662,72 @@ purge from entry 76 held, and nothing game-shaped is on the remote. Every
 commit is pushed from here on.
 
 281 tests.
+
+## 127. Playing the hint book
+
+Carried on through the walkthrough that shipped on the disc, and it now runs
+from a cold start as `hints.walk`: up the hill from the boathouse, in through
+the front door, through the dark house to the office, the breaker, the loft,
+the PeeK unit, the desk drawer, the BAR manual, the videotape, and the machine
+in the living room.
+
+**The BAR works.** helba asked several entries ago why setting it to 6, 5 and 8
+did nothing, and the answer is that two things in the way are now fixed rather
+than the machine being wrong. The drawer holding the manual could not be opened
+at all (entry 120) and the manual could not be turned past its first page
+(entry 121), so the settings were unknowable from inside the game. With those
+out of the way the panel behaves:
+
+```text
+6,5,8 -> baronline = [1, 0]
+6,5,7 -> baronline = [0, 1]
+5,5,8 -> baronline = [0, 1]
+```
+
+Only the right answer brings it online, which is the puzzle.
+
+What is missing is the reward. The hint book says "The PeeK unit will flash in
+inventory. Click on the PeeK." `peekAlert` is ported and makes it flash;
+`usePeekUnit` is not, so there is nothing behind the flash. The machine works
+and its payoff is invisible, which is the same shape as the music box chord in
+entry 122.
+
+Two things worth keeping from the tape.
+
+Taking the videotape is two clicks, not one: the first sets
+`#playerIsExaminingVideotape` and pops the tape up, the second calls
+`addInventory`. The hint book says "click on the tape to place it in
+inventory", so even the authors' own walkthrough elides it.
+
+And the room is called `O_NO_TAPE_CU` -- the plate is the desk *without* the
+tape, and the tape is a separate sprite gated on `#playerHasVideotape` being 0.
+I spent a minute convinced the room was showing me the after state.
+
+### The same recording, two behaviours
+
+`hints.walk` failed every navigation step in the terminal and worked in the
+window. The window's `--replay` clicks through the opening; the terminal's did
+not, so it was still standing in `Gbhs_playIntro` where none of those exits
+exist. Exactly the drift entry 122 set out to prevent, reintroduced by fixing
+one front end and not the other. Both skip it now.
+
+### Recordings that can fail
+
+A replay now exits non-zero, which makes these files tests rather than
+transcripts. That immediately said something about the two recordings already
+in the repository -- one step in `mar.walk` and three in `portal.walk` find
+nothing.
+
+They turned out to be helba clicking the scenery: a click at y=25, which is
+above the play area entirely, and three at points no room declares a hotspot
+for. Nothing is blocked there; there is simply nothing there.
+
+So the exit code distinguishes two things. A step naming a room or an exit that
+no longer resolves fails the run: the world changed under the recording, which
+is what a recording is worth testing for. A click that lands on nothing is
+counted and printed but does not fail, because a recording replays what a
+player did and players click the scenery. Making every miss fatal would have
+meant either editing helba's recordings to be tidier than the play they record,
+or a test that cries wolf.
+
+281 tests, and three recordings that pass.

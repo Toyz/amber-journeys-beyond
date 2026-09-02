@@ -35,6 +35,15 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
     let script_steps = &script_steps[..];
     let interactive = script_steps.is_empty();
 
+    // A recording starts where the player was, not in the opening film, and
+    // the window's `--replay` already clicks through it. Doing it in only one
+    // of the two front ends meant the same file walked the house in a window
+    // and failed every step in the terminal, which is the drift entry 122 set
+    // out to avoid. Typing `skip` still works for anyone watching it live.
+    if !interactive {
+        game.skip_opening();
+    }
+
     show(&mut game);
     if interactive {
         println!("\ncommands: a verb (forward, left, right, up, down, examine, pointer),");
@@ -50,6 +59,9 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         Box::new(script_steps.iter().cloned())
     };
 
+    // A replayed step that finds nothing is a regression, so a recording can
+    // be used as a test rather than only read.
+    let (mut broken, mut missed) = (0usize, 0usize);
     loop {
         if interactive {
             print!("> ");
@@ -67,9 +79,32 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
             println!("> {cmd}");
         }
 
-        command(&mut game, cmd, true);
+        match command(&mut game, cmd, true) {
+            Step::Done => {}
+            Step::Missed => missed += 1,
+            Step::Broken => broken += 1,
+        }
+    }
+    if !interactive && (broken > 0 || missed > 0) {
+        println!("\n{broken} step(s) found no such room or exit, {missed} clicked nothing");
+    }
+    if broken > 0 {
+        return Err(format!("{broken} step(s) of the recording no longer resolve").into());
     }
     Ok(())
+}
+
+/// What one replayed step did.
+///
+/// A click that lands on nothing is not a fault: a recording replays what a
+/// player did, and players click the scenery. A step that names a room or a
+/// verb the world does not have is different -- it means the world changed
+/// under the recording, which is what a recording is worth testing for.
+#[derive(PartialEq, Eq, Debug)]
+pub(crate) enum Step {
+    Done,
+    Missed,
+    Broken,
 }
 
 /// Runs one command, typed or replayed.
@@ -77,16 +112,16 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
 /// Shared with the window's `--replay`, so a recording drives the real game
 /// through exactly the path the terminal takes -- there is no second reading
 /// of a `.walk` file that could drift from this one.
-pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) {
+pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
     if let Some(filter) = cmd.strip_prefix("state") {
         dump_state(game, filter.trim());
-        return;
+        return Step::Done;
     }
     // A click on the inventory bar, which `play` records separately because it
     // never reaches the room's hotspots.
     if let Some(rest) = cmd.strip_prefix("inv ") {
         let nums: Vec<i32> = rest.split_whitespace().filter_map(|n| n.parse().ok()).collect();
-        match nums[..] {
+        return match nums[..] {
             [x, y] => {
                 let taken = game.click_inventory(x, y, 640, 480);
                 println!(
@@ -94,10 +129,13 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) {
                     if taken { "taken" } else { "nothing there" }
                 );
                 show(game);
+                if taken { Step::Done } else { Step::Missed }
             }
-            _ => println!("  usage: inv <x> <y>"),
-        }
-        return;
+            _ => {
+                println!("  usage: inv <x> <y>");
+                Step::Broken
+            }
+        };
     }
     if cmd == "skip" {
         let skipped = game.skip_video();
@@ -106,7 +144,7 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) {
             settle(game);
         }
         show(game);
-        return;
+        return Step::Done;
     }
     // A click at a point goes through the same hit test the window uses, so an
     // overlap that resolves the wrong way can be reproduced exactly.
@@ -126,22 +164,28 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) {
                     }
                     show(game);
                 }
-                None => println!("  nothing at ({x}, {y})"),
+                None => {
+                    println!("  nothing at ({x}, {y})");
+                    return Step::Missed;
+                }
             },
-            _ => println!("  usage: click <x> <y>"),
+            _ => {
+                println!("  usage: click <x> <y>");
+                return Step::Broken;
+            }
         }
-        return;
+        return Step::Done;
     }
     if cmd == "blocked" {
         show_blocked(game);
-        return;
+        return Step::Done;
     }
     // Granting an item makes the #itemInUse hotspots reachable, which is most
     // of the game's interaction and otherwise needs real progress.
     if let Some(item) = cmd.strip_prefix("give ") {
         game.state.add_inventory(item.trim());
         println!("  carrying: {}", game.state.inventory().join(", "));
-        return;
+        return Step::Done;
     }
     if let Some(item) = cmd.strip_prefix("use ") {
         let item = item.trim();
@@ -149,7 +193,7 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) {
         game.state.set("itemInUse", lingo::Value::Symbol(item.to_string()));
         println!("  in hand: {item}");
         show(game);
-        return;
+        return Step::Done;
     }
 
     match step(game, cmd) {
@@ -158,8 +202,12 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) {
                 settle(game);
             }
             show(game);
+            Step::Done
         }
-        Err(msg) => println!("  {msg}"),
+        Err(msg) => {
+            println!("  {msg}");
+            Step::Broken
+        }
     }
 }
 
