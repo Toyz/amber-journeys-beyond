@@ -919,6 +919,14 @@ impl Game {
             if self.script.is_empty() {
                 break;
             }
+            // The other half of the same rule. A sequence can hold for a click
+            // between two of its actions rather than between two of its
+            // effects, and `waiting_for_click` has always had to look in both
+            // places; so does this.
+            if matches!(self.waiting, Some(Wait::Click)) {
+                report.push("wait for a click".into());
+                return report;
+            }
             self.waiting = None;
             self.pump();
         }
@@ -2132,22 +2140,11 @@ impl Game {
             Wait::Until(t) => Instant::now() >= *t,
             // A room with no movie has nothing to wait for; treating that as
             // satisfied stops a missing video from stalling the sequence.
-            // Not while the queue still has work. A script's `wait
-            // #videoStop` is waiting for the film the `pushVideo` on the line
-            // above it starts, and that `pushVideo` is an *effect* -- it is
-            // sitting in the queue, unapplied, at the moment the wait is set.
-            // Asking whether a film is playing yet answers no, the wait is
-            // satisfied on the spot, and the script runs on past its own
-            // cutscene.
-            //
-            // The breaker in Roxy's office is the clearest case: throw it and
-            // the sequence is meant to play the switch being thrown in the
-            // dark, move to the lit room, and play the lights coming up.
-            // Every state write landed in one frame and neither film was ever
-            // opened.
-            Wait::Video => {
-                self.pending.is_empty() && self.player.as_ref().is_none_or(|p| p.finished)
-            }
+            // The rest of the reasoning is on `film_wait_satisfied`.
+            Wait::Video => film_wait_satisfied(
+                &self.pending,
+                self.player.as_ref().map(|p| p.finished),
+            ),
             // Only a click clears this, so it is never satisfied by waiting.
             Wait::Click => false,
         }
@@ -2362,6 +2359,30 @@ fn merge(into: &mut Outcome, from: Outcome) {
     into.unhandled.extend(from.unhandled);
 }
 
+/// Whether a `wait #videoStop` has been met.
+///
+/// It is waiting for the film the `pushVideo` above it starts, and at the
+/// moment the wait is armed that `pushVideo` may still be sitting in the
+/// queue unapplied -- `pump` stops at the wait with the action's other
+/// effects still pending. Asking "is a film playing yet" answers no, the
+/// wait clears on the spot, and the script runs straight past its own
+/// cutscene. The breaker in Roxy's office is the clearest case: throw it and
+/// neither the film of the switch nor the film of the lights coming up was
+/// ever opened.
+///
+/// So it asks whether a film is still waiting to be *started*, rather than
+/// whether the queue is empty. Asking for an empty queue was a deadlock
+/// waiting to happen, because `drain_ready` will not drain while a wait is
+/// armed: anything queued after the wait meant the queue could never empty
+/// and the wait could never clear. Turning `peekAlert` on found it, since
+/// fitting the oscillator plays a film and then tells the PeeK about it.
+fn film_wait_satisfied(pending: &[Effect], player_finished: Option<bool>) -> bool {
+    let starting = pending
+        .iter()
+        .any(|e| matches!(e, Effect::PlayVideo(_) | Effect::PlayVideoSegment { .. }));
+    !starting && player_finished.unwrap_or(true)
+}
+
 /// One sprite channel under script control.
 #[derive(Copy, Clone, Default)]
 struct Puppet {
@@ -2491,6 +2512,33 @@ fn blit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_film_wait_clears_even_with_work_queued_behind_it() {
+        use super::film_wait_satisfied;
+
+        // `drain_ready` will not drain while a wait is armed, so a wait that
+        // asks for an empty queue can never be satisfied once anything has
+        // been queued after it. Fitting the oscillator does exactly that: it
+        // plays a film, tells the PeeK unit about it, and the PeeK's pulse
+        // queues thirteen waits of its own behind the film's. The window
+        // stopped there for good.
+        //
+        // What the wait is for is the film having been started, so that is
+        // what it asks about.
+        assert!(
+            film_wait_satisfied(&[Effect::WaitTicks(5)], Some(true)),
+            "a queue with no film in it does not hold a film wait"
+        );
+        assert!(
+            !film_wait_satisfied(&[Effect::PlayVideo(None), Effect::WaitTicks(5)], Some(true)),
+            "a film still waiting to be started does hold it"
+        );
+        assert!(
+            !film_wait_satisfied(&[], Some(false)),
+            "and a film still running holds it"
+        );
+    }
 
     #[test]
     fn a_film_is_placed_by_the_sprite_that_is_actually_showing() {
