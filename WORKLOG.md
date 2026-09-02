@@ -5878,3 +5878,52 @@ does `#AMBERVISION` reach `#on`, and only then do the ghosts call and the
 portals open. Everything after that point is behind one ringing telephone.
 
 285 tests, and three recordings that pass.
+
+## 130. The telephone
+
+Everything after the first hour of this game is behind one ringing telephone,
+and the telephone is behind `testForPsionicWaves`, which was not ported.
+
+```text
+on testForPsionicWaves
+  cameraFeedbackRemaining = count( #cameraFeedbackRemaining )
+  oscillatorInPlace       = getState( #oscillatorInPlace )
+  tonalResidueRemaining   = count( #tonalResidueRemaining )
+  if cameraFeedbackRemaining < 1 and oscillatorInPlace
+     and tonalResidueRemaining < 4 then
+    setState( #psionicWavesPresent, 1 )
+    if inState( #hauntsRemaining, #phoneMessage ) then
+      setState( #ghostlyPhoneCall, #ringingNow )
+```
+
+Three counts. The house has to have shown everything its cameras caught, the
+oscillator has to be in the AMBER device, and at least one of the four door
+residues has to have been listened to. Then the phone rings in the living
+room; answering it activates the headgear; the headgear turns the Amber vision
+on; the vision is what lets the ghosts call; the ghosts are what lead the
+player to the portals and the other three chapters.
+
+All three counts were being kept correctly. `cameraFeedbackRemaining` is
+trimmed by the PeeK unit as each haunt is watched back, `oscillatorInPlace` is
+set by the study, `tonalResidueRemaining` by the scanner. Nothing read them.
+The bookkeeping for the whole first act was right and the question was never
+asked.
+
+### Asked at exactly the right moment
+
+`testForPsionicWaves` is called from one place: `stowInventory`, and only when
+what is being stowed is the PeeK unit.
+
+That is a nicer piece of design than it looks. The PeeK is how all three of
+those things are seen -- the haunts play back on it, the scan results arrive on
+it, and it is the thing that flashes when the AMBER device comes online. So the
+question is asked at the moment the player finishes looking at whatever the
+house had to show them and puts the unit away. Not on a timer, not on entering
+a room: on the gesture that means "I have seen that".
+
+Tested by walking the progression rather than by asserting the arithmetic: two
+haunts left to watch, watch them both through `usePeekUnit` and let it trim the
+list, then the oscillator, then a residue, checking at each step that the phone
+is still silent and that it rings only when the last of the three lands.
+
+287 tests.

@@ -1021,6 +1021,58 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //
         // The branch rewrites `suggestion` to `#done`, which is why the call
         // ends by itself: the flag written at the end is the rewritten one.
+        // on testForPsionicWaves
+        //   cameraFeedbackRemaining = count( #cameraFeedbackRemaining )
+        //   oscillatorInPlace       = getState( #oscillatorInPlace )
+        //   tonalResidueRemaining   = count( #tonalResidueRemaining )
+        //   if cameraFeedbackRemaining < 1 and oscillatorInPlace
+        //      and tonalResidueRemaining < 4 then
+        //     setState( #psionicWavesPresent, 1 )
+        //     if inState( #hauntsRemaining, #phoneMessage ) then
+        //       setState( #ghostlyPhoneCall, #ringingNow )
+        //
+        // The gate to the second half of the game, and the whole of it is
+        // these three counts. The house has to have shown everything its
+        // cameras caught, the oscillator has to be in the AMBER device, and
+        // at least one of the four door residues has to have been listened
+        // to. Then the telephone rings in the living room, and answering it
+        // is what activates the headgear -- which is what turns the Amber
+        // vision on, which is what makes the ghosts call, which is what leads
+        // the player to the portals.
+        //
+        // Everything after the first hour of this game is behind that
+        // telephone, and the telephone is behind this handler, and this
+        // handler was not ported. The three counts were all being kept
+        // correctly and nothing ever read them.
+        //
+        // It is called from `stowInventory`, and only when what is being
+        // stowed is the PeeK unit -- which is exactly the right moment, since
+        // the PeeK is how all three of those things are seen. You look at
+        // what the house has to show you, put the unit away, and the game
+        // asks whether that was the last of it.
+        "testforpsionicwaves" => {
+            let cameras = state.get_all("cameraFeedbackRemaining").len();
+            let residues = state.get_all("tonalResidueRemaining").len();
+            let oscillator = state.get("oscillatorInPlace").truthy();
+            if cameras >= 1 || !oscillator || residues >= 4 {
+                return true;
+            }
+            state.set("psionicWavesPresent", Value::Int(1));
+
+            let still_to_come = state
+                .get_all("hauntsRemaining")
+                .iter()
+                .any(|h| h.as_str().is_some_and(|s| s.eq_ignore_ascii_case("phoneMessage")));
+            if still_to_come {
+                call(
+                    "setghostlyphonecall",
+                    &[Value::Symbol("ringingNow".into())],
+                    state,
+                    out,
+                );
+            }
+        }
+
         "setghostlyphonecall" => {
             const VALID: [&str; 4] = ["notyet", "ringingNow", "speaking", "done"];
             let Some(asked) = args
@@ -3451,5 +3503,83 @@ mod phone_tests {
         s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
         let out = crate::script::run(&["useInventory( #Crowbar )".to_string()], &mut s);
         assert!(!out.effects.iter().any(|e| matches!(e, Effect::WaitForClick)));
+    }
+
+    #[test]
+    fn the_telephone_rings_when_the_house_has_shown_everything_it_has() {
+        // `testForPsionicWaves` is the gate to the second half of the game:
+        // every camera haunt seen, the oscillator in the AMBER device, and at
+        // least one door residue listened to. Then the phone rings, and
+        // answering it is what activates the headgear.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("ghostlyPhoneCall", vec![Value::Symbol("notyet".into())]);
+        s.set_all("hauntsRemaining", vec![Value::Symbol("phoneMessage".into())]);
+        s.set_all(
+            "cameraFeedbackRemaining",
+            ["KdKnob", "crazyDR"].iter().map(|h| Value::Symbol((*h).into())).collect(),
+        );
+        s.set_all(
+            "tonalResidueRemaining",
+            ["PkPatioScan", "PkBathroomScan", "Pk40sScan", "PkBoathouseScan"]
+                .iter()
+                .map(|r| Value::Symbol((*r).into()))
+                .collect(),
+        );
+        s.set_all("oscillatorInPlace", vec![Value::Int(0)]);
+
+        let ring = |s: &mut State| {
+            let mut out = Outcome::default();
+            call("testforpsionicwaves", &[], s, &mut out);
+            s.get("ghostlyPhoneCall").is_symbol("ringingNow")
+        };
+        assert!(!ring(&mut s), "rang with two haunts still to see");
+
+        // Watch the last two haunts back on the PeeK.
+        for haunt in ["KdKnob", "crazyDR"] {
+            s.set_all("PeekDisplay", vec![Value::Symbol(haunt.into())]);
+            let mut out = Outcome::default();
+            call("usepeekunit", &[], &mut s, &mut out);
+            for e in &out.effects {
+                if let Effect::TrimState { key, item } = e {
+                    s.trim_item(key, item);
+                }
+            }
+        }
+        assert!(s.get_all("cameraFeedbackRemaining").is_empty());
+        assert!(!ring(&mut s), "rang without the oscillator");
+
+        s.set_all("oscillatorInPlace", vec![Value::Int(1)]);
+        assert!(!ring(&mut s), "rang without a residue played");
+
+        // And one residue listened to.
+        s.trim_item("tonalResidueRemaining", &Value::Symbol("PkPatioScan".into()));
+        assert!(ring(&mut s), "everything done and the phone stayed silent");
+        assert_eq!(s.get("psionicWavesPresent").as_int(), Some(1));
+    }
+
+    #[test]
+    fn putting_the_peek_away_is_what_asks() {
+        // `stowInventory` runs the test, and only for the PeeK unit -- which
+        // is the right moment, because the PeeK is how all three of those
+        // things are seen.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("ghostlyPhoneCall", vec![Value::Symbol("notyet".into())]);
+        s.set_all("hauntsRemaining", vec![Value::Symbol("phoneMessage".into())]);
+        s.set_all("cameraFeedbackRemaining", Vec::new());
+        s.set_all("tonalResidueRemaining", vec![Value::Symbol("Pk40sScan".into())]);
+        s.set_all("oscillatorInPlace", vec![Value::Int(1)]);
+
+        // Stowing something else asks nothing.
+        s.add_inventory("Crowbar");
+        s.set("itemInUse", Value::Symbol("Crowbar".into()));
+        crate::script::run(&["stowInventory( #Crowbar )".to_string()], &mut s);
+        assert!(s.get("ghostlyPhoneCall").is_symbol("notyet"));
+
+        s.add_inventory("PeekUnit");
+        s.set("itemInUse", Value::Symbol("PeekUnit".into()));
+        crate::script::run(&["stowInventory( #PeekUnit )".to_string()], &mut s);
+        assert!(s.get("ghostlyPhoneCall").is_symbol("ringingNow"));
     }
 }

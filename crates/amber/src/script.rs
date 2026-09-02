@@ -609,7 +609,22 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 }
             }
         }
-        "stowinventory" => state.stow(),
+        // on stowInventory whichItem
+        //   setState( #itemInUse, #None )
+        //   setState( #playerHas<whichItem>, #carrying )
+        //   if whichItem = #PeekUnit then
+        //     ... the unit's sprites go off stage ...
+        //     testForPsionicWaves
+        //
+        // Putting the PeeK away is when the game asks whether what was just
+        // seen on it was the last thing it was waiting for.
+        "stowinventory" => {
+            let stowed = state.item_in_use().map(str::to_string);
+            state.stow();
+            if stowed.is_some_and(|i| i.eq_ignore_ascii_case("PeekUnit")) {
+                crate::natives::call("testforpsionicwaves", &[], state, out);
+            }
+        }
 
         // -- presentation ----------------------------------------------------
         // Lingo's property-assignment statement, `set the X of Y = Z`.
