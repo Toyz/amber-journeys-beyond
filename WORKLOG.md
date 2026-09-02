@@ -7136,3 +7136,73 @@ behind: if the window makes the player do something, the terminal has to make
 them do it too, or a recording written in one is fiction in the other.
 
 300 tests, nine recordings.
+
+## 151. The PeeK unit, at last
+
+helba asked three questions in a row and they turned out to be one question:
+is the PeeK meant to animate when you pick it up, is a haunt meant to play as
+a video, and why does opening it say "amber alert" and show nothing.
+
+Yes, yes, and because none of it was ported. `usePeekUnit` opens like this:
+
+```text
+peekBody = 38 : peekAntenna = 46 : peekRollUp = 44 : peekText = 40
+set the castNum of sprite peekBody    = #PeekDown     -- ink 8, matte
+set the loc     of sprite peekBody    = point( 320, 200 )
+set the castNum of sprite peekAntenna = #peekAntenna  -- ink 36
+set the castNum of sprite peekRollUp  = #PeekUpAnim
+set the loc     of sprite peekRollUp  = point( 317, 189 )
+repeat while the movieTime of sprite peekRollUp < the duration of cast peekAnim
+  updateStage
+set the castNum of sprite peekBody    = #PeekUp
+camSprite = peekRollUp
+set the loc     of sprite camSprite   = point( 317, 132 )
+set the castNum of sprite camSprite   = PkVideoNormal[#PkNone]
+```
+
+The unit is drawn, its aerial goes up, `PeeKup.mov` plays it sliding into
+view, and the channel that animation was on becomes the little screen the
+recordings play in. This engine drew a line of text over the room and nothing
+else.
+
+### A film on a channel
+
+The reason is worth writing down, because it is a hole in the model rather
+than a missing handler. Director makes no distinction between kinds of cast
+member: a sprite points at one, and if that one happens to be a digital video,
+the sprite plays it. Six of the PeeK's frames are films --
+
+```text
+cast 915  PKKNIFE.MOV   128x96     #PkKitchenGhost
+cast 930  Kdknob.mov    128x96     #PkKdKnob
+cast 929  CrazyLR.mov   128x96     #PkCrazyLR
+cast 928  crazydr.mov   128x96     #PkCrazyDR
+cast 922  Pkmbrgst.mov  128x96     #PkBedroomGhost
+cast 914  Bludbath.mov  128x96     #PkBloodBath
+```
+
+-- and so are both fades, the four scan playbacks, and the roll-up itself.
+This engine had one film at a time, the room's, and puppet channels drew
+bitmaps. Pointing a channel at a film set a cast number the bitmap decoder
+could make nothing of, so it drew nothing, silently.
+
+`point_channel` is the fix and it is where all three sprite-cast effects go
+now: if the member is a digital video it opens a player for it, otherwise it
+sets the number as before. The film is drawn in its own channel's place in the
+stack rather than with the room's, at the registration point the script gave
+it, and the window advances it and plays its soundtrack alongside the room's.
+`WaitForOverlay` is the wait the roll-up's `repeat while` loop is.
+
+So the whole point of the camera system is visible for the first time: six
+recordings the game sends you to watch, in the unit's screen, and every one of
+them had been a blank rectangle.
+
+### And an ink
+
+Puppet channels had no ink and were drawn without a matte, on the grounds that
+"the game only ever puts full plates on one". The PeeK is a counterexample in
+two inks at once -- 8 on the body and 36 on the aerial, which are Director's
+matte and background-transparent and mean the same thing here. Without them the
+unit arrives as a white rectangle with a PeeK inside it, covering the room.
+
+253 tests, nine recordings.

@@ -78,6 +78,14 @@ pub struct Game {
     puppets: BTreeMap<u8, Puppet>,
     /// An inventory item drawn with one of its other icons, while it lasts.
     icon_override: Option<(String, usize)>,
+    /// A film playing on a script-driven channel, over the room's own.
+    ///
+    /// Director makes no distinction: a sprite points at a cast member, and if
+    /// that member happens to be a digital video the sprite plays it. The PeeK
+    /// unit is built out of that -- it rolls up on one channel and then shows
+    /// its recordings on the same one -- and every clip it has to show is a
+    /// 128 by 96 film.
+    overlay: Option<Overlay>,
     /// The hotspot to re-run while the button is held, and when next to do it.
     repeating: Option<(Vec<String>, Instant)>,
     /// Actions still to run from the current hotspot, and what they are
@@ -160,6 +168,7 @@ impl Game {
             transition: None,
             puppets: BTreeMap::new(),
             icon_override: None,
+            overlay: None,
             repeating: None,
             script: Vec::new(),
             waiting: None,
@@ -905,6 +914,7 @@ impl Game {
                     }
                     Effect::StopVideo => report.push("film stops".into()),
                     Effect::WaitForVideo => report.push("wait for the film".into()),
+                    Effect::WaitForOverlay => report.push("wait for the unit".into()),
                     Effect::WaitForSound(n) => report.push(format!("wait for {n}")),
                     Effect::WaitTicks(t) if *t > 0 => report.push(format!("wait {t}")),
                     Effect::SetState { key, value } | Effect::ReplaceState { key, value } => {
@@ -1278,25 +1288,26 @@ impl Game {
                     self.puppets.remove(channel);
                 }
             }
-            Effect::SpriteCast { channel, cast } => {
-                self.puppets.entry(*channel).or_default().cast = *cast;
-            }
+            Effect::SpriteCast { channel, cast } => self.point_channel(*channel, *cast),
             Effect::SpriteLoc { channel, x, y } => {
                 let p = self.puppets.entry(*channel).or_default();
                 p.loc = Some((*x, *y));
             }
             Effect::SpriteCastNamed { channel, name } => {
                 if let Some(cast) = self.presentation_cast(name) {
-                    self.puppets.entry(*channel).or_default().cast = cast;
+                    self.point_channel(*channel, cast);
                 }
             }
             Effect::SpriteCastFromTable { channel, table, key } => {
                 if let Some(cast) = self.cast_lookup(table, &lingo::Value::Symbol(key.clone())) {
-                    self.puppets.entry(*channel).or_default().cast = cast;
+                    self.point_channel(*channel, cast);
                 }
             }
             Effect::SpriteVisible { channel, visible } => {
                 self.puppets.entry(*channel).or_default().hidden = !*visible;
+            }
+            Effect::SpriteInk { channel, ink } => {
+                self.puppets.entry(*channel).or_default().ink = *ink;
             }
             Effect::InventoryIcon { item, index } => {
                 self.icon_override = index.map(|i| (item.clone(), i));
@@ -1305,6 +1316,82 @@ impl Game {
             _ => return false,
         }
         true
+    }
+
+    /// Points a script-driven channel at a cast member.
+    ///
+    /// Director draws whatever the member is, and a digital video member
+    /// plays. The PeeK unit is built out of exactly that: sprite 44 first
+    /// holds `PeeKup.mov`, the unit sliding up into view, and then becomes the
+    /// little screen the recordings play in. Setting the number and leaving it
+    /// to the bitmap decoder drew nothing at all, because a film has no
+    /// bitmap -- so the unit opened, said what it had, and showed a blank.
+    fn point_channel(&mut self, channel: u8, cast: u32) {
+        let domain = self.node().domain.clone();
+        let film = self
+            .chapter(&domain)
+            .and_then(|c| c.movie.member(cast))
+            .filter(|m| m.kind == director::CastKind::DigitalVideo)
+            .map(|m| (m.name.clone().unwrap_or_default(), m.width, m.height, m.loops));
+
+        let Some((name, width, height, loops)) = film else {
+            // An ordinary member: the channel draws it, and anything the
+            // channel was playing stops.
+            if self.overlay.as_ref().is_some_and(|o| o.channel == channel) {
+                self.overlay = None;
+            }
+            self.puppets.entry(channel).or_default().cast = cast;
+            return;
+        };
+
+        self.puppets.entry(channel).or_default().cast = 0;
+        match self.movies.find(&name) {
+            Some(path) => {
+                trace!(
+                    crate::trace::Topic::Video,
+                    "channel {channel} plays {name} -> {}",
+                    path.display()
+                );
+                let mut player = VideoPlayer::open(path);
+                if let Some(p) = &mut player {
+                    p.set_looping(loops);
+                }
+                self.overlay = player.map(|player| Overlay {
+                    channel,
+                    player,
+                    size: Some((width as u32, height as u32)).filter(|(w, h)| *w > 0 && *h > 0),
+                    started: false,
+                });
+            }
+            None => {
+                trace!(crate::trace::Topic::Video, "no file for movie {name}");
+                self.overlay = None;
+            }
+        }
+    }
+
+    /// Advances a film on a script-driven channel, as the window does for the
+    /// room's own. Answers whether the stage needs redrawing.
+    pub fn tick_overlay(&mut self) -> bool {
+        self.overlay.as_mut().is_some_and(|o| o.player.tick())
+    }
+
+    /// The soundtrack of a film on a script-driven channel, once.
+    ///
+    /// The PeeK's recordings have sound on them, and `usePeekUnit` reads and
+    /// restores the video sprite's volume around the roll-up rather than
+    /// muting it, so they are meant to be heard.
+    pub fn take_overlay_audio(&mut self) -> Option<(std::sync::Arc<Vec<i16>>, u32, u16)> {
+        let o = self.overlay.as_mut()?;
+        if o.started {
+            return None;
+        }
+        o.started = true;
+        Some((
+            o.player.audio_for_segment(),
+            o.player.audio_rate,
+            o.player.audio_channels,
+        ))
     }
 
     /// Releases every claimed channel, which a room change does.
@@ -1372,6 +1459,9 @@ impl Game {
                 matte: bool,
             },
             Movie,
+            /// A film a script put on its own channel, drawn in that
+            /// channel's place rather than with the room's film.
+            Overlay,
         }
 
         let mut stage: Vec<(u16, Layer)> = Vec::new();
@@ -1388,6 +1478,9 @@ impl Game {
         if self.player.is_some() {
             stage.push((MOVIE_CHANNEL, Layer::Movie));
         }
+        if let Some(o) = &self.overlay {
+            stage.push((o.channel as u16, Layer::Overlay));
+        }
         for (ch, puppet) in self.puppets.iter() {
             if puppet.cast == 0 || puppet.hidden {
                 continue;
@@ -1397,9 +1490,7 @@ impl Game {
                 Layer::Art {
                     cast: puppet.cast,
                     at: puppet.loc,
-                    // A script-driven channel does not carry an ink of its
-                    // own; the game only ever puts full plates on one.
-                    matte: false,
+                    matte: puppet.ink != 0,
                 },
             ));
         }
@@ -1453,6 +1544,36 @@ impl Game {
                         art.height
                     );
                     blit(frame, width, height, &art.rgba, art.width, art.height, ox, oy);
+                }
+                Layer::Overlay => {
+                    let Some(o) = &self.overlay else { continue };
+                    let (w, h) = o.player.frame_size();
+                    let (dw, dh) = o.size.filter(|(a, b)| *a > 0 && *b > 0).unwrap_or((w, h));
+                    // Where the script put the channel, by registration point.
+                    // A film member's registration point is its centre, which
+                    // is what `set the loc of sprite 44 = point(317, 132)`
+                    // means: the middle of the PeeK unit's little screen.
+                    let centre = self
+                        .puppets
+                        .get(&o.channel)
+                        .and_then(|p| p.loc)
+                        .unwrap_or((width as i32 / 2, height as i32 / 2));
+                    trace!(
+                        crate::trace::Topic::Sprite,
+                        "draw ch{channel} overlay {w}x{h} as {dw}x{dh} at {centre:?}"
+                    );
+                    blit_scaled(
+                        frame,
+                        width,
+                        height,
+                        o.player.frame(),
+                        w,
+                        h,
+                        dw,
+                        dh,
+                        centre.0 - dw as i32 / 2,
+                        centre.1 - dh as i32 / 2,
+                    );
                 }
                 Layer::Movie => {
                     let Some(player) = &self.player else { continue };
@@ -2145,6 +2266,9 @@ impl Game {
                 &self.pending,
                 self.player.as_ref().map(|p| p.finished),
             ),
+            // The same question about the other film. A channel with nothing
+            // on it has nothing to wait for.
+            Wait::Overlay => self.overlay.as_ref().is_none_or(|o| o.player.finished),
             // Only a click clears this, so it is never satisfied by waiting.
             Wait::Click => false,
         }
@@ -2328,6 +2452,7 @@ fn wait_for(effect: &Effect) -> Option<Wait> {
             Instant::now() + Duration::from_secs_f64(*t as f64 / 60.0),
         )),
         Effect::WaitForVideo => Some(Wait::Video),
+        Effect::WaitForOverlay => Some(Wait::Overlay),
         Effect::WaitForClick => Some(Wait::Click),
         // A sound's real length is not known here, so this is a short hold
         // rather than a promise.
@@ -2342,6 +2467,9 @@ fn wait_for(effect: &Effect) -> Option<Wait> {
 enum Wait {
     Until(Instant),
     Video,
+    /// Held until a film on a script-driven channel ends -- the PeeK unit
+    /// sliding up, which the original runs out with its own loop.
+    Overlay,
     /// Held until the player clicks, for a modal screen.
     Click,
 }
@@ -2384,6 +2512,16 @@ fn film_wait_satisfied(pending: &[Effect], player_finished: Option<bool>) -> boo
 }
 
 /// One sprite channel under script control.
+/// A film a script has put on one of its own channels.
+struct Overlay {
+    channel: u8,
+    player: VideoPlayer,
+    /// The rect the member declares, which is not always the stored size.
+    size: Option<(u32, u32)>,
+    /// Whether its soundtrack has been handed to the mixer.
+    started: bool,
+}
+
 #[derive(Copy, Clone, Default)]
 struct Puppet {
     /// Cast member to draw; zero means the channel is claimed but empty.
@@ -2392,6 +2530,8 @@ struct Puppet {
     hidden: bool,
     /// Where the sprite's registration point sits, if the script set it.
     loc: Option<(i32, i32)>,
+    /// Director's ink. Anything but 0 means the background is not painted.
+    ink: i32,
 }
 
 /// A running radio or clock programme.

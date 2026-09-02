@@ -567,16 +567,81 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // What the unit shows is whatever `#PeekDisplay` was last set to, and
         // reading it clears it -- so an alert is consumed by being looked at.
         "usepeekunit" => {
-            // The unit's own sprite channels.
+            // The unit's own sprite channels, and where each one sits.
+            //
+            // ```text
+            // peekBody = 38 : peekAntenna = 46 : peekRollUp = 44 : peekText = 40
+            // set the castNum of sprite peekBody    = #PeekDown
+            // set the loc     of sprite peekBody    = point( 320, 200 )
+            // set the castNum of sprite peekAntenna = #peekAntenna
+            // set the loc     of sprite peekAntenna = point( 320, 200 )
+            // set the castNum of sprite peekRollUp  = #PeekUpAnim
+            // set the loc     of sprite peekRollUp  = point( 317, 189 )
+            // ... play it out ...
+            // set the castNum of sprite peekBody    = #PeekUp
+            // camSprite = peekRollUp
+            // set the loc     of sprite camSprite   = point( 317, 132 )
+            // set the castNum of sprite camSprite   = PkVideoNormal[#PkNone]
+            // ```
+            //
+            // So the unit is drawn, its aerial goes up, `PeeKup.mov` plays it
+            // sliding into view, and the channel the animation was on becomes
+            // the little screen the recordings play in. None of that was here:
+            // the unit reported what it had as a line of text over the room,
+            // with no unit and no picture, which is what helba was looking at.
             const BODY: u8 = 38;
+            const ANTENNA: u8 = 46;
+            const SCREEN: u8 = 44;
             const TEXT: u8 = 40;
+            const UNIT_AT: (i32, i32) = (320, 200);
+            const ROLL_UP_AT: (i32, i32) = (317, 189);
+            const SCREEN_AT: (i32, i32) = (317, 132);
 
             let display = state.get("PeekDisplay");
             let display = display.as_str().unwrap_or("None").trim_start_matches('#').to_string();
             state.set("PeekDisplay", Value::Symbol("None".into()));
             state.set("playerHasPeekUnit", Value::Symbol("inUse".into()));
             out.effects.push(Effect::CursorOff);
-            out.effects.push(Effect::PuppetSprite { channel: BODY, on: true });
+
+            // `set the ink of sprite peekBody = 8` (matte) and
+            // `... peekAntenna = 36` (background transparent). Both mean the
+            // background colour is not painted, which is the only distinction
+            // this engine draws -- and without it the unit arrives as a white
+            // rectangle with the unit inside it, covering the room.
+            let mut place = |channel: u8, name: &str, at: (i32, i32), ink: i32| {
+                out.effects.push(Effect::PuppetSprite { channel, on: true });
+                out.effects.push(Effect::SpriteInk { channel, ink });
+                out.effects.push(Effect::SpriteCastNamed {
+                    channel,
+                    name: name.into(),
+                });
+                out.effects.push(Effect::SpriteLoc {
+                    channel,
+                    x: at.0,
+                    y: at.1,
+                });
+            };
+            place(BODY, "PeekDown", UNIT_AT, 8);
+            place(ANTENNA, "peekAntenna", UNIT_AT, 36);
+            // The roll-up is a film, and the channel holds it until it ends.
+            place(SCREEN, "PeekUpAnim", ROLL_UP_AT, 0);
+            out.effects.push(Effect::WaitForOverlay);
+            out.effects.push(Effect::SpriteCastNamed {
+                channel: BODY,
+                name: "PeekUp".into(),
+            });
+            // And then the same channel is the screen, showing the blank
+            // frame until something is put in it.
+            out.effects.push(Effect::SpriteLoc {
+                channel: SCREEN,
+                x: SCREEN_AT.0,
+                y: SCREEN_AT.1,
+            });
+            out.effects.push(Effect::SpriteCastFromTable {
+                channel: SCREEN,
+                table: "PkVideoNormal".into(),
+                key: "PkNone".into(),
+            });
 
             // A camera haunt: the unit plays back what was caught, the bar
             // records that it caught something, and the haunt comes off the
@@ -590,8 +655,11 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 ("bloodBath", "PkBloodBath"),
             ];
 
+            // `camSprite` is the roll-up's channel once the unit is up, so
+            // every clip plays in the little screen rather than over the whole
+            // body of the unit.
             let frame = |name: &str| Effect::SpriteCastFromTable {
-                channel: BODY,
+                channel: SCREEN,
                 table: "PkVideoNormal".into(),
                 key: name.into(),
             };
@@ -657,8 +725,9 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 out.effects.push(Effect::WaitForClick);
             }
 
-            out.effects.push(Effect::PuppetSprite { channel: TEXT, on: false });
-            out.effects.push(Effect::PuppetSprite { channel: BODY, on: false });
+            for channel in [TEXT, SCREEN, ANTENNA, BODY] {
+                out.effects.push(Effect::PuppetSprite { channel, on: false });
+            }
             // The unit stays in the hand. Nothing here puts it back, and that
             // is deliberate: the room-sized `#itemInUse` catcher stows it on
             // the next click, which is what the office table means by "don't
@@ -3474,7 +3543,13 @@ mod phone_tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(frames, ["PkFadeIn", "PkKitchenGhost", "PkFadeOut"]);
+        // The screen starts blank -- `set the castNum of camSprite =
+        // PkVideoNormal[#PkNone]` once the unit is up -- and then plays the
+        // recording between its two fades.
+        assert_eq!(
+            frames,
+            ["PkNone", "PkFadeIn", "PkKitchenGhost", "PkFadeOut"]
+        );
 
         assert!(out.effects.iter().any(|e| matches!(
             e,

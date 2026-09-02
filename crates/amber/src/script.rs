@@ -41,6 +41,13 @@ pub enum Effect {
     WaitTicks(u32),
     /// Block until the current movie finishes.
     WaitForVideo,
+    /// Block until a film on a script-driven channel finishes.
+    ///
+    /// `usePeekUnit` runs the roll-up out with its own loop --
+    /// `repeat while the movieTime of sprite 44 < the duration of cast
+    /// peekAnim` -- rather than a `wait #videoStop`, because the film it is
+    /// waiting for is not the room's.
+    WaitForOverlay,
     /// Block until a named sound finishes.
     WaitForSound(String),
     /// Cross-fade to one of the five montage sequences.
@@ -54,6 +61,14 @@ pub enum Effect {
     SpriteLoc { channel: u8, x: i32, y: i32 },
     /// Show or hide a script-controlled channel.
     SpriteVisible { channel: u8, visible: bool },
+    /// Set a script-controlled channel's ink.
+    ///
+    /// `set the ink of sprite peekBody = 8` is Director's matte and
+    /// `... = 36` is background-transparent; both mean "do not paint the
+    /// background colour", which is the only distinction this engine draws.
+    /// Without it the PeeK unit came up as a white rectangle with the unit
+    /// inside it, covering the room.
+    SpriteInk { channel: u8, ink: i32 },
     /// Swap an inventory item's icon in the bar, or `None` to put it back.
     ///
     /// `peekAlert` drives sprite 7 -- the bar's middle slot, where the PeeK

@@ -338,6 +338,18 @@ pub fn play_with(
         } else {
             playing_soundtrack = false;
         }
+
+        // A film a script put on its own channel runs alongside the room's,
+        // which is how the PeeK unit slides up and then plays its recordings
+        // over whatever room the player happens to be standing in.
+        if game.tick_overlay() {
+            dirty = true;
+        }
+        if let Some((pcm, rate, channels)) = game.take_overlay_audio() {
+            if let Some(a) = &audio {
+                a.play(None, None, pcm, rate, channels, 1.0, false, false);
+            }
+        }
         if dirty {
             // A transition covers the change from what is on the stage now to
             // what is about to be, so the outgoing image has to be kept before
