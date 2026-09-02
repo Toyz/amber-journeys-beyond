@@ -3582,4 +3582,27 @@ mod phone_tests {
         crate::script::run(&["stowInventory( #PeekUnit )".to_string()], &mut s);
         assert!(s.get("ghostlyPhoneCall").is_symbol("ringingNow"));
     }
+
+    #[test]
+    fn a_chapter_names_the_room_to_arrive_in() {
+        // `enterNewDomain( oStoryteller, string(#Margaret), 15 )`. The index
+        // is within the chapter, so Margaret's is entered at `bedrm_C4` and
+        // the way back arrives at `HallLivingRmEntry` -- not at whatever each
+        // chapter's schema calls its start, which is where a new game begins.
+        let mut s = State::new();
+        let out = crate::script::run(
+            &["enterNewDomain( oStoryteller, string(#Margaret), 15 )".to_string()],
+            &mut s,
+        );
+        assert_eq!(out.new_domain.as_deref(), Some("Margaret"));
+        assert_eq!(out.new_domain_room, Some(15));
+
+        let mut s = State::new();
+        let out = crate::script::run(
+            &["enterNewDomain( oStoryteller, string(#ROXY), 12 )".to_string()],
+            &mut s,
+        );
+        assert_eq!(out.new_domain.as_deref(), Some("ROXY"));
+        assert_eq!(out.new_domain_room, Some(12));
+    }
 }

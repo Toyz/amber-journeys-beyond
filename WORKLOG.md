@@ -6067,3 +6067,66 @@ Recording it as checked rather than fixed, since the next person to look at
 that room will have the same reaction.
 
 289 tests.
+
+## 134. Where a chapter puts you
+
+Walked into Margaret's chapter and mapped what is reachable from the portal:
+thirty-one rooms, all of them her bedroom. Her chapter has a hundred and
+fifty-five: forty-two in the kitchen, forty in the dining room, thirty-seven in
+the bedroom and thirty-five in the living room.
+
+Two things came out of chasing that.
+
+### The number at the end of enterNewDomain
+
+```text
+enterNewDomain( oStoryteller, string(#Margaret), 15 )
+enterNewDomain( oStoryteller, string(#ROXY), 12 )
+```
+
+The receiver, the chapter, and *where in it to arrive* -- the room's index
+within that chapter. Margaret's 15 is `bedrm_C4`; Roxy's 12 is
+`HallLivingRmEntry`, the hall by the living room, which is where you come back
+to standing rather than out on the boathouse path.
+
+This engine read the first two and dropped the third, so both crossings put the
+player in the right chapter and the wrong room. It landed on whatever the
+chapter's schema calls its start, which is where a *new game* begins and not
+where the story has just put them.
+
+### Four islands and a radio
+
+The rest is not a bug, or not one I can fix by finding a dropped exit. There is
+no `goTo` anywhere in Margaret's room scripts that leads from her bedroom to
+her kitchen, dining room or living room, in either direction. I checked both
+ways round and the four areas are separate islands.
+
+The one thing they share is `bedrm_radio`. It is a single room -- index 22, art
+`BR-RADIO-2ANT-ACTOR` -- with no exits of its own, and the kitchen's dumb
+waiter, two dining room walls and three living room walls all `goTo` it. Her
+bedroom reaches it too.
+
+And her chapter's `exitFrame` carries this:
+
+```text
+#bedroom    -> #bedrm_table
+#dingingRm  -> #diningRm_W_wwall
+#livingRm   -> #livingRm_c2_n
+#kitchen    -> #kitchen_dWaiter
+```
+
+(The typo is the authors'.) Each area also gets its own sound bed there --
+`#BRclock` and a virtual `#BRradio` loop for the bedroom, and so on.
+
+So the radio is the chapter's transport. You stand at a radio, and which room
+you step back into depends on what the radio is doing -- which is what
+`initRadioDial`, `checkRadioStations` and `radioDial` are for, and why entry 83
+found the dial tied to the dumb waiter. A ghost's memory of a house, moved
+through by tuning a wireless.
+
+That makes Margaret's chapter the next real piece of work rather than a bug to
+fix: the return map is in a frame handler this engine does not run, the same
+shape as `idle` in entry 125. Recorded here so it starts from a description
+rather than from a survey.
+
+290 tests.

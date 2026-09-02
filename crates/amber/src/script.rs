@@ -111,6 +111,8 @@ pub struct Outcome {
     pub transition: Option<String>,
     /// Set when the player crossed into another chapter.
     pub new_domain: Option<String>,
+    /// Which room of that chapter to arrive in, by index within the chapter.
+    pub new_domain_room: Option<i32>,
     /// True when the script asked to return to the previous room.
     pub go_back: bool,
     /// True if the stage needs redrawing without a move.
@@ -496,12 +498,22 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
         // receiver comes first and the chapter second, so reading argument
         // zero named the storyteller rather than the chapter and no crossing
         // ever happened.
+        // `enterNewDomain( oStoryteller, string(#Margaret), 15 )` -- the
+        // receiver, the chapter, and *where in it to arrive*.
+        //
+        // That last number is the room's index within the chapter, and it is
+        // not decoration: Margaret's chapter is entered at `bedrm_C4` rather
+        // than at the `bedrm_A1` its schema declares as a start, and coming
+        // back to Roxy's house arrives at `HallLivingRmEntry` rather than at
+        // the boathouse path the game opened on. Ignoring it put the player
+        // in the right chapter and the wrong room, both ways.
         "enternewdomain" => {
             out.new_domain = args
                 .iter()
                 .filter_map(Value::as_str)
                 .map(|s| s.trim_start_matches('#').to_string())
                 .find(|s| !s.eq_ignore_ascii_case("oStoryteller"));
+            out.new_domain_room = args.iter().filter_map(Value::as_int).next_back();
         }
         // `setTransition( oPuppeteer, #fadeIn )` -- the receiver first, the
         // transition second. Reading argument zero named the puppeteer, and

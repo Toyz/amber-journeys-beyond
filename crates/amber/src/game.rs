@@ -1895,6 +1895,24 @@ impl Game {
                 Some(d) => {
                     trace!(crate::trace::Topic::Room, "entering {d}");
                     self.enter_chapter(&d);
+                    // The call names the room to arrive in, by its index
+                    // within the chapter. Without it the player lands on
+                    // whatever the chapter's schema calls its start, which is
+                    // where a *new game* would begin and not where the story
+                    // has just put them.
+                    if let Some(index) = outcome.new_domain_room {
+                        let start = self.world.domains.get(&d).map(|(s, _)| *s);
+                        if let Some(room) = start.map(|s| s + index.max(0) as usize) {
+                            if room < self.world.nodes.len() {
+                                trace!(
+                                    crate::trace::Topic::Room,
+                                    "arriving at {} (index {index})",
+                                    self.world.nodes[room].name.clone().unwrap_or_default()
+                                );
+                                self.move_to(room);
+                            }
+                        }
+                    }
                     self.start_room_video();
                     return;
                 }
@@ -2005,6 +2023,7 @@ fn merge(into: &mut Outcome, from: Outcome) {
     into.destination = from.destination.or(into.destination.take());
     into.transition = from.transition.or(into.transition.take());
     into.new_domain = from.new_domain.or(into.new_domain.take());
+    into.new_domain_room = from.new_domain_room.or(into.new_domain_room.take());
     into.go_back |= from.go_back;
     into.redraw |= from.redraw;
     into.credits |= from.credits;
