@@ -6505,3 +6505,28 @@ Three flag writes twenty frames apart with a film between each, instead of
 three writes in one frame and no films at all.
 
 296 tests, six recordings.
+
+## 142. Both sides of a wait
+
+helba got stuck at the PeeK table again, and it was the previous entry's fix
+that put them there.
+
+Making the walkthrough's verbs go through `pump` meant a sequence can now stop
+part way -- which is the point -- but it also meant the *script* can be the
+thing holding for a click, where before only the effect queue ever was.
+`waiting_for_click` looked at the queue alone, so the click that should have
+closed the PeeK unit cleared a wait that was not the one holding, and the unit
+stayed up for ever.
+
+Two places, and both now checked. The queue holds when the wait arrives as an
+effect; the script holds when `pump` meets it in a sequence and stops there.
+
+The replay gate needed the same widening, and for the same reason: it refuses
+to take a step while a script is running, which is right except when what the
+script is running is a wait only the next step can end.
+
+Worth naming the pattern, because this is the third time it has bitten. A wait
+lives in two places, a click has to satisfy either, and every time I have
+taught one of them something new the other has been left behind.
+
+296 tests, six recordings.

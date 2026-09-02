@@ -1800,7 +1800,12 @@ impl Game {
     /// Whether the queue is holding for a click, so one dismisses it rather
     /// than reaching the room underneath.
     pub fn waiting_for_click(&self) -> bool {
-        matches!(self.effect_wait, Some(Wait::Click))
+        // Either side can be holding for one. The queue holds when the wait
+        // arrives as an effect; the script holds when `pump` sees it in a
+        // sequence and stops there. Clearing only the queue's left the script
+        // waiting for a click that had already happened, which is the PeeK
+        // unit refusing to close.
+        matches!(self.effect_wait, Some(Wait::Click)) || matches!(self.waiting, Some(Wait::Click))
     }
 
     pub fn click(&mut self, x: i32, y: i32) -> Option<Outcome> {
@@ -1808,7 +1813,12 @@ impl Game {
         // through would work the room behind the PeeK unit while the unit is
         // still on top of it.
         if self.waiting_for_click() {
-            self.effect_wait = None;
+            if matches!(self.effect_wait, Some(Wait::Click)) {
+                self.effect_wait = None;
+            }
+            if matches!(self.waiting, Some(Wait::Click)) {
+                self.waiting = None;
+            }
             return Some(Outcome::default());
         }
         // The opening film watches for a click and stops early if it gets

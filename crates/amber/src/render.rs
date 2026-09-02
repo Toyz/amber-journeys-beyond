@@ -218,7 +218,7 @@ pub fn play_with(
         // so the same recording ran there and hung in the window.
         if !replay.is_empty()
             && (!game.effects_busy() || game.waiting_for_click())
-            && !game.script_running()
+            && (!game.script_running() || game.waiting_for_click())
             && std::time::Instant::now() >= next_step
         {
             if let Some(cmd) = replay.pop_front() {
