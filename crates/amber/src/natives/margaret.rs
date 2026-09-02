@@ -397,8 +397,12 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::WaitForVideo);
             out.effects.push(Effect::StopVideo);
             // Arrived. Written as an effect so it lands after the film rather
-            // than while the shaft is still on screen moving.
-            out.effects.push(Effect::SetState {
+            // than while the shaft is still on screen moving, and as a
+            // replacement because that is what `setProp( ..., list(v) )` does:
+            // inserting instead left the flag holding two settings, which is
+            // this engine's signal that no setter exists, so the shaft moved
+            // once and then never again.
+            out.effects.push(Effect::ReplaceState {
                 key: "dumbWaiter".into(),
                 value: Value::Symbol(arrives.into()),
             });
@@ -1324,12 +1328,37 @@ mod box_tests {
         let out = send(&mut s, "goingUp");
         // While the film runs the flag holds the direction, not a place.
         assert_eq!(s.get("dumbWaiter"), Value::Symbol("goingup".into()));
-        // And where it ends up lands after the film.
+        // And where it ends up lands after the film, as a *replacement* --
+        // `setProp( ..., list(v) )`. Inserting instead left the flag holding
+        // two settings, which is this engine's signal that no setter exists,
+        // so the shaft moved once and then never again.
         let arrives = out.effects.iter().find_map(|e| match e {
-            Effect::SetState { key, value } if key == "dumbWaiter" => Some(value.clone()),
+            Effect::ReplaceState { key, value } if key == "dumbWaiter" => Some(value.clone()),
             _ => None,
         });
         assert_eq!(arrives, Some(Value::Symbol("bedroom".into())));
+    }
+
+    #[test]
+    fn the_shaft_still_moves_the_second_time() {
+        // The whole point of replacing rather than inserting. Up, then down,
+        // then up again -- the knitting needle has to ride it twice and the
+        // dining room only comes on the air if it does.
+        let mut s = shaft("kitchen");
+        for (ask, expect) in [
+            ("goingUp", "bedroom"),
+            ("comingDown", "kitchen"),
+            ("goingUp", "bedroom"),
+        ] {
+            let out = send(&mut s, ask);
+            let arrives = out.effects.iter().find_map(|e| match e {
+                Effect::ReplaceState { key, value } if key == "dumbWaiter" => Some(value.clone()),
+                _ => None,
+            });
+            assert_eq!(arrives, Some(Value::Symbol(expect.into())), "asking {ask}");
+            s.set_all("dumbWaiter", vec![Value::Symbol(expect.into())]);
+            assert_eq!(s.get_all("dumbWaiter").len(), 1, "the flag grew a second setting");
+        }
     }
 
     #[test]

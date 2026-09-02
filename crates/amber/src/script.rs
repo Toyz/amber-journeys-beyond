@@ -87,6 +87,19 @@ pub enum Effect {
     /// Takes down a ghost call still sounding, which is what `ghostCalls
     /// #None` does when the player leaves the spot a ghost was calling from.
     StopGhostCall,
+    /// Replace a flag's whole list with one value, in timeline order.
+    ///
+    /// `setProp( oStoryteller.states, #flag, list(v) )` is what the setters
+    /// write, and `list(v)` replaces rather than adds. The difference matters
+    /// beyond the value: a flag left holding exactly one setting is this
+    /// engine's signal that a `set<Flag>` handler exists, so a deferred write
+    /// that *inserts* grows the list and quietly stops the setter being
+    /// dispatched next time.
+    ///
+    /// `setDumbWaiter` is where that showed: it wrote the travelling value by
+    /// replacing and the arrival by inserting, so the shaft moved once and
+    /// then never again.
+    ReplaceState { key: String, value: Value },
     /// Write a flag in timeline order, for a value that must land between two
     /// waits rather than when the handler ran.
     SetState { key: String, value: Value },

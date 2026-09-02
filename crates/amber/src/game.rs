@@ -882,7 +882,9 @@ impl Game {
                     Effect::WaitForVideo => report.push("wait for the film".into()),
                     Effect::WaitForSound(n) => report.push(format!("wait for {n}")),
                     Effect::WaitTicks(t) if *t > 0 => report.push(format!("wait {t}")),
-                    Effect::SetState { key, value } => report.push(format!("{key} = {value:?}")),
+                    Effect::SetState { key, value } | Effect::ReplaceState { key, value } => {
+                        report.push(format!("{key} = {value:?}"))
+                    }
                     Effect::FadeToMontage(n) => report.push(format!("montage {n}")),
                     _ => {}
                 }
@@ -1071,6 +1073,9 @@ impl Game {
             // than when the handler ran.
             Effect::SetState { key, value } => {
                 self.state.set(key, value.clone());
+            }
+            Effect::ReplaceState { key, value } => {
+                self.state.set_all(key, vec![value.clone()]);
             }
             Effect::TrimState { key, item } => {
                 self.state.trim_item(key, item);

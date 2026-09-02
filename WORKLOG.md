@@ -6198,3 +6198,50 @@ Forty-four kitchen rooms open up from the bedroom, and the same door leads on
 to the rest.
 
 292 tests, and five recordings that pass.
+
+## 136. A station has to be earned
+
+The dining room comes on the air, and the way it does is the knitting needle.
+
+`#tunedIn` opens as `[#bedroom, #kitchen, #inBetween]` and one room script adds
+to it:
+
+```text
+pushVideo : wait #videoStop
+setState( oStoryteller, #knittingNeedle, #usedUp )
+addState( #tunedIn, #diningRm )
+```
+
+That is in the kitchen, at the bottom of the dumb waiter. So: call the shaft up
+from the kitchen, go to the bedroom and put Margaret's knitting needle into it,
+send it back down, and take it out below -- and her wireless picks up a third
+station. A puzzle whose reward is a new part of the house, delivered as a radio
+station coming on the air.
+
+### The shaft moved exactly once
+
+Walking it found a good bug. `setDumbWaiter` writes the flag twice: the
+direction while the film runs, and the destination once it has finished. The
+first is `set_all`, which replaces; the second was `Effect::SetState`, which
+inserts.
+
+The original writes both the same way -- `setProp( oStoryteller.states,
+#dumbWaiter, list(suggestion) )`, and `list(v)` replaces. The difference is not
+the value, which came out right either way. It is that a flag left holding
+exactly one setting is this engine's signal that a `set<Flag>` handler exists,
+and inserting grew `#dumbWaiter` to two settings. So the second time anything
+asked the shaft to move, `setState` decided there was no setter, wrote the
+direction straight into the flag, and stopped: no film, no arrival, and a dumb
+waiter stuck between floors for the rest of the game.
+
+It worked once. That is the worst kind of bug to catch by reading, and about
+ninety seconds to catch by playing.
+
+`Effect::ReplaceState` is the deferred write that replaces, and the test now
+sends the shaft up, down and up again -- because the needle has to ride it
+twice and the dining room only opens if it does.
+
+`radio.walk` runs the whole thing: bedroom to kitchen by radio, the needle down
+the shaft, and the dial to 56 for the dining room.
+
+293 tests, and five recordings that pass.

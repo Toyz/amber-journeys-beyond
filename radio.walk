@@ -52,3 +52,29 @@ click 390 335
 click 390 335
 state gstaticwhere
 click 300 200
+
+# The dining room is not on the air at the start. It is earned with the
+# knitting needle: call the dumb waiter up from the kitchen, put the needle
+# into it in the bedroom, send it back down, and take it out below.
+kitchen_dWaiter
+click 254 246
+state dumbwaiter
+bedrm_knitting
+click 200 330
+state knittingneedle
+kitchen_dWaiter
+click 254 265
+state dumbwaiter
+kitchen_dWaiter_cu
+click 315 295
+state tunedin
+# and now the dial finds it, at 56 -- five turns up from the bedroom's 36
+bedrm_radio
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+state gstaticwhere
+click 300 200
+state madeitodr
