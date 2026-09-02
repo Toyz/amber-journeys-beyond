@@ -320,6 +320,9 @@ living room set to 6, 5 and 8. It replays from a cold start:
 ./target/release/amber play extract --replay hints.walk --mute   # watch it
 ```
 
+`radio.walk` tunes Margaret's wireless from her bedroom to her kitchen and
+back, which is how her chapter is moved through at all.
+
 `headgear.walk` picks up where it leaves off: the telephone, Roxy's message,
 the headgear, and the Amber vision coming on -- which is what lets the ghosts
 call and opens the portals into the other three chapters.

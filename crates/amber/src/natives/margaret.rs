@@ -704,10 +704,32 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 .get_all("tunedIn")
                 .iter()
                 .any(|v| v.as_symbol() == Some(nearby));
-            if !on_the_air || nearby != "diningRm" || band != "diningRm" {
+            if !on_the_air {
+                // Not a station this house is broadcasting yet, so the dial
+                // finds only static there.
+                state.set_all("gStaticWhere", vec![Value::Symbol("inBetween".into())]);
                 return true;
             }
-            state.set("tunedIn", Value::Symbol("diningRm".into()));
+
+            // Sitting exactly on a station locks it in, and that is what
+            // `backAwayFromRadio` reads to decide which room to step into.
+            // The radio is how Margaret's chapter is moved through: her
+            // bedroom, kitchen, dining room and living room are four separate
+            // sets of rooms with no door between them anywhere in the data,
+            // joined only by the wireless they all keep.
+            //
+            // In the original the moment of locking on is in her chapter's
+            // `exitFrame`, which also restores the previous station when the
+            // dial is left between two. This engine has no frame handler for
+            // a chapter, so the rule is here instead: the effect is the same
+            // and the mechanism is not, which is worth knowing if the timing
+            // ever turns out to matter.
+            if band == nearby {
+                state.set("tunedIn", Value::Symbol(nearby.into()));
+            }
+            if nearby != "diningRm" || band != "diningRm" {
+                return true;
+            }
             out.effects.push(Effect::CursorOff);
             // Under the announcement, then up once it has finished.
             out.effects.push(Effect::StartLoop { name: "radioTuner".into(), volume: Some(120) });
@@ -750,6 +772,33 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                     });
                 }
             }
+
+            // And each station steps you out into its own part of the house.
+            // This is the whole of the movement in Margaret's chapter: her
+            // bedroom, kitchen, dining room and living room are four separate
+            // sets of rooms with no door between them anywhere in the data,
+            // and the wireless is what joins them. Her chapter's `exitFrame`
+            // carries the same table -- the authors' spelling of `#dingingRm`
+            // included.
+            let (into, clock) = match room.as_str() {
+                "bedroom" => ("bedrm_table", "BRclock"),
+                "diningRm" => ("diningRm_W_wwall", "DRclock"),
+                "livingRm" => ("livingRm_c2_n", "LRclock"),
+                "kitchen" => ("kitchen_dWaiter", "Kclock"),
+                _ => return true,
+            };
+            // Reaching the dining room is progress the chapter records.
+            if room == "diningRm" {
+                state.set("madeItToDR", Value::Int(1));
+            }
+            out.effects.push(Effect::StartLoop {
+                name: clock.into(),
+                volume: None,
+            });
+            out.effects.push(Effect::GoToRoom {
+                room: into.into(),
+                transition: Some("backOff".into()),
+            });
             out.redraw = true;
         }
 
@@ -1087,8 +1136,26 @@ mod box_tests {
     }
 
     #[test]
+    fn a_station_that_is_not_broadcasting_is_static_at_every_band() {
+        // `if getPos( onTheAir, nearbyRoom ) = 0 then gStaticWhere = #inBetween`.
+        // `#tunedIn` declares `[#bedroom, #kitchen, #inBetween]`, so the
+        // dining room and the living room are not there to be tuned to when
+        // the chapter opens -- the dial passes over them as static, and that
+        // is the chapter's progression rather than a fault in the dial.
+        let mut s = radio();
+        for at in [48, 52, 56, 60, 64] {
+            assert_eq!(where_at(&mut s, at), "inBetween", "at {at}");
+        }
+    }
+
+    #[test]
     fn a_station_has_a_warm_and_a_cool_band_either_side() {
         let mut s = radio();
+        // The dining room has to be broadcasting before the dial finds it at
+        // all; the chapter opens with only the bedroom and the kitchen on the
+        // air, and the other two are earned.
+        s.set("tunedIn", Value::Symbol("diningRm".into()));
+        s.set("tunedIn", Value::Symbol("inBetween".into()));
         assert_eq!(where_at(&mut s, 56), "diningRm");
         assert_eq!(where_at(&mut s, 52), "diningRmWarm");
         assert_eq!(where_at(&mut s, 60), "diningRmWarm");
@@ -1320,5 +1387,33 @@ mod box_tests {
             .filter_map(Value::as_int)
             .collect();
         assert_eq!(guess, [5, 7, 12, 8, 11, 9, 6, 10, 2, 3, 1, 4]);
+    }
+
+    #[test]
+    fn stepping_back_from_the_radio_walks_into_the_station() {
+        // The whole of the movement in Margaret's chapter. Her four sets of
+        // rooms have no door between them anywhere in the data; the wireless
+        // is the door.
+        let leave = |station: &str| {
+            let mut s = radio();
+            s.set("tunedIn", Value::Symbol(station.into()));
+            let mut out = Outcome::default();
+            assert!(call("backawayfromradio", &[], &mut s, &mut out));
+            out.effects.iter().find_map(|e| match e {
+                Effect::GoToRoom { room, .. } => Some(room.clone()),
+                _ => None,
+            })
+        };
+        assert_eq!(leave("bedroom").as_deref(), Some("bedrm_table"));
+        assert_eq!(leave("kitchen").as_deref(), Some("kitchen_dWaiter"));
+        assert_eq!(leave("diningRm").as_deref(), Some("diningRm_W_wwall"));
+        assert_eq!(leave("livingRm").as_deref(), Some("livingRm_c2_n"));
+
+        // Between two stations there is nowhere to step out to.
+        let mut s = radio();
+        s.set("tunedIn", Value::Symbol("inBetween".into()));
+        let mut out = Outcome::default();
+        call("backawayfromradio", &[], &mut s, &mut out);
+        assert!(!out.effects.iter().any(|e| matches!(e, Effect::GoToRoom { .. })));
     }
 }

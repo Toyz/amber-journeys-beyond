@@ -6130,3 +6130,71 @@ shape as `idle` in entry 125. Recorded here so it starts from a description
 rather than from a survey.
 
 290 tests.
+
+## 135. The wireless is the door
+
+Margaret's chapter is traversable. Her bedroom, kitchen, dining room and living
+room are four sets of rooms with no door between them anywhere in the data, and
+the radio they all keep is what joins them: tune it to a station, step back, and
+you are in that part of her house.
+
+The dial reads as a number, and the stations sit at fixed places on it:
+
+```text
+#bedroom 36    #diningRm 56    #kitchen 88    #livingRm 196
+```
+
+It moves four at a time, and `checkRadioStations` grades how close you are --
+exactly on a station is the station, four away is `#bedroomWarm`, eight away is
+`#bedroomCool`, anything else is static. Tuning is a game of hot and cold
+played on a wireless.
+
+Three pieces were missing, and they were not the ones I expected. The dial
+already worked: `radioDial` and `checkRadioStations` were ported, the bands came
+out right, and I could watch `#gStaticWhere` go `bedroomCool`, `bedroomWarm`,
+`diningRmWarm`, `diningRm` as I turned it.
+
+What was missing was everything that happens once you have tuned it.
+
+`checkRadioStations` only ever locked a station in for the dining room -- the
+one case with an announcement over it -- so every other station tuned perfectly
+and never registered. And `backAwayFromRadio` stopped the other three radios and
+then did nothing at all: the original ends each of its four branches with a
+`goTo` into that part of the house, and my port had the sound and not the
+movement.
+
+So the chapter had a working radio wired to nothing.
+
+```text
+#bedroom    -> #bedrm_table
+#dingingRm  -> #diningRm_W_wwall
+#livingRm   -> #livingRm_c2_n
+#kitchen    -> #kitchen_dWaiter
+```
+
+The typo is the authors'. The same table appears in her chapter's `exitFrame`,
+where it also carries each area's sound bed.
+
+### Not every station is broadcasting
+
+`#tunedIn` declares `[#bedroom, #kitchen, #inBetween]`, and
+`checkRadioStations` gives static for anything not on that list. So the chapter
+opens with two stations and the other two are earned -- the dining room arrives
+with an announcement playing over it, which is what `#madeItToDR` records.
+
+That cost me a test, correctly. One that checked the warm and cool bands around
+the dining room had never put the dining room on the air, so it had been
+asserting the shape of a station that the game does not offer yet.
+
+### An honest gap
+
+In the original the moment a station locks in is in her chapter's `exitFrame`,
+which also restores the previous station when the dial is left between two.
+This engine has no per-chapter frame handler, so that rule lives in
+`checkRadioStations` here instead. The effect is the same and the mechanism is
+not, which is worth writing down in case the timing ever turns out to matter.
+
+Forty-four kitchen rooms open up from the bedroom, and the same door leads on
+to the rest.
+
+292 tests, and five recordings that pass.

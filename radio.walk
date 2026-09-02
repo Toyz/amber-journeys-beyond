@@ -1,0 +1,54 @@
+# Margaret's chapter is four sets of rooms with no door between them anywhere
+# in the data. The wireless is what joins them: tune it to a station and step
+# back, and you are in that part of her house.
+#
+# The dial moves four at a time and the stations sit at bedroom 36,
+# diningRm 56, kitchen 88 and livingRm 196 -- but only the stations that are
+# on the air can be tuned, and the chapter opens with just the bedroom and
+# the kitchen. The other two are earned.
+bedrm_radio
+state tunedin
+# turn the dial up to the kitchen at 88
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+state gstaticwhere
+# step back, and out into the kitchen
+click 300 200
+# the kitchen keeps the same radio, so the way back is the same way
+bedrm_radio
+# down to the bedroom at 36
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+state gstaticwhere
+click 300 200
