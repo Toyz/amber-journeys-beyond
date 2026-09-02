@@ -1,0 +1,425 @@
+# Amber: Journeys Beyond, start to the end of Margaret's chapter.
+#
+#   amber walk extract --replay full.walk
+#   amber play extract --replay full.walk --mute
+#
+# No room is named: every line is a click or a move a player could make, so
+# every film plays where a player would see it. The two exceptions are marked
+# where they happen, and both are places where the shipped data has no click
+# that would do the job -- see WORKLOG 145.
+# 
+# Act one: up from the boathouse, the breaker, the PeeK unit, the BAR
+# manual, the videotape, the BAR itself, and the package on the porch.
+# Amber: Journeys Beyond, played from the opening film through the first act,
+# without jumping to a single room by name. Every line below is a move or a
+# click a player could make, so the films play where a player would see them.
+#
+# It ends holding the oscillator, with the BAR running and the PeeK unit
+# having reported it. What comes after -- the telephone, the headgear, the
+# portal -- is behind seeing all six camera haunts, which happen on their own
+# clock as the house is explored and so cannot be written down as a route.
+#
+#   amber play extract --replay margaret.walk --mute
+#
+# Up the hill from the boathouse to Roxy's front door.
+down
+forward
+right
+forward
+forward
+forward
+forward
+right
+forward
+forward
+# Open the door. Without the power on, the house inside is dark.
+pointer
+forward
+# Along the hall, up the stairs to the office, and pull the breaker.
+forward
+forward
+left
+left
+forward
+forward
+forward
+forward
+examine
+pointer
+# Up the circular stairs to the loft.
+browse
+forward
+forward
+examine
+# Take the PeeK unit; the next click stows it.
+pointer
+click 320 200
+# Back down to the writing desk.
+browse
+left
+forward
+forward
+click 472 298
+click 395 326
+# Open the top drawer, open the BAR manual, turn two pages.
+click 320 160
+click 320 200
+click 320 200
+click 450 200
+click 450 200
+# The computer table and the videotape.
+browse
+left
+forward
+click 565 321
+click 187 250
+# One click lifts it, the second takes it.
+click 300 200
+click 300 200
+# Downstairs to the living room, and the BAR.
+pointer
+right
+forward
+click 306 205
+right
+forward
+click 477 265
+forward
+forward
+right
+click 444 303
+click 316 244
+examine
+# Power.
+click 500 280
+# LEVEL to 6, GAIN to 5, FREQ MOD to 8 -- the manual's numbers.
+click 495 200
+click 495 200
+click 490 170
+click 495 200
+click 495 200
+click 495 200
+click 490 170
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+# Run it. The BAR comes online and the PeeK flashes.
+click 490 130
+# Open the PeeK: it reports the machine running.
+inv 280 440
+# Put the unit back.
+click 320 200
+# Out of the front door to the mailbox on the porch.
+click 323 411
+browse
+right
+forward
+right
+forward
+left
+examine
+examine
+# Open it, take the box, read the label and the letter; the oscillator is under it.
+click 350 200
+click 350 250
+examine
+pointer
+click 300 200
+click 320 200
+click 310 230
+click 300 300
+# Put the box back down.
+pointer
+state playerhasoscillator
+# Out of the package and out of the mailbox.
+click 320 210
+click 320 210
+# 
+# The oscillator goes into the AMBER device in the study.
+browse
+forward
+pointer
+forward
+right
+forward
+examine
+examine
+inv 380 440
+click 315 190
+# The device reports in on the PeeK unit.
+browse
+forward
+forward
+forward
+left
+forward
+right
+right
+inv 280 440
+click 320 200
+# 
+# Now the cameras. With the BAR running, every move past the sixtieth
+# rolls the haunt clock, and each haunt has to be watched back before the
+# next can be caught. Pacing the porch does as well as anything: it is out
+# of every room a camera is watching.
+right
+left
+inv 280 440
+click 320 200
+right
+left
+inv 280 440
+click 320 200
+right
+left
+inv 280 440
+click 320 200
+right
+left
+inv 280 440
+click 320 200
+right
+left
+inv 280 440
+click 320 200
+right
+left
+inv 280 440
+click 320 200
+# 
+# One tonal residue has to be read as well. The click that does it is on
+# the scan unit's own readout, which is a cast member script this engine
+# does not read yet -- see WORKLOG 145 -- so it is done here by hand.
+trim tonalresidueremaining PkPatioScan
+# Putting the unit away tests for psionic waves, and the phone rings.
+inv 280 440
+click 320 200
+# 
+# Answer it. Roxy is on the other end; then the line goes dead.
+forward
+pointer
+forward
+left
+forward
+forward
+examine
+examine
+click 320 250
+click 100 300
+# The AMBER device is waiting. Raise the headgear and put it on.
+browse
+browse
+forward
+forward
+forward
+forward
+examine
+examine
+click 320 220
+click 300 200
+click 300 200
+# Stow it, step back, and the Amber vision comes on.
+click 600 100
+click 600 100
+# 
+# The ghostly-key haunt showed where the key to the last upstairs door is:
+# the right-hand bedside drawer in the master bedroom.
+forward
+forward
+forward
+right
+click 224 253
+forward
+forward
+left
+left
+forward
+forward
+click 477 271
+examine
+click 300 160
+click 340 215
+# Turn it in the 1940s bedroom door.
+browse
+right
+right
+forward
+forward
+forward
+examine
+inv 420 440
+click 320 310
+# Push the door open and walk in.
+forward
+click 320 210
+forward
+# 
+# The portal only exists with the vision on. Step through it.
+click 320 240
+# 
+# Her house is four sets of rooms with no door between them. The wireless
+# is what joins them: tune it to a station that is on the air, step back,
+# and you are in that part of the house. It opens with the bedroom and the
+# kitchen; the other two are earned.
+# 
+# Tune up to the kitchen, and step back into it.
+right
+right
+forward
+examine
+examine
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 300 200
+# Call the dumb waiter up from the kitchen.
+click 254 246
+# 
+# Back to the bedroom, and put the knitting needle into the waiter.
+examine
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 390 335
+click 300 200
+click 259 293
+click 200 330
+# Down to the kitchen again, send the waiter down, and take it out below.
+examine
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 300 200
+click 254 265
+examine
+click 315 295
+# 
+# The living room is the fourth station, and it comes on the air when a
+# clock in the house reads seven. Nothing in the shipped data can move a
+# clock -- `moveClock` is complete and has no caller anywhere on either
+# disc -- so this is the second and last thing the walk does by hand.
+# WORKLOG 145 has the whole chain.
+set tunedin livingRm
+# 
+# Tune up to the living room and step into it.
+browse
+examine
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 412 335
+click 300 200
+# 
+# The wastepaper basket beside her desk. Tip it out; the telegram she tore
+# up is on the floor.
+right
+forward
+down
+click 318 248
+# Kneel to it, and the pieces lay themselves out four across and three down.
+click 330 250
+# Eleven pieces and a hole. Slide them back into order.
+click 285 318
+click 285 250
+click 220 250
+click 220 318
+click 285 318
+click 350 318
+click 350 250
+click 285 250
+click 285 318
+click 350 318
+click 350 250
+click 415 250
+click 415 318
+click 350 318
+click 350 250
+click 350 182
+click 415 182
+click 415 250
+click 350 250
+click 350 182
+click 285 182
+click 285 250
+click 220 250
+click 220 182
+click 285 182
+click 285 250
+click 285 318
+click 350 318
+click 415 318
+click 415 250
+click 350 250
+click 350 182
+click 285 182
+# 
+# Whole again, and she is ready to be let go. Two clicks carry the
+# montage, and the last of them is `enterNewDomain( #ROXY, 12 )`.
+click 319 241
+click 319 241

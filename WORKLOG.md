@@ -6752,3 +6752,126 @@ Until then Margaret's living room is reached by a recorded `set`, and the walk
 says so where it does it.
 
 298 tests, eight recordings.
+
+## 146. The house was never going to haunt anybody
+
+The second act is behind the telephone, the telephone is behind six camera
+haunts, and I had written in entry 143 that the haunts "arrive on their own
+clock as you explore" -- which is true, and which I had taken as a reason not
+to look for the clock. It is in `goTo`, in ROXY's own copy, and it was not
+ported at all:
+
+```text
+lsMoveCounter = getProp( oStoryteller.states, #moveCount )
+setAt( lsMoveCounter, 1, getAt( lsMoveCounter, 1 ) + 1 )
+...
+if getState( #BarOnline ) and getState( #PeekDisplay ) = #None then
+  showTime = getState( #hauntDelay )
+  if getAt( lsMoveCounter, 1 ) > showTime and destination <> #LivingRmBarCU2 then
+    spawnGhostlyEvent()
+    setProp( oStoryteller.states, #hauntDelay, list( max( 0, showTime - 4 ) ) )
+```
+
+`#moveCount` opens at 0 and `#hauntDelay` at 60, so the first haunt is sixty
+moves into the house, and each one afterwards comes four moves sooner. The bar
+has to be running, and nothing new happens while the PeeK is still holding the
+last thing it caught -- which is what makes them arrive one at a time instead
+of all at once.
+
+`spawnGhostlyEvent` walks `#cameraFeedbackRemaining` and takes the first haunt
+the player is not standing in front of:
+
+```text
+if i = #ghostKnife then
+  forbiddenLocations = [#DiningRmKitchenEntry2, #HallKitchenEntryOpen,
+                        #Ghse_D_S, #Ghse_D_W, #Ghse_E_W,
+                        #Ghse_P_KitchenDoorCU, #Ghse_P_KitchenEntry]
+  if oPuppeteer.zone <> #kitchen and getPos(forbiddenLocations, currentLoc) = 0 then
+    setState( oStoryteller, #PeekDisplay, #ghostKnife )
+```
+
+and the same shape five more times. Each haunt names the area it happens in,
+and most name the doorways it can be seen from as well: the point of a
+recording is that it happened where nobody was looking, so the game will not
+offer you one you could have watched through a door. The living room's is held
+back from the study too, which is where its camera feed is watched.
+
+So the order the six arrive in is not random -- it is decided by where the
+player happens to be standing when the counter comes round, which is why the
+hint book says "each game of AMBER is different, with haunts occuring in
+different orders". Pacing the porch, as the walk does, is out of every room a
+camera is watching, so they come in list order.
+
+### And then the key, which was a bug of mine
+
+Watching the bedroom haunt shows where the key to the last upstairs door is.
+Taking it and turning it in the lock did nothing: the door stayed shut, and its
+guard says why.
+
+```text
+[#and: [#equals: [#FortiesBedroomDoorIsOpen, 0],
+        #equals: [#playerHasBedroomKey, #usedUp]]]
+```
+
+The door opens on the key being *spent*, not on it being gone. And
+`deleteInventory` is careful about exactly that:
+
+```text
+if whichItem = #ScanDevice or whichItem = #Headgear then
+  if whichItem = #ScanDevice then setState( #playerHasScanDevice, 0 )
+  if whichItem = #Headgear   then setState( #playerHasHeadgear, #inUse )
+else
+  setState( value("#playerHas" & whichItem), #usedUp )
+```
+
+The scan device is put down and picked up again, so it goes back to zero; the
+headgear is worn rather than spent; everything else is spent. This engine wrote
+zero for all three. I had even left a comment in `sync_possession` saying
+`deleteInventory` ends with `setState( #playerHas<Item>, 0 )`, which is what
+happens when you write down what you assumed instead of what you read.
+
+That one line was the whole second half of the game.
+
+### `full.walk`
+
+Which makes a start-to-finish recording possible, and there is now one:
+
+```text
+amber play extract --replay full.walk --mute
+```
+
+Up the hill from the boathouse, the breaker, the loft, the PeeK, the BAR
+manual, the videotape, the BAR itself with its 6, 5 and 8; the package on the
+porch and the oscillator inside it; the oscillator into the AMBER device; then
+the porch, back and forth, until all six cameras have caught something and each
+one has been watched back; the telephone; the headgear; the key out of the
+bedside drawer and into the 1940s door; the portal. Then her house: the
+wireless up to the kitchen, the dumb waiter, the knitting needle, the dining
+room coming on the air, the living room, the wastepaper basket, and the
+telegram put back together. It ends on `enterNewDomain( #ROXY, 12 )`, which is
+the game putting the player back in the hall outside her living room.
+
+No room is named anywhere in it. Every line is a click or a move.
+
+Two lines are not: `trim tonalResidueRemaining PkPatioScan` and
+`set tunedIn livingRm`. Both are marked in the file where they happen, and both
+are the same kind of hole -- an interaction the shipped data has no reachable
+click for. The tonal residue is read by clicking the scan unit's own display,
+which is a `mouseDown` on the cast member `TXT-tonal ready`; the clock is
+`moveClock`, which nothing calls. The first of those is a debt I already owed
+and can pay: a member's own script link is not read yet, and the telegram tiles
+are wired by hand for the same reason. The second I still cannot explain.
+
+### One more thing the sweep may have fixed
+
+`enterNewDomain( #ROXY, 12 )` is `HallLivingRmEntry`, which is the room helba
+photographed drawing as several offset bands of itself. Coming back from her
+chapter is exactly the arrival that room gets at the end of this walk, and the
+montage that carries the player out of it runs on puppet channels. Before the
+sweep those channels were still claimed on the other side of the domain change.
+A shot taken at the last line of `full.walk` draws the hall clean. I have not
+reproduced the original fault, so this is a likely explanation rather than a
+confirmed one, and entry 144's second half stays open until helba sees it
+again -- or does not.
+
+298 tests, nine recordings.
