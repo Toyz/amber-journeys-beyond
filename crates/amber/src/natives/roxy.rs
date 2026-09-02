@@ -685,24 +685,40 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // the inventory table lists three casts for this item and two for
         // every other.
         "peekalert" => {
-            let enabled = state.get("gPeekAlertEnabled").as_int().unwrap_or(0) != 0;
+            // `enablePeekAlert` and `disablePeekAlert` are one line each and
+            // only the camcorder log turns it off, so an unset flag means on.
+            let enabled = state
+                .get("gPeekAlertEnabled")
+                .as_int()
+                .unwrap_or(1)
+                != 0;
             let carried = state.carrying("PeekUnit");
             if !enabled || !carried {
                 return true;
             }
-            // The icons are the second and third of the item's three, which
-            // the inventory table already names.
+            // Sprite 7 is the bar's middle slot and the PeeK always sits
+            // there, which is why the original can name the channel and be
+            // sure of what it is holding. This engine draws the bar from what
+            // is carried, so it asks the bar for the other icon instead --
+            // puppeting channel 7 put a 67-pixel icon in the middle of the
+            // room, underneath the room's own plates, where nobody saw it.
             for i in 0..12 {
                 out.effects.push(Effect::WaitTicks(5));
                 // The third icon is the bright glow and the second the dim
                 // one, which is how the item comes to list three where every
                 // other lists two.
-                out.effects.push(Effect::SpriteCastIcon {
-                    channel: 7,
+                out.effects.push(Effect::InventoryIcon {
                     item: "PeekUnit".into(),
-                    index: if i % 2 == 0 { 3 } else { 2 },
+                    index: Some(if i % 2 == 0 { 3 } else { 2 }),
                 });
             }
+            // `set the castNum of sprite 7 = oldPeekGraphic` -- the pulse puts
+            // back whatever the bar was showing before it started.
+            out.effects.push(Effect::WaitTicks(5));
+            out.effects.push(Effect::InventoryIcon {
+                item: "PeekUnit".into(),
+                index: None,
+            });
         }
 
         // on testForMargGhost  /  on testForMirrorMsg

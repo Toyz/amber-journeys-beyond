@@ -40,8 +40,17 @@ pub struct State {
     /// Flags, lower-cased keys to match Lingo's case-insensitive symbols.
     /// Each holds its whole value list; element 0 is the current setting.
     props: BTreeMap<String, Vec<Value>>,
-    /// Everything the player is carrying.
+    /// Everything the player is carrying, in slot order.
+    ///
+    /// Kept in step with `slots`, since most callers only want the list.
     inventory: Vec<String>,
+    /// The seven slots the inventory bar draws, `#None` where empty.
+    ///
+    /// `lsInventory` is a fixed seven-element list and an item keeps its
+    /// place in it, which is what makes a click on the bar mean the same
+    /// thing twice. Slot 4 is the middle of the bar and the three tools have
+    /// homes around it: see `place`.
+    slots: [Option<String>; 7],
     /// The item currently held over the scene, if any.
     item_in_use: Option<String>,
 }
@@ -242,14 +251,151 @@ impl State {
     }
 
     pub fn add_inventory(&mut self, item: &str) {
-        if !self.inventory.iter().any(|i| i.eq_ignore_ascii_case(item)) {
-            self.inventory.push(item.to_owned());
-        }
+        self.place(item);
         self.sync_possession(item, true);
     }
 
+    /// Leading empty slots among 1..3, and trailing empty slots among 7..5.
+    fn open_sides(&self) -> (usize, usize) {
+        let left = self.slots[..3].iter().take_while(|s| s.is_none()).count();
+        let right = self.slots[4..].iter().rev().take_while(|s| s.is_none()).count();
+        (left, right)
+    }
+
+    fn slot_of(&self, item: &str) -> Option<usize> {
+        self.slots
+            .iter()
+            .position(|s| s.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(item)))
+            .map(|i| i + 1)
+    }
+
+    /// Puts an item into the bar where `addInventory` puts it.
+    ///
+    /// ```text
+    /// if getAt( inventoryList, 4 ) = #None then
+    ///   setAt( inventoryList, 4, whichItem )
+    /// else if whichItem = #PeekUnit then
+    ///   ... take slot 4, pushing whatever is there aside ...
+    ///   addAt( inventoryList, 4, whichItem )
+    /// else if whichItem = #ScanDevice then
+    ///   if leftSlotsOpen < 1 then deleteAt(list,7) : addAt(list, 8 - rightSlotsOpen, item)
+    ///   else                      deleteAt(list,1) : addAt(list, leftSlotsOpen, item)
+    /// else if whichItem = #Headgear then      -- the mirror of that
+    /// else
+    ///   whichSide = #right
+    ///   if leftSlotsOpen > rightSlotsOpen then whichSide = #left
+    ///   ... insert on that side, packed towards the middle ...
+    /// ```
+    ///
+    /// So the bar is not a queue. The PeeK always ends up dead centre, which
+    /// is why `peekAlert` can flash sprite 7 and know it is the PeeK; the scan
+    /// device favours the left and the headgear the right; anything else fills
+    /// inward from whichever side has more room. Packing items left to right
+    /// in the order they were picked up, which is what this did, put the whole
+    /// bar in the wrong place and moved every icon whenever anything changed.
+    fn place(&mut self, item: &str) {
+        if self.slot_of(item).is_some() {
+            return;
+        }
+        if self.slots[3].is_none() {
+            self.slots[3] = Some(item.to_owned());
+            self.resync();
+            return;
+        }
+        let (left, right) = self.open_sides();
+        let is = |name: &str| item.eq_ignore_ascii_case(name);
+        let centre_is =
+            |name: &str| self.slots[3].as_deref().is_some_and(|s| s.eq_ignore_ascii_case(name));
+
+        let (drop_at, insert_at) = if is("PeekUnit") {
+            let drop_at = if centre_is("ScanDevice") {
+                if left > 0 { 1 } else { 7 }
+            } else if centre_is("Headgear") {
+                if right > 0 { 7 } else { 1 }
+            } else if left > right {
+                1
+            } else {
+                7
+            };
+            (drop_at, 4)
+        } else if is("ScanDevice") && left >= 1 {
+            (1, left)
+        } else if is("Headgear") && right >= 1 {
+            (7, 8 - right)
+        } else if is("ScanDevice") || is("Headgear") {
+            // The favoured side is full, so the item takes the other one.
+            if is("ScanDevice") { (7, 8 - right) } else { (1, left) }
+        } else if left > right {
+            (1, left)
+        } else {
+            (7, 8 - right)
+        };
+
+        // The bar is full when neither end is empty; dropping a real item to
+        // make room would lose it, so refuse instead. Nothing in the game
+        // hands the player an eighth thing, and losing one silently would be
+        // far worse than a bar that is one short.
+        if self.slots[drop_at - 1].is_some() {
+            return;
+        }
+        let mut list: Vec<Option<String>> = self.slots.to_vec();
+        list.remove(drop_at - 1);
+        list.insert(insert_at.clamp(1, 7) - 1, Some(item.to_owned()));
+        self.take_slots(list);
+    }
+
+    /// Frees an item's slot, as `deleteInventory` does.
+    ///
+    /// The half the item was in closes up towards the middle and the empty
+    /// arrives at that end; taking the middle one pulls a neighbour in from
+    /// whichever side has more room.
+    fn free(&mut self, item: &str) {
+        let Some(pos) = self.slot_of(item) else { return };
+        let mut list: Vec<Option<String>> = self.slots.to_vec();
+        match pos.cmp(&4) {
+            std::cmp::Ordering::Less => {
+                list.remove(pos - 1);
+                list.insert(0, None);
+            }
+            std::cmp::Ordering::Greater => {
+                list.remove(pos - 1);
+                list.push(None);
+            }
+            std::cmp::Ordering::Equal => {
+                let (left, right) = self.open_sides();
+                if left > right {
+                    list.remove(3);
+                    list.insert(0, None);
+                } else {
+                    list.insert(6, None);
+                    list.remove(3);
+                }
+            }
+        }
+        self.take_slots(list);
+    }
+
+    fn take_slots(&mut self, list: Vec<Option<String>>) {
+        for (slot, value) in self.slots.iter_mut().zip(list.into_iter().chain(std::iter::repeat(None))) {
+            *slot = value;
+        }
+        self.resync();
+    }
+
+    fn resync(&mut self) {
+        self.inventory = self.slots.iter().flatten().cloned().collect();
+    }
+
+    /// Where each carried item sits in the bar, as one-based slot numbers.
+    pub fn slots(&self) -> impl Iterator<Item = (usize, &str)> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| s.as_deref().map(|item| (i + 1, item)))
+    }
+
     pub fn delete_inventory(&mut self, item: &str) {
-        self.inventory.retain(|i| !i.eq_ignore_ascii_case(item));
+        self.free(item);
         self.sync_possession(item, false);
         if self
             .item_in_use

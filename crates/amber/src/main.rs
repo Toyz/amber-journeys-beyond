@@ -67,6 +67,13 @@ use std::process::ExitCode;
 use director::Movie;
 use world::{Channel, World};
 
+/// Removes a flag and, if it has one, the value after it.
+fn strip_flag(args: &mut Vec<String>, flag: &str) {
+    let Some(i) = args.iter().position(|a| a == flag) else { return };
+    let takes_value = args.get(i + 1).is_some_and(|a| !a.starts_with("--"));
+    args.drain(i..=(if takes_value { i + 1 } else { i }));
+}
+
 fn usage() -> ExitCode {
     eprintln!(
         "usage: amber <command> <game-dir> [args]
@@ -86,13 +93,45 @@ commands:
   walk      <dir> [steps...]   walk the game from the terminal
   mix       <dir> <room> [x y ...]
                                report what a room asks the mixer to play
-  verify    <dir>              parse everything and report failures"
+  verify    <dir>              parse everything and report failures
+
+any command also takes:
+  --log [file]                 write a trace of what the game does
+                               (default amber.log; AMBER_TRACE still works)
+  --trace <topics>             narrow it: room, script, state, sprite,
+                               audio, video, or all"
     );
     ExitCode::FAILURE
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+
+    // `--log [file]`, with `--trace <topics>` to narrow it, turns tracing on
+    // without setting two environment variables first. It applies to whichever
+    // command follows, because "what did it just do" is a question worth
+    // asking of `play` and `walk` alike. Defaults: every topic, `amber.log`.
+    //
+    // Both are taken out of the argument list afterwards, since `walk` reads
+    // what is left as steps to replay and `play` reads it as a room name.
+    if args.iter().any(|a| a == "--log") {
+        let value = |flag: &str, fallback: &str| {
+            args.iter()
+                .position(|a| a == flag)
+                .and_then(|j| args.get(j + 1))
+                .filter(|a| !a.starts_with("--"))
+                .cloned()
+                .unwrap_or_else(|| fallback.to_string())
+        };
+        let path = value("--log", "amber.log");
+        let topics = value("--trace", "all");
+        println!("logging {topics} to {path}");
+        trace::configure(&topics, Some(Path::new(&path)));
+    }
+    strip_flag(&mut args, "--log");
+    strip_flag(&mut args, "--trace");
+    let args = args;
+
     let Some(cmd) = args.first().map(String::as_str) else {
         return usage();
     };
@@ -1055,7 +1094,7 @@ fn cmd_verify(dir: &Path) -> Res {
                             .presentation_cast(name)
                             .is_none()
                             .then(|| format!("cast {name}")),
-                        script::Effect::SpriteCastIcon { item, index, .. } => game
+                        script::Effect::InventoryIcon { item, index: Some(index) } => game
                             .inventory
                             .icon_at(item, *index)
                             .is_none()
@@ -1071,7 +1110,7 @@ fn cmd_verify(dir: &Path) -> Res {
                         (None, script::Effect::SpriteCastNamed { name, .. }) => {
                             *hits.entry(format!("cast {name}")).or_default() += 1;
                         }
-                        (None, script::Effect::SpriteCastIcon { item, index, .. }) => {
+                        (None, script::Effect::InventoryIcon { item, index: Some(index) }) => {
                             *hits.entry(format!("icon {item}[{index}]")).or_default() += 1;
                         }
                         _ => {}

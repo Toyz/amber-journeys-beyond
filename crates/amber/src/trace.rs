@@ -98,33 +98,56 @@ impl Drop for Probe {
     }
 }
 
-fn mask() -> u32 {
-    *MASK.get_or_init(|| {
-        let Ok(spec) = std::env::var("AMBER_TRACE") else {
-            return 0;
-        };
-        let spec = spec.trim();
-        if spec.eq_ignore_ascii_case("all") || spec == "*" {
-            return Topic::all().iter().map(|t| t.bit()).sum();
+/// Turns the named topics into a bit mask, complaining about typos.
+fn bits_for(spec: &str) -> u32 {
+    let spec = spec.trim();
+    if spec.eq_ignore_ascii_case("all") || spec == "*" {
+        return Topic::all().iter().map(|t| t.bit()).sum();
+    }
+    let mut bits = 0;
+    for want in spec.split([',', ' ', '+']).filter(|s| !s.is_empty()) {
+        match Topic::all().iter().find(|t| t.label().eq_ignore_ascii_case(want)) {
+            Some(t) => bits |= t.bit(),
+            // Naming a topic that does not exist is a typo in a debugging
+            // session, and silently tracing nothing is the worst possible
+            // answer to it.
+            None => eprintln!(
+                "no trace topic {want:?}; known topics are {}",
+                Topic::all()
+                    .iter()
+                    .map(|t| t.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
-        let mut bits = 0;
-        for want in spec.split([',', ' ', '+']).filter(|s| !s.is_empty()) {
-            match Topic::all().iter().find(|t| t.label().eq_ignore_ascii_case(want)) {
-                Some(t) => bits |= t.bit(),
-                // Naming a topic that does not exist is a typo in a debugging
-                // session, and silently tracing nothing is the worst possible
-                // answer to it.
-                None => eprintln!(
-                    "AMBER_TRACE: no topic {want:?}; known topics are {}",
-                    Topic::all()
-                        .iter()
-                        .map(|t| t.label())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+    }
+    bits
+}
+
+/// Turns tracing on from the command line rather than the environment.
+///
+/// `AMBER_TRACE` and `AMBER_TRACE_FILE` still work and are still what a
+/// script would use, but nobody wants to type them to answer "what did the
+/// game just do". Call this before anything traces; both settings latch on
+/// first use, so a later call is ignored.
+pub fn configure(spec: &str, path: Option<&std::path::Path>) {
+    let _ = MASK.set(bits_for(spec));
+    if let Some(path) = path {
+        let sink = match File::create(path) {
+            Ok(f) => Some(Mutex::new(f)),
+            Err(e) => {
+                eprintln!("{}: {e}", path.display());
+                None
             }
-        }
-        bits
+        };
+        let _ = SINK.set(sink);
+    }
+}
+
+fn mask() -> u32 {
+    *MASK.get_or_init(|| match std::env::var("AMBER_TRACE") {
+        Ok(spec) => bits_for(&spec),
+        Err(_) => 0,
     })
 }
 

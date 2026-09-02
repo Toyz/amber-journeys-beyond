@@ -54,6 +54,14 @@ pub enum Effect {
     SpriteLoc { channel: u8, x: i32, y: i32 },
     /// Show or hide a script-controlled channel.
     SpriteVisible { channel: u8, visible: bool },
+    /// Swap an inventory item's icon in the bar, or `None` to put it back.
+    ///
+    /// `peekAlert` drives sprite 7 -- the bar's middle slot, where the PeeK
+    /// always sits -- straight through the score. This engine draws the bar
+    /// from what is carried rather than from score channels, so the alert
+    /// asks the bar for a different icon instead of puppeting a channel that
+    /// would land in the middle of the room.
+    InventoryIcon { item: String, index: Option<usize> },
     /// Release every channel above the ones the room itself placed.
     ///
     /// `updateDisplay` ends by walking from just past its last placed sprite
@@ -71,8 +79,6 @@ pub enum Effect {
     /// The multiframe tables are per chapter and keyed by a state value or,
     /// for the telegram, by the tile's own name.
     SpriteCastFromTable { channel: u8, table: String, key: String },
-    /// Point a channel at one of an inventory item's icons, by position.
-    SpriteCastIcon { channel: u8, item: String, index: usize },
     /// Move the player, in timeline order.
     ///
     /// `Outcome::destination` moves before any of a handler's effects run,

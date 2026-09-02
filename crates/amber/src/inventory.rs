@@ -106,19 +106,21 @@ impl Inventory {
     /// Centring the whole group at the very bottom of the stage instead --
     /// which is what this did -- put the bar 36 pixels too low and moved every
     /// icon whenever anything was picked up or put down.
-    pub fn layout(&self, held: &[String], _stage_w: i32, _stage_h: i32) -> Vec<(String, i32, i32)> {
+    pub fn layout(
+        &self,
+        slots: impl Iterator<Item = (usize, String)>,
+        _stage_w: i32,
+        _stage_h: i32,
+    ) -> Vec<(String, i32, i32)> {
         const FIRST: i32 = 110;
         const STEP: i32 = 70;
         const ROW: i32 = 410;
-        const SLOTS: usize = 7;
-        held.iter()
-            .filter(|i| self.icons(i).is_some())
-            .take(SLOTS)
-            .enumerate()
-            .map(|(i, item)| {
+        slots
+            .filter(|(_, item)| self.icons(item).is_some())
+            .map(|(slot, item)| {
                 (
-                    item.clone(),
-                    FIRST + i as i32 * STEP - ICON / 2,
+                    item,
+                    FIRST + (slot as i32 - 1) * STEP - ICON / 2,
                     ROW - ICON / 2,
                 )
             })
@@ -137,8 +139,15 @@ impl Inventory {
     }
 
     /// The item whose icon covers a point, if any.
-    pub fn hit(&self, held: &[String], stage_w: i32, stage_h: i32, x: i32, y: i32) -> Option<String> {
-        self.layout(held, stage_w, stage_h)
+    pub fn hit(
+        &self,
+        slots: impl Iterator<Item = (usize, String)>,
+        stage_w: i32,
+        stage_h: i32,
+        x: i32,
+        y: i32,
+    ) -> Option<String> {
+        self.layout(slots, stage_w, stage_h)
             .into_iter()
             .find(|(_, ix, iy)| x >= *ix && x < ix + ICON && y >= *iy && y < iy + ICON)
             .map(|(item, _, _)| item)
@@ -175,12 +184,12 @@ mod tests {
     #[test]
     fn an_item_with_no_icons_takes_no_room_in_the_bar() {
         let inv = table();
-        let held = ["ScanDevice".to_string(), "Nonesuch".to_string()];
-        let placed = inv.layout(&held, 640, 480);
+        let held = [(4, "ScanDevice".to_string()), (5, "Nonesuch".to_string())];
+        let placed = inv.layout(held.into_iter(), 640, 480);
         assert_eq!(placed.len(), 1);
         // `updateInventory` puts the first slot's registration point at
         // (110, 410), and the icon is registered at its own centre.
-        assert_eq!(placed[0].1, 110 - ICON / 2);
+        assert_eq!(placed[0].1, 110 + 3 * 70 - ICON / 2, "slot 4 is the middle");
         assert_eq!(placed[0].2, 410 - ICON / 2);
     }
 
@@ -190,13 +199,13 @@ mod tests {
         // whatever else is being carried, which is what makes a recorded
         // click on the bar mean the same thing twice.
         let inv = table();
-        let one = inv.layout(&["ScanDevice".to_string()], 640, 480);
+        let one = inv.layout([(4, "ScanDevice".to_string())].into_iter(), 640, 480);
         let two = inv.layout(
-            &["ScanDevice".to_string(), "Crowbar".to_string()],
+            [(4, "ScanDevice".to_string()), (5, "Crowbar".to_string())].into_iter(),
             640,
             480,
         );
-        assert_eq!(one[0].1, two[0].1, "the first slot does not move");
+        assert_eq!(one[0].1, two[0].1, "a slot does not move when another fills");
         assert_eq!(two[1].1 - two[0].1, 70);
     }
 
@@ -205,9 +214,11 @@ mod tests {
         // `repeat with i = 1 to 7`, and the eighth slot would run off the
         // right-hand edge: 110 + 7 * 70 is 600, and the icon is 67 wide.
         let inv = table();
-        let held: Vec<String> = std::iter::repeat_n("Crowbar".to_string(), 9).collect();
-        let placed = inv.layout(&held, 640, 480);
+        let held: Vec<(usize, String)> =
+            (1..=7).map(|i| (i, "Crowbar".to_string())).collect();
+        let placed = inv.layout(held.into_iter(), 640, 480);
         assert_eq!(placed.len(), 7);
+        assert!(placed[0].1 >= 0);
         assert!(placed.last().unwrap().1 + ICON <= 640);
     }
 }

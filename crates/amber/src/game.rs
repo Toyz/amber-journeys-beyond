@@ -76,6 +76,8 @@ pub struct Game {
     /// Sprite channels a script has taken over, keyed by channel so they
     /// composite in the same back-to-front order as the room's own sprites.
     puppets: BTreeMap<u8, Puppet>,
+    /// An inventory item drawn with one of its other icons, while it lasts.
+    icon_override: Option<(String, usize)>,
     /// The hotspot to re-run while the button is held, and when next to do it.
     repeating: Option<(Vec<String>, Instant)>,
     /// Actions still to run from the current hotspot, and what they are
@@ -157,6 +159,7 @@ impl Game {
             ghost_call_at: HashMap::new(),
             transition: None,
             puppets: BTreeMap::new(),
+            icon_override: None,
             repeating: None,
             script: Vec::new(),
             waiting: None,
@@ -1268,13 +1271,11 @@ impl Game {
                     self.puppets.entry(*channel).or_default().cast = cast;
                 }
             }
-            Effect::SpriteCastIcon { channel, item, index } => {
-                if let Some(cast) = self.inventory.icon_at(item, *index) {
-                    self.puppets.entry(*channel).or_default().cast = cast;
-                }
-            }
             Effect::SpriteVisible { channel, visible } => {
                 self.puppets.entry(*channel).or_default().hidden = !*visible;
+            }
+            Effect::InventoryIcon { item, index } => {
+                self.icon_override = index.map(|i| (item.clone(), i));
             }
             Effect::ParkSpareSprites => self.park_spare_sprites(),
             _ => return false,
@@ -1882,11 +1883,15 @@ impl Game {
     /// The item in hand is on the cursor; `updateInventory` moves its sprite
     /// off the stage.
     pub fn draw_inventory(&mut self, frame: &mut [u32], width: u32, height: u32, hot: bool) {
-        let held: Vec<String> = self.state.inventory().to_vec();
+        let slots: Vec<(usize, String)> = self
+            .state
+            .slots()
+            .map(|(n, item)| (n, item.to_string()))
+            .collect();
         let in_use = self.state.item_in_use().map(|s| s.to_ascii_lowercase());
         let placed = self
             .inventory
-            .layout(&held, width as i32, height as i32);
+            .layout(slots.into_iter(), width as i32, height as i32);
         let domain = self.node().domain.clone();
 
         for (item, x, y) in placed {
@@ -1894,7 +1899,14 @@ impl Game {
                 continue;
             }
             let Some(icons) = self.inventory.icons(&item) else { continue };
-            let cast = if hot { icons.hot } else { icons.cool };
+            // `peekAlert` pulses the middle slot between the two glows, so an
+            // override beats the cursor's own hot/cool choice while it runs.
+            let swapped = self
+                .icon_override
+                .as_ref()
+                .filter(|(name, _)| name.eq_ignore_ascii_case(&item))
+                .and_then(|(_, i)| self.inventory.icon_at(&item, *i));
+            let cast = swapped.unwrap_or(if hot { icons.hot } else { icons.cool });
             let Some(art) = self.art(&domain, cast, false) else { continue };
             let (w, h) = (art.width, art.height);
             blit(frame, width, height, &art.rgba, w, h, x, y);
@@ -1906,8 +1918,12 @@ impl Game {
     /// Clicking an item takes it in hand; clicking the item already in hand
     /// puts it back, which is what `stowInventory` does from script.
     pub fn click_inventory(&mut self, x: i32, y: i32, width: i32, height: i32) -> bool {
-        let held: Vec<String> = self.state.inventory().to_vec();
-        let Some(item) = self.inventory.hit(&held, width, height, x, y) else {
+        let slots: Vec<(usize, String)> = self
+            .state
+            .slots()
+            .map(|(n, item)| (n, item.to_string()))
+            .collect();
+        let Some(item) = self.inventory.hit(slots.into_iter(), width, height, x, y) else {
             return false;
         };
         let already = self

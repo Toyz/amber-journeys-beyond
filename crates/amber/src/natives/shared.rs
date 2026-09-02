@@ -328,7 +328,12 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // These are `nothing` in the shipped movies: hooks the authors left
         // wired up but empty. Implemented as no-ops so they stop being
         // reported as missing.
-        "disablepeekalert" | "enablepeekalert" | "initboxpuzzle" | "idle" | "nothing" => {}
+        // Two one-line handlers, and the only thing that turns the pulse off
+        // is the camcorder log -- watching Roxy's tape should not be
+        // interrupted by the bar flashing at you.
+        "enablepeekalert" => state.set("gPeekAlertEnabled", Value::Int(1)),
+        "disablepeekalert" => state.set("gPeekAlertEnabled", Value::Int(0)),
+        "initboxpuzzle" | "idle" | "nothing" => {}
 
         _ => return false,
     }

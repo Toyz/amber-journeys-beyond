@@ -426,9 +426,17 @@ fn show(game: &mut Game) {
     // it when it is stowed -- so the first thing the player ever holds was
     // reported as holding nothing at all.
     if !held.is_empty() || hand.is_some() {
+        // With the slot each one occupies, because the bar has seven fixed
+        // places rather than a queue: a recording clicks a slot, and which
+        // slot an item is in is not the order it was picked up in.
+        let bag: Vec<String> = game
+            .state
+            .slots()
+            .map(|(slot, item)| format!("{slot}:{item}"))
+            .collect();
         println!(
             "  carrying: {}   in hand: {}",
-            if held.is_empty() { "(nothing)".into() } else { held.join(", ") },
+            if bag.is_empty() { "(nothing)".into() } else { bag.join(" ") },
             hand.unwrap_or("nothing"),
         );
     }

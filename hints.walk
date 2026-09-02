@@ -66,7 +66,7 @@ click 495 200
 click 490 130
 state baronline
 # The PeeK unit flashes: pick it out of the bar and it reports the BAR running.
-inv 110 410
+inv 320 410
 state pkbarstatus
 # The unit stays in the hand until it is put back, so put it back.
 click 320 200

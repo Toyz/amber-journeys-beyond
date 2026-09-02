@@ -111,7 +111,7 @@ click 495 200
 # Run it. The BAR comes online and the PeeK flashes.
 click 490 130
 # Open the PeeK: it reports the machine running.
-inv 110 410
+inv 320 410
 # Put the unit back.
 click 320 200
 # Out of the front door to the mailbox on the porch.
@@ -160,7 +160,7 @@ click 46 210
 forward
 click 564 209
 click 564 209
-inv 110 410
+inv 320 410
 click 320 200
 # 
 # Now the cameras. With the BAR running, every move past the sixtieth
@@ -169,27 +169,27 @@ click 320 200
 # of every room a camera is watching.
 click 564 209
 click 75 210
-inv 110 410
+inv 320 410
 click 320 200
 click 564 209
 click 75 210
-inv 110 410
+inv 320 410
 click 320 200
 click 564 209
 click 75 210
-inv 110 410
+inv 320 410
 click 320 200
 click 564 209
 click 75 210
-inv 110 410
+inv 320 410
 click 320 200
 click 564 209
 click 75 210
-inv 110 410
+inv 320 410
 click 320 200
 click 564 209
 click 75 210
-inv 110 410
+inv 320 410
 click 320 200
 # 
 # One tonal residue has to be read as well. The click that does it is on
@@ -197,7 +197,7 @@ click 320 200
 # does not read yet -- see WORKLOG 145 -- so it is done here by hand.
 trim tonalresidueremaining PkPatioScan
 # Putting the unit away tests for psionic waves, and the phone rings.
-inv 110 410
+inv 320 410
 click 320 200
 # 
 # Answer it. Roxy is on the other end; then the line goes dead.
@@ -252,7 +252,7 @@ click 328 237
 click 462 218
 click 153 209
 click 218 307
-inv 320 410
+inv 250 410
 click 320 310
 # Push the door open and walk in.
 click 320 210

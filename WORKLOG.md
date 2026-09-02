@@ -6967,3 +6967,87 @@ been repointed at the real slots, and the driver that writes them computes
 finish.
 
 300 tests, nine recordings.
+
+## 148. The bar is not a queue, and the PeeK never flashed
+
+helba asked whether the PeeK's alert was missing an effect and a sound. Half
+right, and the half that is wrong is worth saying first: **there is no sound**.
+`peekAlert` is twelve alternations of one sprite's castNum, five ticks apart,
+and then it puts back whatever was there. Not a note anywhere in it.
+
+The flash, though, has never once happened in this engine, for three separate
+reasons stacked on top of each other.
+
+`gPeekAlertEnabled` is set by `enablePeekAlert` and cleared by
+`disablePeekAlert`, one line each, and both were no-ops here -- so the flag was
+never anything, `peekAlert` read it as zero and returned immediately. Only the
+camcorder log turns the pulse off, so an unset flag now means on.
+
+Then the drawing. The original does this:
+
+```text
+oldPeekGraphic = the castNum of sprite 7
+repeat with i = 1 to 12
+  hold five ticks
+  set the castNum of sprite 7 = <the high glow, then the low, alternating>
+set the castNum of sprite 7 = oldPeekGraphic
+```
+
+Sprite 7 is `foundationSprite + 4`, the bar's fourth slot. This engine drew the
+bar from what is carried rather than from score channels, so puppeting channel
+7 put a 67-pixel icon in the middle of the room -- and underneath the room's
+own plates, since those start at channel 12, so it was invisible as well as
+wrong. The alert now asks the bar for a different icon instead, which is the
+same idea expressed in the terms this engine has.
+
+### Why sprite 7 is always the PeeK
+
+Because the bar is not a queue, which is the third thing, and the one helba was
+looking at when they said it looked confused.
+
+`lsInventory` is a fixed seven-element list with `#None` in the empty places,
+and `addInventory` decides which place an item takes:
+
+```text
+leftSlotsOpen  = leading #None among slots 1..3
+rightSlotsOpen = trailing #None among slots 7..5
+
+if getAt( inventoryList, 4 ) = #None then setAt( inventoryList, 4, whichItem )
+else if whichItem = #PeekUnit then      ... take slot 4, pushing the rest aside
+else if whichItem = #ScanDevice then    ... favour the left
+else if whichItem = #Headgear then      ... favour the right
+else                                    ... whichever side has more room,
+                                            packed towards the middle
+```
+
+Slot 4 is the middle of the bar. The PeeK is the first thing the player picks
+up, so it lands there; and if anything else got there first, the PeeK's branch
+turns it out. That is why the alert can name sprite 7 and know what it is
+holding. The scan device leans left and the headgear right, and everything else
+fills inward from whichever side is emptier. `deleteInventory` is the mirror:
+the half the item was in closes up towards the middle, and taking the middle
+one pulls a neighbour in from the roomier side.
+
+This engine packed items left to right in the order they were picked up. So an
+item moved every time anything else was picked up or put down, and the whole
+row sat wherever the count happened to put it. Two entries ago I fixed the row
+to `110 + 70n` on the row centred at 410 and thought that was the end of it;
+it was half of it, because I was still choosing `n` myself.
+
+The bar now models the seven slots, and the walkthrough prints which slot each
+item is in -- `carrying: 3:oscillator 4:PeekUnit 5:Videotape` -- because a
+recording clicks a slot and the slot is not the order you picked things up in.
+The three recordings that click the bar are repointed again, and `full.walk` is
+regenerated.
+
+### `--log`
+
+Also helba's, and fair: `AMBER_TRACE=all AMBER_TRACE_FILE=/tmp/run.log` is two
+environment variables to remember for a question you ask constantly. Any
+command now takes `--log [file]`, defaulting to every topic and `amber.log`,
+with `--trace <topics>` to narrow it. Both are stripped from the arguments
+before the command reads them, since `walk` would otherwise try to replay the
+filename as a step. The environment variables still work and are still what a
+script should use.
+
+300 tests, nine recordings.
