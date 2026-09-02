@@ -374,13 +374,13 @@ Working:
 - The game's own cursors, read from the cast rather than drawn
 - The ghosts telephone once the Amber headgear is on, working through their
   recordings on a rota
+- The PeeK unit: every machine in the house reports through it, and taking it
+  out of the bar opens it on whatever it was last told
 
 Not yet done:
 
-- `usePeekUnit`, the PeeK unit's own interface: a modal screen with its own
-  event loop, opened from the inventory bar rather than from a room script, so
-  no tally counts it. The hint book tells a new player to click it in their
-  first minute
+- The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs
+  after five seconds of no input with the Amber vision on
 - The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs
   after five seconds of no input
 - Save and load, though the state schema in the data is effectively the save

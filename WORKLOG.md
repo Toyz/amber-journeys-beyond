@@ -5731,3 +5731,80 @@ meant either editing helba's recordings to be tidier than the play they record,
 or a test that cries wolf.
 
 281 tests, and three recordings that pass.
+
+## 128. The unit everything reports to
+
+`usePeekUnit` is ported, and with it the game has a feedback loop for the first
+time.
+
+The PeeK is the hand-held unit Roxy leaves in the loft, and it is the whole of
+the game's reporting: the BAR says it is running through it, the scanner says a
+residue is ready through it, the cameras play back each haunt through it, and
+the Amber device reports its calibration through it. The hint book's standing
+advice is "whenever the PeeK flashes, click on it".
+
+`peekAlert` has been ported since entry 63 and makes it flash. Nothing was
+behind the flash. Every puzzle solved in this port so far has been reporting
+into nothing.
+
+### A wait this engine could not express
+
+The unit is modal: it comes up, shows what it has, and stays until dismissed.
+The original says that with a bare `mouseDown` inside the handler, and this
+engine had no way to say it -- every wait it knew was on a clock, a film or a
+sound. `Effect::WaitForClick` is that, and a click while the queue holds on one
+dismisses it instead of reaching the room underneath. Without that last part
+the click that closes the unit would also work whatever is behind it.
+
+### What it shows
+
+Reading `#PeekDisplay` clears it, so an alert is consumed by being looked at.
+The six camera haunts share one shape:
+
+```text
+gPeekPlayList = [#PkFadeIn, #PkKitchenGhost, #PkFadeOut]
+setState( #PKbarStatus, #ActivityDetected )
+trimState( #cameraFeedbackRemaining, #ghostKnife )
+```
+
+The three status readouts do not need a dispatch table at all, because the
+pages are named for the machine and its reading run together: `#PKscanStatus`
+of `#Wait3min` is the page `#scanWait3min`, `#PKbarStatus` of `#Online` is
+`#BarOnline`. That is why `#peekText` has twenty-six entries and why the
+handler can be a prefix and a concatenation rather than a list of cases.
+
+### The link that was missing
+
+With the unit working the BAR still reported nothing, because my `setBarMode`
+set `#BarOnline` and stopped there. The original ends:
+
+```text
+setState( #PeekDisplay, #BARstartup )
+unFreezeInventory
+peekAlert
+```
+
+Two lines, and without them the puzzle was solvable and silent -- the right
+numbers brought the machine online and nothing anywhere acknowledged it. The
+same shape as the music box chord in entry 122 and the drawer in entry 120: the
+mechanism worked and the acknowledgement did not, which is the failure mode
+this port keeps producing and the reason playing it matters more than reading
+it.
+
+`hints.walk` now runs the whole chain from a cold start: up the hill, the
+breaker, the PeeK, the manual, the tape, the machine set to 6, 5 and 8, and
+then the unit picked out of the bar to hear it say so.
+
+```text
+> state pkbarstatus
+  pkbarstatus = [noActivity, Online, Offline]
+```
+
+Online, then nothing to report -- which is exactly what the original does, and
+the first complete puzzle-to-feedback loop in this port.
+
+Also fixed while testing: the walkthrough's `inv` command did not run the
+effect queue out, so taking the PeeK from the bar opened it and then dropped
+everything it wanted to do. Every other click drains; that one did not.
+
+285 tests.

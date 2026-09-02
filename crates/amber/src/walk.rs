@@ -128,6 +128,12 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
                     "  inventory ({x}, {y}): {}",
                     if taken { "taken" } else { "nothing there" }
                 );
+                // The bar can start a sequence -- taking the PeeK unit
+                // opens it -- so the queue has to be run out here too, the
+                // same as a click on the room.
+                if drain {
+                    settle(game);
+                }
                 show(game);
                 if taken { Step::Done } else { Step::Missed }
             }

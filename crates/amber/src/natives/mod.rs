@@ -164,16 +164,17 @@ mod handled_tests {
 
     #[test]
     fn an_unported_handler_says_so_too() {
-        // There are no unported verbs left -- every handler a room script
-        // names has an arm. What is left is reached from elsewhere, and
-        // `usePeekUnit` is the one that matters: it is the PeeK unit's own
-        // interface, opened from the inventory bar rather than from a room,
-        // so no tally counts it.
+        // There are no unported verbs left, and the PeeK unit's own
+        // interface is ported too. What remains is the rest of `idle`: the
+        // menu bar, the cursor's idle animation, and the ripple that runs
+        // after five seconds of no input with the Amber vision on.
         //
-        // Named deliberately, so this fails loudly when it is ported and has
+        // Named deliberately, so this fails loudly when one is ported and has
         // to be swapped for whatever is still outstanding. A test that could
         // not fail is what entry 81 was about.
-        assert!(!is_handled("usepeekunit"));
+        for name in ["cursordance", "ripple", "installmenu"] {
+            assert!(!is_handled(name), "{name} reports ported but has no arm");
+        }
     }
 }
 

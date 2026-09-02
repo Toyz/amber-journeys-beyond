@@ -1720,7 +1720,20 @@ impl Game {
             self.state.stow();
         } else {
             self.state.stow();
-            self.state.set("itemInUse", lingo::Value::Symbol(item));
+            // Through `useInventory`, so the PeeK unit opens when it is
+            // picked out of the bar. That is what the hint book means by
+            // "whenever the PeeK flashes, click on it" -- the click is on the
+            // bar, and every machine in the house reports through what it
+            // then shows.
+            let mut out = Outcome::default();
+            crate::script::run(
+                &[format!("useInventory( #{item} )")],
+                &mut self.state,
+            )
+            .effects
+            .into_iter()
+            .for_each(|e| out.effects.push(e));
+            self.apply(&out);
         }
         true
     }
@@ -1735,7 +1748,20 @@ impl Game {
     }
 
     /// Handles a click, moving the player if the hotspot says to.
+    /// Whether the queue is holding for a click, so one dismisses it rather
+    /// than reaching the room underneath.
+    pub fn waiting_for_click(&self) -> bool {
+        matches!(self.effect_wait, Some(Wait::Click))
+    }
+
     pub fn click(&mut self, x: i32, y: i32) -> Option<Outcome> {
+        // A modal screen takes the click that dismisses it. Letting it
+        // through would work the room behind the PeeK unit while the unit is
+        // still on top of it.
+        if self.waiting_for_click() {
+            self.effect_wait = None;
+            return Some(Outcome::default());
+        }
         // The opening film watches for a click and stops early if it gets
         // one. Its room's own hotspot does nothing, so this has to come first
         // or the click is swallowed by it.
@@ -1833,6 +1859,8 @@ impl Game {
             // A room with no movie has nothing to wait for; treating that as
             // satisfied stops a missing video from stalling the sequence.
             Wait::Video => self.player.as_ref().is_none_or(|p| p.finished),
+            // Only a click clears this, so it is never satisfied by waiting.
+            Wait::Click => false,
         }
     }
 
@@ -1944,6 +1972,7 @@ fn wait_for(effect: &Effect) -> Option<Wait> {
             Instant::now() + Duration::from_secs_f64(*t as f64 / 60.0),
         )),
         Effect::WaitForVideo => Some(Wait::Video),
+        Effect::WaitForClick => Some(Wait::Click),
         // A sound's real length is not known here, so this is a short hold
         // rather than a promise.
         Effect::WaitForSound(_) => {
@@ -1957,6 +1986,8 @@ fn wait_for(effect: &Effect) -> Option<Wait> {
 enum Wait {
     Until(Instant),
     Video,
+    /// Held until the player clicks, for a modal screen.
+    Click,
 }
 
 /// Folds one action's outcome into the running total for a sequence.

@@ -181,6 +181,34 @@ fn book_for(verb: &str) -> Option<(&'static str, &'static str, &'static [i32])> 
     })
 }
 
+/// Points the unit's text channel at one of `#peekText`'s pages.
+fn text_page(channel: u8, page: &str) -> Effect {
+    Effect::SpriteCastFromTable {
+        channel,
+        table: "peekText".into(),
+        key: page.into(),
+    }
+}
+
+/// Which page of `#peekText` a status readout should be showing.
+///
+/// The three machines each keep their own status flag and the pages are named
+/// for the machine and the status together -- `#PKbarStatus` of `#Online` is
+/// the page `#BarOnline`, `#PKscanStatus` of `#Wait3min` is `#scanWait3min`.
+/// So the page is the prefix and the status run together, which is why the
+/// table has twenty-six entries and no dispatch table is needed.
+fn status_page(display: &str, state: &State) -> Option<String> {
+    let (flag, prefix) = match display.to_ascii_lowercase().as_str() {
+        "barstatus" => ("PKbarStatus", "bar"),
+        "scanstatus" => ("PKscanStatus", "scan"),
+        "amberstatus" => ("PKamberStatus", "amber"),
+        _ => return None,
+    };
+    let status = state.get(flag);
+    let status = status.as_str()?.trim_start_matches('#').to_string();
+    Some(format!("{prefix}{status}"))
+}
+
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
     if bleed_door(name, args, state, out) {
         return true;
@@ -501,6 +529,141 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                     .map(|c| Value::Symbol(c.unwrap_or("nobody").to_string()))
                     .collect(),
             );
+        }
+
+        // on usePeekUnit
+        //   setState( #playerHasPeekUnit, #inUse )
+        //   killVideo : updateStage : idle : cursorOff
+        //   peekBody = 38 : peekAntenna = 46 : peekRollUp = 44 : peekText = 40
+        //   pkScanIcon = 41 : pkBarIcon = 42 : pkAmberIcon = 43
+        //   ... #PeekDown, #peekAntenna, #PeekUpAnim, then #PeekUp ...
+        //   display = getState( #PeekDisplay )
+        //   setState( #PeekDisplay, #None )
+        //   if display = #ghostKnife then
+        //     gPeekPlayList = [#PkFadeIn, #PkKitchenGhost, #PkFadeOut]
+        //     setState( #PKbarStatus, #ActivityDetected )
+        //     trimState( #cameraFeedbackRemaining, #ghostKnife )
+        //   ... and the same shape for the other five camera haunts ...
+        //   if display = #BARstartup then
+        //     setState( #PKbarStatus, #Online ) ... wait ...
+        //     setState( #PKbarStatus, #noActivity )
+        //   if display = #amberStartup then
+        //     setState( #PKamberStatus, #ModulatingEEG ) ... wait ...
+        //     setState( #PKamberStatus, #OneMoment ) ... wait ...
+        //     setState( #PKamberStatus, #surfsUp )
+        //
+        // The hand-held unit, and the only feedback the game gives. Every
+        // machine in the house reports through it: the hint book's first
+        // instruction is to pick it up and press play, and its standing
+        // advice is "whenever the PeeK flashes, click on it".
+        //
+        // `peekAlert` was ported long ago and makes it flash. Nothing was
+        // behind the flash, because this is reached from the inventory bar
+        // rather than from a room script and so no tally counted it. Every
+        // puzzle solved so far has been reporting into nothing: the BAR comes
+        // online and says so here, the scanner finishes and says so here, and
+        // the cameras catch each haunt and play it back here.
+        //
+        // What the unit shows is whatever `#PeekDisplay` was last set to, and
+        // reading it clears it -- so an alert is consumed by being looked at.
+        "usepeekunit" => {
+            // The unit's own sprite channels.
+            const BODY: u8 = 38;
+            const TEXT: u8 = 40;
+
+            let display = state.get("PeekDisplay");
+            let display = display.as_str().unwrap_or("None").trim_start_matches('#').to_string();
+            state.set("PeekDisplay", Value::Symbol("None".into()));
+            state.set("playerHasPeekUnit", Value::Symbol("inUse".into()));
+            out.effects.push(Effect::CursorOff);
+            out.effects.push(Effect::PuppetSprite { channel: BODY, on: true });
+
+            // A camera haunt: the unit plays back what was caught, the bar
+            // records that it caught something, and the haunt comes off the
+            // list of what is still to be seen.
+            const HAUNTS: [(&str, &str); 6] = [
+                ("ghostKnife", "PkKitchenGhost"),
+                ("ghostlyKey", "PkBedroomGhost"),
+                ("crazyLR", "PkCrazyLR"),
+                ("crazyDR", "PkCrazyDR"),
+                ("KdKnob", "PkKdKnob"),
+                ("bloodBath", "PkBloodBath"),
+            ];
+
+            let frame = |name: &str| Effect::SpriteCastFromTable {
+                channel: BODY,
+                table: "PkVideoNormal".into(),
+                key: name.into(),
+            };
+
+            if let Some((_, clip)) = HAUNTS
+                .iter()
+                .find(|(d, _)| d.eq_ignore_ascii_case(&display))
+            {
+                out.effects.push(frame("PkFadeIn"));
+                out.effects.push(Effect::WaitTicks(15));
+                out.effects.push(frame(clip));
+                out.effects.push(Effect::WaitForClick);
+                out.effects.push(frame("PkFadeOut"));
+                out.effects.push(Effect::WaitTicks(15));
+                out.effects.push(Effect::SetState {
+                    key: "PKbarStatus".into(),
+                    value: Value::Symbol("ActivityDetected".into()),
+                });
+                out.effects.push(Effect::TrimState {
+                    key: "cameraFeedbackRemaining".into(),
+                    item: Value::Symbol(display.clone()),
+                });
+            } else if display.eq_ignore_ascii_case("psionicFragment") {
+                // The fragment the pyramid offers, which is picked up by
+                // looking at it.
+                out.effects.push(frame("PkFragment"));
+                out.effects.push(Effect::WaitForClick);
+            } else if display.eq_ignore_ascii_case("BARstartup") {
+                // The machine reporting for duty, and then reporting that it
+                // has nothing yet.
+                out.effects.push(Effect::SetState {
+                    key: "PKbarStatus".into(),
+                    value: Value::Symbol("Online".into()),
+                });
+                out.effects.push(text_page(TEXT, "BarOnline"));
+                out.effects.push(Effect::WaitForClick);
+                out.effects.push(Effect::SetState {
+                    key: "PKbarStatus".into(),
+                    value: Value::Symbol("noActivity".into()),
+                });
+            } else if display.eq_ignore_ascii_case("amberStartup") {
+                // Calibrating itself, in three stages with a wait between.
+                for (status, page) in [
+                    ("ModulatingEEG", "amberModulatingEEG"),
+                    ("OneMoment", "amberOneMoment"),
+                    ("surfsUp", "amberSurfsUp"),
+                ] {
+                    out.effects.push(Effect::SetState {
+                        key: "PKamberStatus".into(),
+                        value: Value::Symbol(status.into()),
+                    });
+                    out.effects.push(text_page(TEXT, page));
+                    out.effects.push(Effect::WaitTicks(120));
+                }
+            } else if let Some(page) = status_page(&display, state) {
+                // The three status readouts, each showing the text for
+                // whatever its machine last reported.
+                out.effects.push(text_page(TEXT, &page));
+                out.effects.push(Effect::WaitForClick);
+            } else {
+                // Nothing to report: the blank page, dismissed by a click.
+                out.effects.push(text_page(TEXT, "None"));
+                out.effects.push(Effect::WaitForClick);
+            }
+
+            out.effects.push(Effect::PuppetSprite { channel: TEXT, on: false });
+            out.effects.push(Effect::PuppetSprite { channel: BODY, on: false });
+            out.effects.push(Effect::SetState {
+                key: "playerHasPeekUnit".into(),
+                value: Value::Symbol("carrying".into()),
+            });
+            out.redraw = true;
         }
 
         // on peekAlert
@@ -1437,6 +1600,17 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 && state.get("BarFM").as_int() == Some(8)
             {
                 state.set("BarOnline", Value::Int(1));
+                // ... setState( #PeekDisplay, #BARstartup )
+                //     unFreezeInventory
+                //     peekAlert
+                //
+                // The machine tells the player it is running by flashing the
+                // PeeK unit, and the unit is where it then says so. Without
+                // these two lines the puzzle was solvable and silent: the
+                // right numbers brought it online and nothing anywhere
+                // acknowledged it.
+                state.set("PeekDisplay", Value::Symbol("BARstartup".into()));
+                call("peekalert", &[], state, out);
             }
             state.set_all("BarMode", vec![Value::Symbol(moved.into())]);
             out.redraw = true;
@@ -3181,5 +3355,99 @@ mod phone_tests {
         call("ghostcalls", &[Value::Symbol("None".into())], &mut s, &mut out);
         assert!(s.get_all("ghostsCalling").is_empty());
         assert!(out.effects.iter().any(|e| matches!(e, Effect::StopGhostCall)));
+    }
+
+    #[test]
+    fn the_peek_unit_reports_what_it_was_last_told_and_forgets_it() {
+        // `display = getState( #PeekDisplay ) : setState( #PeekDisplay, #None )`
+        // -- an alert is consumed by being looked at, so the unit does not
+        // keep showing the same thing.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("PeekDisplay", vec![Value::Symbol("BARstartup".into())]);
+        let mut out = Outcome::default();
+        assert!(call("usepeekunit", &[], &mut s, &mut out));
+        assert!(s.get("PeekDisplay").is_symbol("None"));
+
+        // It says the machine is running, waits to be dismissed, and then
+        // settles to having nothing to report.
+        let states: Vec<String> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::SetState { key, value } if key == "PKbarStatus" => {
+                    value.as_str().map(str::to_string)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(states, ["Online", "noActivity"]);
+        assert!(out.effects.iter().any(|e| matches!(e, Effect::WaitForClick)));
+    }
+
+    #[test]
+    fn a_caught_haunt_plays_back_and_comes_off_the_list() {
+        // Every camera haunt has the same shape: the clip between a fade in
+        // and a fade out, the bar recording that it caught something, and the
+        // haunt struck off what is still to be seen.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("PeekDisplay", vec![Value::Symbol("ghostKnife".into())]);
+        let mut out = Outcome::default();
+        call("usepeekunit", &[], &mut s, &mut out);
+
+        let frames: Vec<String> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::SpriteCastFromTable { key, .. } => Some(key.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(frames, ["PkFadeIn", "PkKitchenGhost", "PkFadeOut"]);
+
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::SetState { key, value } if key == "PKbarStatus" && value.is_symbol("ActivityDetected")
+        )));
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::TrimState { key, item } if key == "cameraFeedbackRemaining" && item.is_symbol("ghostKnife")
+        )));
+    }
+
+    #[test]
+    fn a_status_page_is_named_for_its_machine_and_its_reading() {
+        // `#PKscanStatus` of `#Wait3min` is the page `#scanWait3min`, which is
+        // why `#peekText` has twenty-six entries and no dispatch table.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("PKscanStatus", vec![Value::Symbol("Wait3min".into())]);
+        s.set_all("PeekDisplay", vec![Value::Symbol("scanStatus".into())]);
+        let mut out = Outcome::default();
+        call("usepeekunit", &[], &mut s, &mut out);
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::SpriteCastFromTable { table, key, .. }
+                if table == "peekText" && key == "scanWait3min"
+        )));
+    }
+
+    #[test]
+    fn taking_the_peek_out_of_the_bar_opens_it() {
+        // `useInventory` ends with `if whichItem = #PeekUnit then usePeekUnit`.
+        // It is the one item that does something when it is taken up rather
+        // than waiting to be used on the scene.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        let out = crate::script::run(&["useInventory( #PeekUnit )".to_string()], &mut s);
+        assert_eq!(s.item_in_use(), Some("PeekUnit"));
+        assert!(out.effects.iter().any(|e| matches!(e, Effect::WaitForClick)));
+
+        // Anything else just goes on the cursor.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        let out = crate::script::run(&["useInventory( #Crowbar )".to_string()], &mut s);
+        assert!(!out.effects.iter().any(|e| matches!(e, Effect::WaitForClick)));
     }
 }

@@ -77,6 +77,13 @@ pub enum Effect {
         room: String,
         transition: Option<String>,
     },
+    /// Holds the queue until the player clicks.
+    ///
+    /// The PeeK unit is modal: it comes up, shows what it has to show, and
+    /// stays there until it is dismissed. The original expresses that as a
+    /// `mouseDown` inside the handler, which is a thing this engine has no
+    /// other way to say -- every other wait is on a clock, a film or a sound.
+    WaitForClick,
     /// Takes down a ghost call still sounding, which is what `ghostCalls
     /// #None` does when the player leaves the spot a ghost was calling from.
     StopGhostCall,
@@ -588,9 +595,18 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 state.delete_inventory(&i);
             }
         }
+        // on useInventory whichItem
+        //   ... the item leaves the bar and goes on the cursor ...
+        //   if whichItem = #PeekUnit then usePeekUnit
+        //
+        // The PeeK is the one item that does something when it is taken up
+        // rather than waiting to be used on the scene: taking it opens it.
         "useinventory" => {
             if let Some(i) = name_arg(0) {
-                state.set("itemInUse", Value::Symbol(i));
+                state.set("itemInUse", Value::Symbol(i.clone()));
+                if i.trim_start_matches('#').eq_ignore_ascii_case("PeekUnit") {
+                    crate::natives::call("usepeekunit", &[], state, out);
+                }
             }
         }
         "stowinventory" => state.stow(),
