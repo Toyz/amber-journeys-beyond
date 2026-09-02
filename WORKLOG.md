@@ -5808,3 +5808,73 @@ effect queue out, so taking the PeeK from the bar opened it and then dropped
 everything it wanted to do. Every other click drains; that one did not.
 
 285 tests.
+
+## 129. As far as the phone
+
+Carried the walkthrough on. `hints.walk` now runs from the boathouse to the
+AMBER device coming online, and every step of it works:
+
+```text
+the hill, the front door, the dark house, the breaker
+the loft and the PeeK unit
+the desk drawer, the BAR manual, the videotape
+the BAR at 6, 5 and 8 -> online -> the PeeK says so
+the mailbox: the box, the label, the letter, the oscillator underneath
+the study: the oscillator into the AMBER device -> online -> the PeeK says so
+```
+
+Two puzzles now report their own completion, which is the shape the whole game
+is built on.
+
+The mailbox deserves a note. It is not a container but a seven-state machine on
+one flag -- `#playerIsExaminingPackage` runs 0, `#closed`, `#open`,
+`#readingLetter`, `#oscInside`, `#oscPopup`, `#oscGone` -- and the oscillator
+only exists at the end of it. You open the box, read the label, open it again,
+read the letter, and the oscillator is revealed underneath the letter, pops up,
+and is taken. Seven clicks to get one object, and every one of them a state
+this engine had to have right.
+
+### The unit stays in your hand
+
+Porting `usePeekUnit` I had it put itself away at the end. It does not. The
+handler sets `#playerHasPeekUnit` to `#inUse` and never sets it back, and
+nothing in it stows anything -- the room-sized `#itemInUse` catcher stows it on
+the next click, which is exactly what the office table means by the comment
+next to it: "Don't worry; it'll be added automatically when user is finished."
+Stowing is also what restores the flag to `#carrying`, so writing that at the
+end of the handler was inventing a step.
+
+It shows up immediately in play: after reading the PeeK the next click puts it
+away rather than doing what you meant, and the walkthrough needs that click
+exactly as a player would. My version had the unit tidying itself and the
+walkthrough desynchronised from the game by one click.
+
+### What the game opens with
+
+Chasing the scan device turned up the opening state, and it is more deliberate
+than I had assumed:
+
+```text
+#scanUnitIsActive: [1, 0]
+#PKscanStatus:     [#ReadyForPlayback]
+#DoorWithScanUnit: [#kitchenOutside]
+```
+
+The game begins with Roxy's scanner already attached to the kitchen door,
+already finished, with a residue waiting to be played. That is why the device
+cannot simply be picked up -- the two hotspots that take it are both guarded on
+`#scanUnitIsActive` being 0 -- and it is what the hint book means by "the sound
+you heard when you first picked up the PeeK in the loft was the residue from
+the front door". The first thing the game has to say to the player is already
+queued before they walk in the door.
+
+### Where it stops
+
+The next gate is the telephone. The hint book: "At the appropriate time the
+phone will start ringing in the living room. Answer the phone and listen to
+Roxy's message. --- The PeeK unit will flash, advising you that the AMBER
+headgear has been activated." Only then does the headgear appear, only then
+does `#AMBERVISION` reach `#on`, and only then do the ghosts call and the
+portals open. Everything after that point is behind one ringing telephone.
+
+285 tests, and three recordings that pass.

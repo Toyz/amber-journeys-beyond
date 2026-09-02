@@ -659,10 +659,12 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
 
             out.effects.push(Effect::PuppetSprite { channel: TEXT, on: false });
             out.effects.push(Effect::PuppetSprite { channel: BODY, on: false });
-            out.effects.push(Effect::SetState {
-                key: "playerHasPeekUnit".into(),
-                value: Value::Symbol("carrying".into()),
-            });
+            // The unit stays in the hand. Nothing here puts it back, and that
+            // is deliberate: the room-sized `#itemInUse` catcher stows it on
+            // the next click, which is what the office table means by "don't
+            // worry, it'll be added automatically when user is finished".
+            // Stowing is also what restores the flag from `#inUse` to
+            // `#carrying`, so writing that here would be inventing a step.
             out.redraw = true;
         }
 

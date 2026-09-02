@@ -68,3 +68,23 @@ state baronline
 # The PeeK unit flashes: pick it out of the bar and it reports the BAR running.
 inv 280 440
 state pkbarstatus
+# The unit stays in the hand until it is put back, so put it back.
+click 320 200
+# The mailbox on the porch: open it, take the box, read the label and the
+# letter, and the oscillator is underneath.
+PorchMailboxCU
+click 350 200
+click 350 250
+examine
+pointer
+click 300 200
+click 320 200
+click 310 230
+click 300 300
+state playerhasoscillator
+# The study: the oscillator goes into the AMBER device, which starts up.
+StudyAmberCU
+inv 380 440
+click 315 190
+state amberisonline
+state pkamberstatus
