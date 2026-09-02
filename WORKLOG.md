@@ -5194,3 +5194,98 @@ second a display, the third a value nobody compared, and the fourth a type. You
 find them by opening the drawer.
 
 263 tests.
+
+## 121. First in the list wins
+
+Playing on from the desk drawer, the BAR manual opened and would not turn a
+page. Clicking the right-hand half shut the book instead.
+
+The room lists its regions like this:
+
+```text
+#nextPage  rect(341, 58, 558, 363)   next page
+#nextPage  rect( 71, 54, 287, 358)   previous page
+#pointer   rect( -2, 32, 641, 386)   shut the book
+```
+
+Director walks a room's regions in order and takes the first one under the
+pointer. This engine ranked them by verb instead, with a table that put
+`#pointer` above `#nextPage`, so the stage-sized region to close the manual
+beat both page halves and there was no way to read past the first page. The
+manual holds two of the three settings for the machine in the living room, so
+between this and entry 120's drawer the game was unfinishable by the book
+twice over.
+
+I could have moved `#nextPage` up the table, but the table is the wrong idea,
+so I measured what the data actually does. Across all 1320 rooms, as a mean
+position through each room's list, where 0 is first:
+
+```text
+itemInUse    0.03      pointer      0.41
+nextPage     0.06      down         0.45
+rotateLeft   0.07      right        0.45
+forward      0.26      left         0.72
+examine      0.26      browse       0.94
+```
+
+`#itemInUse` is listed first in 702 of the 1320 rooms and `#browse` is last in
+1284 of them. That is not a coincidence to be approximated by a priority
+table; it is the data being written for first-match resolution.
+
+So: first in the list wins, with `#browse` alone ranked below everything. I
+checked what pure list order would cost by looking for every case where a
+region is listed before a smaller one inside it that the player needs. There
+are five in the whole game, and all five are `#browse` -- it is the catch-all
+and blankets the frame, which is why it is normally last and why it needs the
+exception in the 36 rooms where it is not.
+
+Two tests had to change, and it is worth being honest about why. Both
+constructed a room with the hotspots in an order the game never uses -- a walk
+region before the examine target inside it, a pointer before the `#itemInUse`
+region inside it -- and asserted that priority rescued them. The measurement
+says there is no such room: zero cases of a navigation region listed before an
+examine, pointer or item region it contains. The tests were describing my
+model rather than the game, and they passed for years because a model tested
+against itself always does.
+
+### The music boxes were fine; the tool was not
+
+helba said they were sure the box puzzle was missing sounds, and `mix` agreed:
+all five boxes reported `snd1box`. The engine turned out to be right -- each
+box emits its own `snd1box` through `snd5box`, and all five decode with signal.
+
+`mix` runs against a silent mixer, which has no stream pulling samples through
+it, so nothing ever finishes. A half-second effect held its channel for the
+rest of the run, the four channels filled up, and every later sound was
+correctly dropped by the channel cap and incorrectly reported as absent. The
+mixer now runs forward between clicks, by two seconds, which is about what a
+player takes to reach for the next box.
+
+The cap itself is real and stays. Each chapter's schema declares four sound
+channels and loops sit on them alongside effects:
+
+```text
+#soundChannels: [1: [#sndType: #loop, #sndName: #lakeside, #volume: 255],
+                 2: [#sndType: #None, ...], 3: ..., 4: ...]
+```
+
+Channel one holding a loop settles it. Margaret's bedroom runs a clock, the
+house hum and the radio, so exactly one channel is free and the five boxes
+take turns on it. That is the original's behaviour, not a shortage.
+
+### Watching a recording
+
+helba asked whether a `.walk` file can be watched rather than only read. It
+can now: `play <dir> --replay <file>` plays the recording into the window a
+step at a time and then hands over. The steps go through the same dispatcher
+the terminal uses, so the two readings of a recording cannot drift apart.
+
+Two details that took a moment. A step waits for the game to go quiet before
+the next one, but not for the picture to stop -- a room's own film loops for as
+long as the player stands there, so waiting on that waits for ever. And the
+opening is clicked through when a recording is supplied, because a recording is
+rarely a recording of the intro; skipping rather than abandoning keeps the
+`goTo` the opening ends with, so a recording that starts by walking from the
+entry still works.
+
+265 tests.

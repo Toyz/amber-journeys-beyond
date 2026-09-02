@@ -78,7 +78,7 @@ commands:
   cast      <dir> <movie.dxr>  list a movie's cast members
   export    <dir> <movie.dxr> <cast#> <out.png>
                                decode one bitmap cast member
-  play      <dir> [room|chapter] [--record <file>]
+  play      <dir> [room|chapter] [--record <file>] [--replay <file>]
                                open the game window
   shot      <dir> <room> <out.png> [flag=value ...]
                                render one room headlessly
@@ -128,11 +128,35 @@ fn main() -> ExitCode {
                     }
                 }
             }
+            // `--replay <file>` plays a recording into the window and then
+            // hands over, so a `.walk` can be watched rather than only read.
+            let mut steps = Vec::new();
+            if let Some(i) = args.iter().position(|a| a == "--replay") {
+                let Some(path) = args.get(i + 1) else {
+                    eprintln!("--replay needs a file");
+                    return ExitCode::FAILURE;
+                };
+                match std::fs::read_to_string(path) {
+                    Ok(text) => {
+                        steps = text
+                            .lines()
+                            .map(str::trim)
+                            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                            .map(str::to_string)
+                            .collect();
+                        println!("replaying {} steps from {path}", steps.len());
+                    }
+                    Err(e) => {
+                        eprintln!("{path}: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
             let room = args
                 .get(2)
                 .filter(|a| !a.starts_with("--"))
                 .map(String::as_str);
-            render::play(&dir, room)
+            render::play_with(&dir, room, steps)
         }
         "shot" => match (args.get(2), args.get(3)) {
             (Some(room), Some(out)) => cmd_shot(&dir, room, Path::new(out), &args[4.min(args.len())..]),
@@ -854,6 +878,9 @@ fn cmd_mix(dir: &Path, room: &str, clicks: &[String]) -> Res {
     for pair in coords.chunks(2) {
         let [x, y] = pair else { continue };
         println!("\nclick ({x}, {y})");
+        // Let whatever the last click started finish first, as it would have
+        // in the time it takes a player to reach for the next thing.
+        audio.settle(2.0);
         if game.click(*x, *y).is_none() {
             println!("  nothing there");
             continue;

@@ -48,18 +48,6 @@ impl Verb {
         })
     }
 
-    /// Hotspots overlap heavily and the data relies on specific-beats-general
-    /// resolution: `#browse` blankets the whole frame, so it must lose to any
-    /// real affordance sharing the same pixels.
-    pub fn priority(self) -> u8 {
-        match self {
-            Verb::Browse => 0,
-            Verb::ItemInUse => 1,
-            Verb::Left | Verb::Right | Verb::Forward | Verb::Up | Verb::Down => 2,
-            Verb::NextPage | Verb::RotateLeft | Verb::RotateRight => 3,
-            Verb::Examine | Verb::Pointer => 4,
-        }
-    }
 }
 
 /// Which Director channel a stage element occupies. Sprite channels stack back to
@@ -385,13 +373,6 @@ impl Node {
         holding: bool,
         live: impl Fn(&Cond) -> bool,
     ) -> Option<&Hotspot> {
-        let rank = |verb: Verb| {
-            if holding && verb == Verb::ItemInUse {
-                u8::MAX
-            } else {
-                verb.priority()
-            }
-        };
         self.hotspots
             .iter()
             .filter(|h| h.bounds.contains(x, y))
@@ -405,7 +386,30 @@ impl Node {
             .filter(|h| holding || h.verb != Verb::ItemInUse)
             .filter(|h| live(&h.condition))
             .enumerate()
-            .max_by_key(|(index, h)| (rank(h.verb), std::cmp::Reverse(*index)))
+            // First in the room's list wins, with `#browse` alone ranked
+            // below everything.
+            //
+            // This is what Director does -- it walks the regions in order and
+            // takes the first one under the pointer -- and the data is written
+            // for it: `#itemInUse` is listed first in 702 of the 1320 rooms
+            // and averages third of a percent into the list, `#nextPage` and
+            // the dials sit at six, and `#browse` is last in 1284 of them.
+            //
+            // `#browse` needs the exception because it is the catch-all and
+            // blankets the frame. In the 36 rooms where it is not last there
+            // are five places it would swallow a real affordance underneath
+            // it, and the game clearly does not mean it to.
+            //
+            // A table of priorities by verb stood in for this and got the
+            // books wrong. The BAR manual lists its two page-turn regions
+            // first and a stage-sized `#pointer` after them to close the book;
+            // ranking `#pointer` above `#nextPage` meant every attempt to turn
+            // a page shut the manual instead. The manual carries two of the
+            // three settings for the machine in the living room, so the game
+            // was unfinishable by the book.
+            .max_by_key(|(index, h)| {
+                (h.verb != Verb::Browse, std::cmp::Reverse(*index))
+            })
             .map(|(_, h)| h)
     }
 }
@@ -725,14 +729,48 @@ mod tests {
     }
 
     #[test]
-    fn verb_priority_outranks_order() {
-        // An examine target drawn over a walk region should be examinable.
-        let walk = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
+    fn a_target_is_listed_before_the_region_it_sits_inside() {
+        // An examine target drawn over a walk region is examinable because
+        // the room lists it first, which is how the data is written: across
+        // all 1320 rooms there is no case of a navigation region listed
+        // before an examine or pointer target that sits inside it.
         let look = spot(Verb::Examine, Rect { left: 50, top: 50, right: 100, bottom: 100 });
-        let n = room(vec![walk, look]);
+        let walk = spot(Verb::Forward, Rect { left: 0, top: 0, right: 200, bottom: 200 });
+        let n = room(vec![look, walk]);
         assert_eq!(n.hit_test(75, 75, false, |_| true).unwrap().verb, Verb::Examine);
         // and outside the examine box the walk region still answers
         assert_eq!(n.hit_test(150, 150, false, |_| true).unwrap().verb, Verb::Forward);
+    }
+
+    #[test]
+    fn browse_loses_wherever_it_is_listed() {
+        // The one exception to list order. `#browse` blankets the frame and
+        // is the catch-all, and in the 36 rooms where it is not listed last
+        // there are five places it would otherwise swallow a real affordance.
+        let blanket = spot(Verb::Browse, Rect { left: 0, top: 0, right: 400, bottom: 400 });
+        let real = spot(Verb::Pointer, Rect { left: 100, top: 100, right: 200, bottom: 200 });
+        let n = room(vec![blanket, real]);
+        assert_eq!(n.hit_test(150, 150, false, |_| true).unwrap().verb, Verb::Pointer);
+        // Outside it, browse is still the answer.
+        assert_eq!(n.hit_test(300, 300, false, |_| true).unwrap().verb, Verb::Browse);
+    }
+
+    #[test]
+    fn the_page_regions_of_a_book_beat_the_one_that_closes_it() {
+        // The BAR manual lists two page-turn regions and then a stage-sized
+        // pointer to shut the book. Ranking pointer above nextPage -- which a
+        // table of priorities by verb did -- meant every attempt to turn a
+        // page closed the manual instead, and the manual holds two of the
+        // three settings the machine in the living room needs.
+        let next = spot(Verb::NextPage, Rect { left: 341, top: 58, right: 558, bottom: 363 });
+        let prev = spot(Verb::NextPage, Rect { left: 71, top: 54, right: 287, bottom: 358 });
+        let shut = spot(Verb::Pointer, Rect { left: -2, top: 32, right: 641, bottom: 386 });
+        let n = room(vec![next, prev, shut]);
+        let hit = n.hit_test(450, 200, false, |_| true).unwrap();
+        assert_eq!(hit.verb, Verb::NextPage);
+        assert_eq!(hit.bounds.left, 341, "the forward half, not the back one");
+        // The margins outside both pages still shut it.
+        assert_eq!(n.hit_test(320, 370, false, |_| true).unwrap().verb, Verb::Pointer);
     }
 
     #[test]
@@ -776,9 +814,10 @@ mod tests {
         // the door. Ranked below it, a click carrying the scanner walks the
         // player away instead of using what they are holding; 466 of the
         // game's 800 item regions are covered like this.
-        let walk = spot(Verb::Pointer, Rect { left: 0, top: 0, right: 400, bottom: 400 });
+        // Listed first, as it is in 702 of the 1320 rooms.
         let apply = spot(Verb::ItemInUse, Rect { left: 100, top: 100, right: 200, bottom: 200 });
-        let n = room(vec![walk, apply]);
+        let walk = spot(Verb::Pointer, Rect { left: 0, top: 0, right: 400, bottom: 400 });
+        let n = room(vec![apply, walk]);
         assert_eq!(
             n.hit_test(150, 150, true, |_| true).unwrap().verb,
             Verb::ItemInUse,

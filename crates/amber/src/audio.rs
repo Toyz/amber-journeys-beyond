@@ -534,6 +534,30 @@ impl Audio {
         }
     }
 
+    /// Runs the mixer forward without producing any sound.
+    ///
+    /// A silent mixer has no stream pulling samples through it, so nothing
+    /// ever finishes and a half-second effect holds its channel for the rest
+    /// of the run. `mix` then reports the four channels as permanently full
+    /// and every later sound as dropped, which reads as sounds missing from
+    /// the game when the game is fine -- the five music boxes take turns on
+    /// the one channel the room's three ambient loops leave free, which is
+    /// what the original does too.
+    pub fn settle(&self, seconds: f32) {
+        let Ok(mut mixer) = self.mixer.lock() else {
+            return;
+        };
+        let frames = (seconds * self.rate as f32) as f64;
+        for v in &mut mixer.voices {
+            if !v.looping {
+                v.position += frames * v.step;
+            }
+        }
+        mixer
+            .voices
+            .retain(|v| v.looping || v.position < v.samples.len() as f64 / v.channels.max(1) as f64);
+    }
+
     /// Every voice the mixer is holding, for reporting.
     pub fn voices(&self) -> Vec<String> {
         let Ok(mixer) = self.mixer.lock() else {

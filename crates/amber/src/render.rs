@@ -32,7 +32,17 @@ fn cursor_hint(verb: Verb) -> &'static str {
     }
 }
 
-pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+/// Opens the window and plays a recording into it before handing over.
+///
+/// The steps go through `walk::command`, the same dispatcher the terminal
+/// uses, so watching a `.walk` file and replaying it in the terminal cannot
+/// diverge. Control passes to the player when the recording runs out, which
+/// makes a recording a way of setting the game up as much as of watching it.
+pub fn play_with(
+    root: &Path,
+    start: Option<&str>,
+    steps: Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut game = Game::new(root)?;
     if let Some(name) = start {
         // A chapter name goes to that chapter's own opening, which is what
@@ -116,6 +126,21 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
     let mut out = vec![0u32; STAGE_W * STAGE_H];
     let mut show_hotspots = false;
     let mut dirty = true;
+    // The recording is played a step at a time rather than all at once, so it
+    // can be watched. A step waits for the one before it to finish -- films
+    // and their waits included -- and then for a breath, so a sequence of
+    // moves does not become a blur.
+    let mut replay: std::collections::VecDeque<String> = steps.into();
+    if !replay.is_empty() {
+        // Clicking through the opening, which is what a viewer would do: a
+        // recording is not usually a recording of the intro, and waiting out
+        // the film before the first step is a minute of nothing. Skipping
+        // rather than abandoning keeps the `goTo` the opening ends with, so a
+        // recording that starts by walking from the entry still works and one
+        // that starts by jumping somewhere cancels it on the jump.
+        game.skip_video();
+    }
+    let mut next_step = std::time::Instant::now();
     let mut was_down = false;
     let mut last_title = String::new();
 
@@ -146,6 +171,29 @@ pub fn play(root: &Path, start: Option<&str>) -> Result<(), Box<dyn std::error::
             if crate::natives::call("resetpeekdisplay", &[], &mut game.state, &mut out) && out.redraw
             {
                 dirty = true;
+            }
+        }
+
+        // The recording takes its next step once the game has gone quiet: a
+        // step that starts a film has to be allowed to finish it, or the
+        // replay races ahead of what it is meant to show.
+        // Not on `player.is_none()`: a room's own film loops for as long as
+        // the player stands there, so waiting for the picture to stop would
+        // wait for ever. A film a script is waiting on holds the effect queue,
+        // and that is what has to be quiet.
+        if !replay.is_empty()
+            && !game.effects_busy()
+            && !game.script_running()
+            && std::time::Instant::now() >= next_step
+        {
+            if let Some(cmd) = replay.pop_front() {
+                println!("> {cmd}");
+                crate::walk::command(&mut game, &cmd);
+                dirty = true;
+                next_step = std::time::Instant::now() + std::time::Duration::from_millis(600);
+                if replay.is_empty() {
+                    println!("-- recording finished, the game is yours --");
+                }
             }
         }
 

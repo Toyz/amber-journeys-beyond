@@ -67,9 +67,20 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
             println!("> {cmd}");
         }
 
+        command(&mut game, cmd);
+    }
+    Ok(())
+}
+
+/// Runs one command, typed or replayed.
+///
+/// Shared with the window's `--replay`, so a recording drives the real game
+/// through exactly the path the terminal takes -- there is no second reading
+/// of a `.walk` file that could drift from this one.
+pub(crate) fn command(game: &mut Game, cmd: &str) {
         if let Some(filter) = cmd.strip_prefix("state") {
-            dump_state(&game, filter.trim());
-            continue;
+            dump_state(game, filter.trim());
+            return;
         }
         // A click at a point goes through the same hit test the window uses,
         // so an overlap that resolves the wrong way can be reproduced exactly.
@@ -87,18 +98,18 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
                         "  inventory ({x}, {y}): {}",
                         if taken { "taken" } else { "nothing there" }
                     );
-                    show(&mut game);
+                    show(game);
                 }
                 _ => println!("  usage: inv <x> <y>"),
             }
-            continue;
+            return;
         }
         if cmd == "skip" {
             let skipped = game.skip_video();
             println!("  skip: {}", if skipped { "moved on" } else { "no movie" });
-            settle(&mut game);
-            show(&mut game);
-            continue;
+            settle(game);
+            show(game);
+            return;
         }
         if let Some(rest) = cmd.strip_prefix("click ") {
             let nums: Vec<i32> = rest
@@ -114,25 +125,25 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
                                 println!("  -> {d}");
                             }
                         }
-                        settle(&mut game);
-                        show(&mut game);
+                        settle(game);
+                        show(game);
                     }
                     None => println!("  nothing at ({x}, {y})"),
                 },
                 _ => println!("  usage: click <x> <y>"),
             }
-            continue;
+            return;
         }
         if cmd == "blocked" {
-            show_blocked(&game);
-            continue;
+            show_blocked(game);
+            return;
         }
         // Granting an item makes the #itemInUse hotspots reachable, which is
         // most of the game's interaction and otherwise needs real progress.
         if let Some(item) = cmd.strip_prefix("give ") {
             game.state.add_inventory(item.trim());
             println!("  carrying: {}", game.state.inventory().join(", "));
-            continue;
+            return;
         }
         if let Some(item) = cmd.strip_prefix("use ") {
             let item = item.trim();
@@ -140,19 +151,25 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
             game.state
                 .set("itemInUse", lingo::Value::Symbol(item.to_string()));
             println!("  in hand: {item}");
-            show(&mut game);
-            continue;
+            show(game);
+            return;
         }
 
-        match step(&mut game, cmd) {
+        match step(game, cmd) {
             Ok(()) => {
-                settle(&mut game);
-                show(&mut game);
+                settle(game);
+                show(game);
             }
             Err(msg) => println!("  {msg}"),
         }
+
+    match step(game, cmd) {
+        Ok(()) => {
+            settle(game);
+            show(game);
+        }
+        Err(msg) => println!("  {msg}"),
     }
-    Ok(())
 }
 
 /// Runs out the effect queue, reporting what it carried.
