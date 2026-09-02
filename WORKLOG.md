@@ -6403,3 +6403,43 @@ arrive on their own clock as the house is explored. A route cannot be written
 for waiting.
 
 296 tests, six recordings.
+
+## 140. A wait only the replay could end
+
+helba watched `margaret.walk` in the window and it stopped dead at the PeeK
+unit. The recording replays fine in the terminal.
+
+`usePeekUnit` ends with `WaitForClick`, because the unit is modal and stays up
+until it is dismissed. The window's replay only takes its next step once the
+effect queue has gone quiet -- which is right for a film, and a deadlock here:
+the queue is waiting for a click, and the only thing that could click is the
+step the replay will not take.
+
+The gate now makes an exception for a click wait. Everything else still has to
+finish first.
+
+The terminal could not see it. Its `settle` steps over every wait, including
+this one, so the same recording ran there and hung in the window -- the third
+time the two front ends have disagreed about a recording, after entry 122 and
+entry 127. Each time the terminal was the one that could not see the problem,
+because stepping over waits is exactly what makes it useful and exactly what
+makes it blind.
+
+### And no, muting does not stop the films
+
+helba also asked whether the QuickTime plays under `--mute`. It does. The
+player runs on its own clock -- `self.started.elapsed()` against the movie's
+timescale -- and muting only swaps the mixer for one with no output. Traced,
+muted, the opening film draws on frames 1, 6, 10, 14, 18, 22, which is its own
+fifteen a second against the loop's sixty; the portal's `MEmrloop.mov` reports
+`loops` and draws on the same cadence.
+
+So what does and does not move is worth stating plainly. Films play: the room
+loops, the cutscenes, the segments the music boxes and the radio dial use.
+Sprite animation plays wherever a handler drives it, because that is a series
+of cast changes with waits between them. What does not move is anything driven
+by a frame handler this engine has no equivalent of -- `cursorDance`, the
+`ripple` after five idle seconds -- and anything behind a sprite `mouseDown`,
+which is still the last architectural gap.
+
+296 tests, six recordings.

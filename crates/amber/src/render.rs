@@ -209,8 +209,15 @@ pub fn play_with(
         // the player stands there, so waiting for the picture to stop would
         // wait for ever. A film a script is waiting on holds the effect queue,
         // and that is what has to be quiet.
+        //
+        // A queue waiting for a *click* is the exception, and it has to be:
+        // the PeeK unit holds there until it is dismissed, and the only thing
+        // that can dismiss it during a replay is the replay's own next step.
+        // Waiting for the queue to go quiet first is a deadlock, and it is
+        // one the terminal cannot see -- its `settle` steps over every wait,
+        // so the same recording ran there and hung in the window.
         if !replay.is_empty()
-            && !game.effects_busy()
+            && (!game.effects_busy() || game.waiting_for_click())
             && !game.script_running()
             && std::time::Instant::now() >= next_step
         {
