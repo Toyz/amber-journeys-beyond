@@ -348,24 +348,53 @@ Working:
 - Inventory: the bar, picking things up and using them on the scene
 - Hotspot guards, including the compound conditions, so locked things stay
   locked
-- 21 set-piece handlers ported from the compiled Lingo, including the ghost
-  telephone, Chippy, the office laptop and the ice white-out
+- Set-piece handlers ported from the compiled Lingo, leaving two verbs with
+  call sites unported and no unported setters at all: the ghost telephone,
+  Chippy, the office laptop, the ice white-out, the music boxes, the boat and
+  the car
+- Transitions: `goTo`'s second argument is the transition for that move, so a
+  turn is a chunky quarter-second wipe and a step forward is a dissolve
+- The game's own cursors, read from the cast rather than drawn
+- The ghosts telephone once the Amber headgear is on, working through their
+  recordings on a rota
 
 Not yet done:
 
-- 45 set-piece handlers at 143 call sites, mostly the puzzle machinery: the
-  combination locks, the radio dial, the weather vane, the whirligig, the
-  telegram. The interpreter records each as `Effect::Native` so the
-  surrounding timeline stays intact and the count stays honest
+- Two handlers with call sites, `initTelegramPuzzle` and one stray `set`. The
+  interpreter records anything unported as `Effect::Native` so the surrounding
+  timeline stays intact and the count stays honest
+- `usePeekUnit`, the PeeK unit's own interface. It is reached from the
+  inventory bar rather than from a room script, so the tally cannot see it
+- The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs
+  after five seconds of no input
 - Save and load, though the state schema in the data is effectively the save
   format already
 - The movie event track, which keys cues to frames. Its structure is read but
   its bare integers are ambiguous, so it is left rather than guessed
-- Cursor art. The pointers are drawn shapes standing in for the game's own
-  1-bit cursors, which need `castCursor` decoded first
-- The transitions `setTransition` selects
+- A cursor's hot spot, which is not read yet, so the pointers centre instead
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
+
+That covers this engine -- the Rust crates, the Python tools, and the notes.
+It does not and cannot cover *Amber: Journeys Beyond* itself.
 
 ## Legal
 
 Reverse engineering for interoperability. No original code or content is
 reproduced or redistributed here; you need your own copy of the disc.
+
+Everything in this repository was written by reading a disc that was bought,
+and none of it contains any of the game's own code, art, sound or film. The
+game remains the property of its authors. If you want to run this, find a
+copy.
+
+## The log
+
+[WORKLOG.md](WORKLOG.md) is an append-only record of the whole port, written
+as it happened. It is long, and it is where the reasoning lives -- including
+the mistakes, which are the useful part: a decoder that read a greyscale film
+as colour for three rounds, a coverage test that could not fail, an effect
+emitted a hundred and four times and acted on none, and a handler ported,
+tested, and never once reached.

@@ -1,0 +1,41 @@
+# amber session recording
+# replay with: amber walk <dir> --replay <this file>
+MargPortal_headOn
+# in MargPortal_headOn
+click 398 184
+# in MargPortal_lookRight
+click 289 279
+# in MargPortal_lookRight
+click 132 254
+# in MargPortal_headOn
+click 322 242
+# in bedrm_margaret
+click 426 162
+# in bedrm_C3
+click 224 299
+# in bedrm_C3
+click 188 284
+# in bedrm_C4
+click 126 274
+# in bedrm_C1
+click 292 284
+# in bedrm_C1
+click 356 278
+# in bedrm_C1
+click 360 241
+# in bedrm_dresser
+click 439 327
+# in bedrm_A4
+click 220 252
+# in bedrm_A4
+click 303 233
+# in bedrm_dresser
+click 458 292
+# in bedrm_boxes
+click 399 330
+# in bedrm_boxes
+click 442 172
+# in bedrm_boxes
+click 342 144
+# in bedrm_boxes
+click 411 287
