@@ -28,3 +28,10 @@ state playerhasheadgear
 click 600 100
 click 600 100
 state ambervision
+# With the vision on, the 1940s bedroom shows a way through that is not there
+# without it. Three walls offer it; this is the east one.
+MargEwall
+click 180 220
+# Through the portal, and into Margaret's chapter.
+click 322 242
+state currentdomain

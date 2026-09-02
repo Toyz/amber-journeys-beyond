@@ -5988,3 +5988,39 @@ rather than replaying the hour of play that earns them -- `hints.walk` covers
 earning them -- so what it tests is the second act's opening.
 
 288 tests, and four recordings that pass.
+
+## 132. Into the second chapter
+
+The game runs from its opening film to Margaret's chapter.
+
+```text
+the intro, the hill, the front door, the breaker
+the PeeK unit, the BAR manual, the videotape
+the BAR at 6, 5 and 8, and the unit reporting it
+the mailbox and the oscillator, the AMBER device
+the telephone, Roxy's message, the headgear, the vision
+the 1940s bedroom, the portal, and MARGARET / bedrm_A1
+```
+
+Two recordings cover it: `hints.walk` earns the first act, `headgear.walk`
+opens the second.
+
+The portal is a nice piece of design and worth recording. It is not a door.
+The 1940s bedroom has three walls -- the east wall, the bureau and the north
+wall -- and each carries an `#examine` region guarded on
+
+```text
+#and: [#equals: [#AMBERVISION, #on],
+       #includes: [#ghostsRemaining, #Margaret]]
+```
+
+so with the headgear off those walls hold a picture of Hitler, a window and a
+pack of cards, and with it on the same three walls each offer a way through.
+The room does not change; what you can see in it does. And the guard also
+carries `#includes: [#ghostsRemaining, #Margaret]`, so once her chapter is
+finished the way through is gone and the wall is a wall again.
+
+`toMargaret` plays at gain 1.00 now rather than being pushed through full
+scale, which is entry 123's clamp doing its job on the sound that prompted it.
+
+288 tests, and four recordings that pass.
