@@ -6582,3 +6582,31 @@ telegram came together and then nothing happened, for ever. The tiles only
 take a click while the order is still out of order.
 
 298 tests, seven recordings.
+
+## 144. Two render faults, reported and not yet fixed
+
+helba sent two screenshots. Recording both here rather than leaving them in a
+conversation, because neither is fixed.
+
+**The telegram tiles do not line up.** The pieces are not a uniform grid:
+`MLR_Telegram_1` is 62 by 60, `_3` is 64 by 57, `_12` is 63 by 63, and
+`MLR_Telegram_none` -- the hole -- is one pixel square. `initTelegramPuzzle`
+places them on a 65 by 68 lattice, so they cannot all be centred on their slot
+and still meet.
+
+Director positions a sprite by its registration point, and these members must
+carry ones that make the irregular pieces align. This engine centres a plate
+whenever its registration point reads as zero, which is a guess made for room
+sprites with `#coords` and is wrong here. The fix is to stop treating a zero
+registration point as "no registration point", which means finding out whether
+these members genuinely have one.
+
+**A room drawing as several crops of itself.** `HallLivingRmEntry`, arrived at
+by a turn, came up as three or four bands of the same scene at different
+offsets and scales. Not diagnosed. It arrived on a `turnLeft`, which is a
+chunky wipe, so the transition is the first place to look -- although a wipe
+takes each pixel from one buffer or the other and cannot rescale anything, so
+that may be a coincidence of timing rather than the cause.
+
+Neither is in the way of the chapter being finished; both are in the way of
+watching it.
