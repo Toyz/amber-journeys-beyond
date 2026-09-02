@@ -54,6 +54,13 @@ pub enum Effect {
     SpriteLoc { channel: u8, x: i32, y: i32 },
     /// Show or hide a script-controlled channel.
     SpriteVisible { channel: u8, visible: bool },
+    /// Release every channel above the ones the room itself placed.
+    ///
+    /// `updateDisplay` ends by walking from just past its last placed sprite
+    /// up to 37, blanking each one and parking it at (320, 360). That is what
+    /// takes a puzzle's pieces off the stage: nothing un-puppets them, the
+    /// next composition simply sweeps every channel the room did not ask for.
+    ParkSpareSprites,
     /// Point a channel at a cast the chapter names rather than numbers, as
     /// `getProp(oPuppeteer, #doorStatic)` does. Resolved when applied, since
     /// the table belongs to the chapter and handlers do not carry one.
@@ -727,7 +734,14 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
             }
         }
 
-        "updatedisplay" | "updatestage" => out.redraw = true,
+        // `updateStage` is Director's own -- it blits what is already
+        // composed. `updateDisplay` is the game's, and composing the stage
+        // includes clearing the channels this room does not use.
+        "updatestage" => out.redraw = true,
+        "updatedisplay" => {
+            out.effects.push(Effect::ParkSpareSprites);
+            out.redraw = true;
+        }
         "cursoroff" => out.effects.push(Effect::CursorOff),
         // on fadeToMontage whichNumber
         //   setState( oStoryteller, #showMontage, whichNumber )

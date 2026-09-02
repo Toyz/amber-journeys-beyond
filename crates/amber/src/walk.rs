@@ -183,6 +183,39 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
         }
         return Step::Done;
     }
+    // Writes what the stage looks like right now to a PNG.
+    //
+    // `shot` on the command line renders a room from its own declared
+    // sprites, which is not the same picture: a puzzle laid out by a script
+    // lives entirely on puppet channels and so does not appear there at all.
+    // A recording can reach the puzzle and then ask for the frame.
+    if let Some(path) = cmd.strip_prefix("shot ") {
+        const W: u32 = 640;
+        const H: u32 = 480;
+        let mut frame = vec![0u32; (W * H) as usize];
+        game.draw(&mut frame, W, H);
+        game.draw_inventory(&mut frame, W, H, false);
+        let mut rgba = Vec::with_capacity(frame.len() * 4);
+        for px in &frame {
+            rgba.extend_from_slice(&[
+                (px >> 16) as u8,
+                (px >> 8) as u8,
+                *px as u8,
+                (px >> 24) as u8,
+            ]);
+        }
+        let path = std::path::Path::new(path.trim());
+        return match crate::write_png(path, W, H, &rgba) {
+            Ok(()) => {
+                println!("  wrote {}", path.display());
+                Step::Done
+            }
+            Err(e) => {
+                println!("  {}: {e}", path.display());
+                Step::Broken
+            }
+        };
+    }
     if cmd == "blocked" {
         show_blocked(game);
         return Step::Done;
@@ -203,6 +236,25 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
             .unwrap_or_else(|_| lingo::Value::Symbol(value.to_string()));
         game.state.set(key, parsed.clone());
         println!("  {key} = {parsed:?}");
+        show(game);
+        return Step::Done;
+    }
+    // The other half of `set`: takes a value out of a flag's list, which is
+    // what `trimState` does and what a recording needs when the click that
+    // would have done it is not ported yet.
+    if let Some(rest) = cmd.strip_prefix("trim ") {
+        let mut parts = rest.split_whitespace();
+        let (Some(key), Some(value)) = (parts.next(), parts.next()) else {
+            println!("  usage: trim <flag> <item>");
+            return Step::Broken;
+        };
+        let value = value.trim_start_matches('#');
+        let parsed = value
+            .parse::<i32>()
+            .map(lingo::Value::Int)
+            .unwrap_or_else(|_| lingo::Value::Symbol(value.to_string()));
+        game.state.trim_item(key, &parsed);
+        println!("  {key} -= {parsed:?}");
         show(game);
         return Step::Done;
     }

@@ -463,6 +463,11 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                     key: "showMontage".into(),
                     value: Value::Int(1),
                 });
+                // and then `updateDisplay( oPuppeteer )`, which is what takes
+                // the twelve tiles off the stage: the room's own sprite for
+                // `#showMontage = 1` is the whole telegram, and composing it
+                // sweeps every channel above the room's own.
+                out.effects.push(Effect::ParkSpareSprites);
             }
         }
 

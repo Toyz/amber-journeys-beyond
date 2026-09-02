@@ -428,8 +428,8 @@ fn cmd_room(dir: &Path, domain: &str, index: usize) -> Res {
     println!("  sprites:");
     for s in &node.sprites {
         println!(
-            "    ch {:?} cast {} {:?} ink {} vol {:?}",
-            s.channel, s.cast_number, s.cast_name, s.ink, s.volume
+            "    ch {:?} cast {} {:?} ink {} vol {:?} coords {:?} when {:?}",
+            s.channel, s.cast_number, s.cast_name, s.ink, s.volume, s.center, s.condition
         );
     }
     println!("  hotspots:");
@@ -1195,7 +1195,7 @@ fn cmd_verify(dir: &Path) -> Res {
 }
 
 /// Minimal PNG writer, so exporting art needs no image dependency.
-fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
     fn crc32(data: &[u8]) -> u32 {

@@ -6610,3 +6610,145 @@ that may be a coincidence of timing rather than the cause.
 
 Neither is in the way of the chapter being finished; both are in the way of
 watching it.
+
+## 145. The telegram was right; what was missing was the sweep
+
+Entry 144 guessed wrong, so this entry starts by undoing it.
+
+The tiles do carry registration points, and they are dead centre. `dims`
+prints them beside the origin of each member's rectangle:
+
+```text
+MLR_Telegram_1     62x60  reg=(33,35)  origin=(2,5)   ->  (31,30), centre (31,30)
+MLR_Telegram_4     63x55  reg=(32,34)  origin=(1,7)   ->  (31,27), centre (31.5,27.5)
+MLR_Telegram_8     63x70  reg=(32,35)  origin=(1,0)   ->  (31,35), centre (31.5,35)
+```
+
+Director anchors a bitmap at `reg - initialRect.topLeft`, which the decoder
+already does, and for every one of these that lands on the middle of the tile.
+So centring and honouring the registration point give the same answer here,
+and the layout `initTelegramPuzzle` asks for is the layout that was drawn. I
+checked it the other way round as well, by correlating each tile against
+`MLR_Telegram_full_blur` -- the whole telegram, 265 by 199, which is what the
+room puts behind the puzzle. Every tile matches within about two pixels of
+where the engine puts it.
+
+Which left the actual fault, and it was not a fault of placement at all: the
+tiles were still on the stage. Solving the puzzle shows the whole telegram
+behind them, so a sharp piece and its blurred copy sat a few pixels apart and
+every line of the message read twice. That is what the screenshot showed.
+
+### Nothing un-puppets anything
+
+`moveMe` ends, on the last move, with
+
+```text
+setState( oStoryteller, #showMontage, 1 )
+setTransition( oPuppeteer, #fadeIn )
+updateDisplay( oPuppeteer )
+```
+
+and no `puppetSprite ... 0` anywhere. The pieces come down because
+`updateDisplay` takes them down. Its last act, after placing the room's own
+sprites, is
+
+```text
+repeat with i = <last placed> + 1 to 37
+  set the castNum of sprite i = 6
+  set the loc     of sprite i = point( 320, 360 ) + gOriginPoint
+```
+
+-- blank the channel and park it off to one side. A puppet lives exactly as
+long as no other composition happens. That is a general rule I had missed
+entirely, not a detail of this puzzle: this engine only dropped puppets on a
+room change, and only in the window, so anything a script put on a channel
+survived every redraw that was not a move.
+
+So `updateDisplay` now emits `ParkSpareSprites`, which drops every claimed
+channel above the room's own and at or below 37. `updateStage` does not --
+that one is Director's, and only blits what is already composed. The
+distinction matters: several handlers call `updateStage` in the middle of
+building a display.
+
+The assembled telegram now reads as one sheet.
+
+### gOriginPoint, while I was in there
+
+`birth` sets it, and on a PC it is `point(0, 0)`:
+
+```text
+if gCPU <> #mistakenNotionOfaPC then
+  gOriginPoint = point( stageLeft, stageTop )
+  gMenuBottomY = originY + 30 : gInventoryTopY = originY + 380
+else
+  gOriginPoint = point( 0, 0 ) : gMenuBottomY = 30 : gInventoryTopY = 380
+```
+
+Every `+ gOriginPoint` in the ported handlers was already being treated as
+zero, which turns out to be right for the data this engine reads.
+
+### `shot` inside a walk
+
+`amber shot` renders a room from its own sprite list, which cannot show a
+puzzle: a puzzle lives entirely on puppet channels and is not in that list.
+So `walk` takes a `shot <file>` step now, and a recording can reach a state
+and then ask for the frame. That is how both halves of this entry were
+checked.
+
+### The clock puzzle is not in the shipped data
+
+Chasing the other half of the full walk -- what sets a clock to seven, which
+is what puts Margaret's living room on the air -- ends somewhere I did not
+expect. `moveClock` exists and is complete:
+
+```text
+on moveClock command      -- #add_15min, #add_30min, #add_3hr, #reset_4pm
+  ... add to Hrs and min, wrap at 12 ...
+  setProp( oStoryteller.states, #clockTime, list(newTime) )
+  if newTime = #t7 and getState( #clockPuzzleActivated ) = 1 then
+    addState( #tunedIn, #livingRm )
+    put ">-> Puzzle solved .. tuning in the Living Room!"
+```
+
+and `touchClock whichClock` beside it, with the utterances for a player who is
+stuck. Neither is called. Not by a handler in any of the five movies, not by
+a hotspot action string in any room record, not on the PC disc and not on the
+Mac one. The names appear exactly once each in `MARGARET.DXR`, in its own name
+table; `#add_15min` and the other three commands appear twice, both in
+`moveClock` itself. The dining room's clock close-up has four hotspots and all
+four of them either open the case, close it, or leave the room.
+
+`#clockTime` starts at `#t4` and is a one-entry list, so `setState` would
+build `setClockTime( #... )` -- and there is no such handler either. The only
+writer is the `setProp` inside `moveClock`.
+
+Which makes the living room unreachable. `backAwayFromRadio` transits to
+`getState( #tunedIn )`, and `#tunedIn` opens as `[#bedroom, #kitchen,
+#inBetween]`. `setState` on a list that long moves an entry to the head and
+refuses a value that is not in it, so tuning the dial to 196 cannot put you in
+the living room until something has added `#livingRm` to the list. Two things
+add to it: the knitting needle adds `#diningRm`, from a hotspot, and
+`prodVLoops` adds `#livingRm` when the dining room's programme reaches
+`#startPuzzle`:
+
+```text
+setState( oStoryteller, #clockPuzzleActivated, 1 )
+if getState( #clockTime ) = #t7 then
+  addState( #tunedIn, #livingRm )
+  put "They got lucky; it's 7 o'clock, so I'm tuning in the Living Rm"
+```
+
+"They got lucky" is the branch for a player who had already set a clock. The
+branch for the player who has not is `moveClock`, and nothing can reach it.
+
+I am not going to invent the missing interaction. What I can say precisely is
+where the chain breaks, and that the rest of it -- the programme reaching
+`#startPuzzle`, the activation, the test, the transit -- is all present and
+ported. If it turns out the clock hands were meant to be sprite scripts on
+their multiframe casts, that is the one place left to look; this engine does
+not read a member's own script link, and entry 143 already owed that debt.
+
+Until then Margaret's living room is reached by a recorded `set`, and the walk
+says so where it does it.
+
+298 tests, eight recordings.

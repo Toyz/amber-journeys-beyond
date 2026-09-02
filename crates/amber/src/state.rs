@@ -113,9 +113,8 @@ impl State {
     /// The one explicit assignment in the game, setting the headgear to
     /// `#usedUp` once consumed, still applies afterwards and is not disturbed.
     fn sync_possession(&mut self, item: &str, held: bool) {
-        // `addInventory` ends with `setState( #playerHas<Item>, #carrying )`
-        // and `deleteInventory` with `setState( #playerHas<Item>, 0 )`, so
-        // this goes through the same write and keeps the flag's declared
+        // `addInventory` ends with `setState( #playerHas<Item>, #carrying )`,
+        // so this goes through the same write and keeps the flag's declared
         // settings behind the current one.
         //
         // Replacing the list with a single value instead lost two things.
@@ -124,11 +123,34 @@ impl State {
         // and a one-entry list is this engine's signal that a `set<Flag>`
         // handler exists, so picking anything up quietly changed how writes
         // to that flag were dispatched.
+        //
+        // `deleteInventory` does not write zero. It writes `#usedUp`, and
+        // makes two exceptions:
+        //
+        // ```text
+        // if whichItem = #ScanDevice or whichItem = #Headgear then
+        //   if whichItem = #ScanDevice then setState( #playerHasScanDevice, 0 )
+        //   if whichItem = #Headgear   then setState( #playerHasHeadgear, #inUse )
+        // else
+        //   setState( value("#playerHas" & whichItem), #usedUp )
+        // ```
+        //
+        // The scan device is put down and can be picked up again, so it goes
+        // back to zero; the headgear is worn rather than spent. Everything
+        // else is spent, and the difference is load-bearing: the door into
+        // the 1940s bedroom opens on `#playerHasBedroomKey = #usedUp`, so
+        // writing zero here turned the key in the lock and left the door
+        // shut -- which is the door the whole second half of the game is
+        // behind.
         let key = format!("playerHas{item}");
         let value = if held {
             Value::Symbol("carrying".into())
-        } else {
+        } else if item.eq_ignore_ascii_case("ScanDevice") {
             Value::Int(0)
+        } else if item.eq_ignore_ascii_case("Headgear") {
+            Value::Symbol("inUse".into())
+        } else {
+            Value::Symbol("usedUp".into())
         };
         self.set(&key, value);
     }
@@ -413,9 +435,29 @@ mod tests {
         // flag left with one value is a flag this engine treats differently.
         assert_eq!(s.get_all("playerHasCrowbar").len(), 4);
 
+        // Spending it writes `#usedUp`, which is what `deleteInventory` does
+        // for everything but the scan device and the headgear. It still reads
+        // as "not zero", because that is the test the scripts make, and the
+        // handlers that need the difference ask for `#usedUp` by name -- the
+        // 1940s bedroom door is one of them.
         s.delete_inventory("crowbar"); // case-insensitive
-        assert_eq!(s.get("playerHasCrowbar").as_int(), Some(0));
-        assert!(!s.carrying("Crowbar"));
+        assert!(s.get("playerHasCrowbar").is_symbol("usedUp"));
+        assert!(s.carrying("Crowbar"));
+
+        // The scan device goes back in its box rather than being spent, and
+        // the headgear is worn.
+        s.set_all("playerHasScanDevice", vec![Value::Int(0), Value::Symbol("carrying".into())]);
+        s.add_inventory("ScanDevice");
+        s.delete_inventory("ScanDevice");
+        assert_eq!(s.get("playerHasScanDevice").as_int(), Some(0));
+
+        s.set_all(
+            "playerHasHeadgear",
+            vec![Value::Int(0), Value::Symbol("carrying".into()), Value::Symbol("inUse".into())],
+        );
+        s.add_inventory("Headgear");
+        s.delete_inventory("Headgear");
+        assert!(s.get("playerHasHeadgear").is_symbol("inUse"));
     }
 
     #[test]

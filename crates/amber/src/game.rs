@@ -110,6 +110,12 @@ pub struct Game {
     pub player: Option<VideoPlayer>,
 }
 
+/// The channel the room's own sprite list starts just above.
+///
+/// `updateDisplay` addresses a room sprite as `lastScoreSprite + #channel`,
+/// which leaves 1..12 to the frame's own furniture.
+const SCORE_BASE: u16 = 12;
+
 impl Game {
     /// The chapter the game opens in. Roxy's is the present-day frame story
     /// that the other three are reached from.
@@ -972,6 +978,120 @@ impl Game {
     /// moves the *last* entry to the front rather than stepping forward, so a
     /// list of three ghosts and three pauses gives one call, three seconds of
     /// quiet, then two calls together.
+    /// Counts a move and lets the house haunt the player, as `goTo` does.
+    ///
+    /// ```text
+    /// lsMoveCounter = getProp( oStoryteller.states, #moveCount )
+    /// setAt( lsMoveCounter, 1, getAt( lsMoveCounter, 1 ) + 1 )
+    /// ...
+    /// if getState( #BarOnline ) and getState( #PeekDisplay ) = #None then
+    ///   showTime = getState( #hauntDelay )
+    ///   if getAt( lsMoveCounter, 1 ) > showTime
+    ///      and destination <> #LivingRmBarCU2 then
+    ///     spawnGhostlyEvent()
+    ///     setProp( oStoryteller.states, #hauntDelay, list( max( 0, showTime - 4 ) ) )
+    /// ```
+    ///
+    /// This is the clock the six camera haunts run on, and it is the whole
+    /// second act's gate: the telephone only rings once every haunt has been
+    /// caught and watched back, and until the telephone rings there is no
+    /// headgear, no Amber vision, and no way into any of the three chapters.
+    /// None of it was ported, so the house was silent however far it was
+    /// walked, and I had put the missing piece down to the haunts arriving
+    /// "on their own clock". They arrive on this one.
+    ///
+    /// `#hauntDelay` opens at 60 and comes down by four each time, so the
+    /// first haunt is a long way into the house and they quicken after that.
+    /// The bar's own close-up is excluded because that is where the player
+    /// goes to watch one.
+    fn count_move(&mut self, destination: &str) {
+        let count = self.state.get("moveCount").as_int().unwrap_or(0) + 1;
+        self.state.set_all("moveCount", vec![lingo::Value::Int(count)]);
+
+        if !self.state.get("BarOnline").truthy() {
+            return;
+        }
+        if !self.state.get("PeekDisplay").is_symbol("None") {
+            return;
+        }
+        let delay = self.state.get("hauntDelay").as_int().unwrap_or(0);
+        if count <= delay || destination.eq_ignore_ascii_case("LivingRmBarCU2") {
+            return;
+        }
+        if self.spawn_ghostly_event() {
+            self.state
+                .set_all("hauntDelay", vec![lingo::Value::Int((delay - 4).max(0))]);
+        }
+    }
+
+    /// Puts the first haunt the player is not standing in front of onto the
+    /// PeeK unit.
+    ///
+    /// Each of the six names the area it happens in, and some of them name
+    /// doorways as well -- a haunt in the kitchen is not offered from the
+    /// dining room's entry to it either, because the point of the recording
+    /// is that it happened where nobody was looking. The living room's is
+    /// held back from the study too, which is the room its camera is watched
+    /// from.
+    ///
+    /// The list is walked in order and the first eligible one wins, so which
+    /// haunt arrives depends on where the player is when the counter comes
+    /// round.
+    fn spawn_ghostly_event(&mut self) -> bool {
+        // `#ghostKnife` and `#KdKnob` are both in the kitchen and share a
+        // list of doorways it can be seen from.
+        const KITCHEN_DOORS: [&str; 7] = [
+            "DiningRmKitchenEntry2",
+            "HallKitchenEntryOpen",
+            "Ghse_D_S",
+            "Ghse_D_W",
+            "Ghse_E_W",
+            "Ghse_P_KitchenDoorCU",
+            "Ghse_P_KitchenEntry",
+        ];
+        const LIVING_ROOM_DOORS: [&str; 4] =
+            ["HallLivingRmEntry", "HallNwall", "HallExit", "PorchDoorCU"];
+
+        let here = self.node().name.clone().unwrap_or_default();
+        let zone = self.node().zone.clone().unwrap_or_default();
+        let elsewhere = |area: &str| !zone.eq_ignore_ascii_case(area);
+        let not_at = |rooms: &[&str]| !rooms.iter().any(|r| r.eq_ignore_ascii_case(&here));
+
+        let waiting: Vec<String> = self
+            .state
+            .get_all("cameraFeedbackRemaining")
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.trim_start_matches('#').to_string()))
+            .collect();
+
+        for haunt in waiting {
+            let eligible = match haunt.to_ascii_lowercase().as_str() {
+                "ghostknife" | "kdknob" => elsewhere("kitchen") && not_at(&KITCHEN_DOORS),
+                "crazylr" => {
+                    elsewhere("livingRm") && elsewhere("Study") && not_at(&LIVING_ROOM_DOORS)
+                }
+                "crazydr" => {
+                    elsewhere("diningRm")
+                        && elsewhere("Study")
+                        && not_at(&["KitchenDiningRmEntry"])
+                }
+                "ghostlykey" => elsewhere("MBR") && not_at(&["UHallMasterBedrmEntry"]),
+                "bloodbath" => elsewhere("Marg") && not_at(&["UHallMargRoomEntry"]),
+                _ => false,
+            };
+            if eligible {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "a camera caught {haunt}; the PeeK has it"
+                );
+                self.state
+                    .set("PeekDisplay", lingo::Value::Symbol(haunt.clone()));
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn tick_ghost_call(&mut self) {
         // `idle` puts this behind `getState( #AMBERVISION ) = #on`, and the
         // hint book agrees: the calls begin once the headgear is on and
@@ -1093,6 +1213,7 @@ impl Game {
                             self.history.push(self.room);
                         }
                         self.move_to(next);
+                        self.count_move(room);
                         self.start_room_video();
                     }
                     None => trace!(
@@ -1155,6 +1276,7 @@ impl Game {
             Effect::SpriteVisible { channel, visible } => {
                 self.puppets.entry(*channel).or_default().hidden = !*visible;
             }
+            Effect::ParkSpareSprites => self.park_spare_sprites(),
             _ => return false,
         }
         true
@@ -1163,6 +1285,34 @@ impl Game {
     /// Releases every claimed channel, which a room change does.
     pub fn clear_puppets(&mut self) {
         self.puppets.clear();
+    }
+
+    /// Clears the channels the room did not place, as `updateDisplay` does.
+    ///
+    /// The game never un-puppets a puzzle's pieces. It composes the stage from
+    /// the room's own sprite list and then walks from just past the last one
+    /// it placed up to sprite 37, blanking each and parking it off to one
+    /// side. So a piece stays on the stage exactly as long as no other
+    /// composition happens, and the next `updateDisplay` sweeps it away.
+    ///
+    /// The telegram is where this shows: solving it sets `#showMontage` and
+    /// calls `updateDisplay`, which is what takes the twelve tiles down and
+    /// leaves the whole telegram behind them. Without the sweep the tiles
+    /// stayed up, a couple of pixels off the picture they were laid over, and
+    /// every line of the message read twice.
+    fn park_spare_sprites(&mut self) {
+        const LAST_SWEPT: u16 = 37;
+        let last_placed = self.world.nodes[self.room]
+            .sprites
+            .iter()
+            .filter_map(|s| match s.channel {
+                Channel::Sprite(n) => Some(SCORE_BASE + u16::from(n)),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(SCORE_BASE);
+        self.puppets
+            .retain(|ch, _| u16::from(*ch) <= last_placed || u16::from(*ch) > LAST_SWEPT);
     }
 
     /// Draws the current room into a 640x480 BGRA framebuffer.
@@ -1186,7 +1336,6 @@ impl Game {
         // the puppets -- happens to be right until a script claims a channel
         // below the movie, and then the puppet lands on top of a film it
         // belongs behind.
-        const SCORE_BASE: u16 = 12;
         const MOVIE_CHANNEL: u16 = 44;
 
         enum Layer {
@@ -2083,6 +2232,10 @@ impl Game {
         if outcome.go_back {
             if let Some(prev) = self.history.pop() {
                 self.move_to(prev);
+                // `goBack` is a `goTo` with the destination looked up, so it
+                // counts towards the haunts like any other move.
+                let back = self.node().name.clone().unwrap_or_default();
+                self.count_move(&back);
             }
         } else if let Some(dest) = &outcome.destination {
             let from = self.node().domain.clone();
@@ -2096,6 +2249,8 @@ impl Game {
                     }
                 }
                 self.move_to(next);
+                let dest = dest.clone();
+                self.count_move(&dest);
             }
         }
         // A move changes which movie is on screen, so reload it either way.
