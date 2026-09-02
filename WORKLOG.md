@@ -5605,3 +5605,60 @@ with the vision on. None of those are ported. They are recorded here so the
 next reading of `idle` starts from a list rather than from scratch.
 
 280 tests.
+
+## 126. Nothing left on the list
+
+`verify` says `unported verbs: none` for the first time.
+
+Two left, and neither was what the count made them look like.
+
+The stray `set` was `set the directToStage of cast 1778 to TRUE`, in the room
+that plays the opening film. Director's `directToStage` takes a digital video
+member out of the stage compositor and lets QuickTime draw it straight to the
+screen -- faster, and why a full-screen film does not stutter under Director 5.
+Nothing composites films here in that sense; a film is drawn into its member's
+rect either way. Ported as the no-op it is, for the same reason as
+`forcePalette` in entry 118: an empty arm with the reasoning beside it beats a
+number that says work is outstanding when there is none.
+
+`initTelegramPuzzle` lays out the torn telegram, four tiles across and three
+down, from `#telegram`:
+
+```text
+[#one: 1051, #None: 1063, #three: 1052, #four: 1053, #five: 1054, #six: 1055,
+ #seven: 1056, #eight: 1057, #nine: 1058, #ten: 1059, #eleven: 1060,
+ #twelve: 1061]
+```
+
+The second entry is `#None`, not `#two`. That is the puzzle: the blank is a
+real tile with its own art, so this is a sliding puzzle with eleven pieces and
+a hole rather than twelve pieces to shuffle. I would have read straight past
+it if I had been matching names to numbers instead of reading the list.
+
+The scramble is stored as a permutation rather than as coordinates:
+
+```text
+telegramStart = [5, 7, 12, 8, 11, 9, 6, 10, 2, 3, 1, 4]
+workingNumber = getPos( telegramStart, i ) - 1
+```
+
+Tile `i` is sprite `24 + i`, takes the `i`th cast from the table, and goes to
+the slot where `i` appears in that list. Four across, so the slot divides by
+four for the row and takes the remainder for the column.
+
+The ink is not carried over. Director's ink 10 is a matte and this engine
+mattes a plate from its own transparency rather than being told to per sprite.
+
+The coverage test fired, which is what it is for -- entry 81's rule is that it
+names the unported handlers so that porting one breaks it. With nothing left to
+name it had to change shape rather than be deleted, so it now names
+`usePeekUnit`: the PeeK unit's own interface, a modal screen with its own event
+loop, opened from the inventory bar rather than from a room script. No tally
+counts it, which is exactly why it is worth naming.
+
+The repository is public now, at `Toyz/amber-journeys-beyond`, MIT. Eight
+megabytes of history and ninety-odd files, all of it source and notes; the
+purge from entry 76 held, and nothing game-shaped is on the remote. Every
+commit is pushed from here on.
+
+281 tests.

@@ -348,8 +348,8 @@ Working:
 - Inventory: the bar, picking things up and using them on the scene
 - Hotspot guards, including the compound conditions, so locked things stay
   locked
-- Set-piece handlers ported from the compiled Lingo, leaving two verbs with
-  call sites unported and no unported setters at all: the ghost telephone,
+- Every handler the room scripts name is ported -- no unported verbs and no
+  unported setters: the ghost telephone,
   Chippy, the office laptop, the ice white-out, the music boxes, the boat and
   the car
 - Transitions: `goTo`'s second argument is the transition for that move, so a
@@ -360,11 +360,10 @@ Working:
 
 Not yet done:
 
-- Two handlers with call sites, `initTelegramPuzzle` and one stray `set`. The
-  interpreter records anything unported as `Effect::Native` so the surrounding
-  timeline stays intact and the count stays honest
-- `usePeekUnit`, the PeeK unit's own interface. It is reached from the
-  inventory bar rather than from a room script, so the tally cannot see it
+- `usePeekUnit`, the PeeK unit's own interface: a modal screen with its own
+  event loop, opened from the inventory bar rather than from a room script, so
+  no tally counts it. The hint book tells a new player to click it in their
+  first minute
 - The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs
   after five seconds of no input
 - Save and load, though the state schema in the data is effectively the save

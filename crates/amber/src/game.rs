@@ -372,6 +372,7 @@ impl Game {
         self.chapters.get(&domain)?.tables.lookup(table, key)
     }
 
+
     /// Writes a chapter's declared starting state into the world state.
     ///
     /// Separate from `enter_chapter` because a room can be rendered without
@@ -1133,6 +1134,11 @@ impl Game {
             }
             Effect::SpriteCastNamed { channel, name } => {
                 if let Some(cast) = self.presentation_cast(name) {
+                    self.puppets.entry(*channel).or_default().cast = cast;
+                }
+            }
+            Effect::SpriteCastFromTable { channel, table, key } => {
+                if let Some(cast) = self.cast_lookup(table, &lingo::Value::Symbol(key.clone())) {
                     self.puppets.entry(*channel).or_default().cast = cast;
                 }
             }

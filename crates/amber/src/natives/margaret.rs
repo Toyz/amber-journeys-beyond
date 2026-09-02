@@ -266,6 +266,84 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             }
         }
 
+        // on initTelegramPuzzle
+        //   vGap = 68 : hGap = 65
+        //   origin = point(220, 182) + gOriginPoint
+        //   firstSprite = 25
+        //   puzzlePieces = getProp( oPuppeteer.frames, #telegram )
+        //   assignSprite = firstSprite
+        //   repeat with thisPiece in puzzlePieces
+        //     puppetSprite assignSprite, 1
+        //     set the castNum of sprite assignSprite = thisPiece
+        //     set the ink of sprite assignSprite = 10
+        //     assignSprite = assignSprite + 1
+        //   telegramStart = [5, 7, 12, 8, 11, 9, 6, 10, 2, 3, 1, 4]
+        //   setProp( oStoryteller.states, #telegramGuess, value(string(telegramStart)) )
+        //   repeat with i in telegramStart
+        //     workingNumber = getPos( telegramStart, i ) - 1
+        //     skipRows    = workingNumber / 4
+        //     skipColumns = workingNumber mod 4
+        //     set the loc of sprite (firstSprite + i - 1) =
+        //         origin + point( hGap * skipColumns, vGap * skipRows )
+        //   puppetTransition 26 : updateStage
+        //
+        // The torn telegram, laid out as twelve tiles four across and three
+        // down. `#telegram` names them:
+        //
+        //   [#one: 1051, #None: 1063, #three: 1052, #four: 1053, #five: 1054,
+        //    #six: 1055, #seven: 1056, #eight: 1057, #nine: 1058, #ten: 1059,
+        //    #eleven: 1060, #twelve: 1061]
+        //
+        // The second entry is `#None` rather than `#two`, and that is the
+        // puzzle: the blank is a real tile with its own art, so this is a
+        // sliding puzzle with eleven pieces and a hole rather than twelve
+        // pieces to rearrange.
+        //
+        // Tile `i` is sprite `24 + i` and takes the `i`th cast from the table.
+        // Where it goes is where `i` appears in the starting order, so the
+        // opening arrangement is a scramble expressed as a permutation rather
+        // than as coordinates.
+        //
+        // The ink is not set here. Director's ink 10 is a matte, and this
+        // engine mattes a plate from its own transparency rather than being
+        // told to per sprite.
+        "inittelegrampuzzle" => {
+            // The scramble the puzzle opens with.
+            const START: [i32; 12] = [5, 7, 12, 8, 11, 9, 6, 10, 2, 3, 1, 4];
+            const FIRST_SPRITE: u8 = 25;
+            const ORIGIN: (i32, i32) = (220, 182);
+            const GAP: (i32, i32) = (65, 68);
+            // The tiles in the order `#telegram` lists them, which is the
+            // order the tile numbers run in.
+            const TILES: [&str; 12] = [
+                "one", "None", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                "eleven", "twelve",
+            ];
+
+            state.set_all(
+                "telegramGuess",
+                START.iter().map(|n| Value::Int(*n)).collect(),
+            );
+
+            for (slot, tile) in START.iter().enumerate() {
+                let channel = FIRST_SPRITE + (*tile as u8) - 1;
+                let Some(key) = TILES.get(*tile as usize - 1) else { continue };
+                out.effects.push(Effect::PuppetSprite { channel, on: true });
+                out.effects.push(Effect::SpriteCastFromTable {
+                    channel,
+                    table: "telegram".into(),
+                    key: (*key).into(),
+                });
+                out.effects.push(Effect::SpriteLoc {
+                    channel,
+                    x: ORIGIN.0 + GAP.0 * (slot as i32 % 4),
+                    y: ORIGIN.1 + GAP.1 * (slot as i32 / 4),
+                });
+            }
+            out.effects.push(Effect::SetTransition { kind: "fadeIn".into() });
+            out.redraw = true;
+        }
+
         // on setDumbWaiter suggestion
         //   currentState = getState( #dumbWaiter )
         //   ok = 0 : validRequest = #none
@@ -1197,5 +1275,50 @@ mod box_tests {
 
         let out = send(&mut s, "comingDown");
         assert!(!out.effects.is_empty());
+    }
+
+    #[test]
+    fn the_telegram_opens_scrambled_in_a_four_by_three_grid() {
+        // Tile `i` is sprite `24 + i` and goes to the slot where `i` appears
+        // in the starting order, so the scramble is a permutation rather than
+        // a set of coordinates.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        let mut out = Outcome::default();
+        assert!(call("inittelegrampuzzle", &[], &mut s, &mut out));
+
+        let at = |channel: u8| {
+            out.effects.iter().find_map(|e| match e {
+                Effect::SpriteLoc { channel: c, x, y } if *c == channel => Some((*x, *y)),
+                _ => None,
+            })
+        };
+        // The order opens `[5, 7, 12, 8, ...]`, so tile 5 takes the first
+        // slot, tile 7 the second, and the fifth slot starts the second row.
+        assert_eq!(at(29), Some((220, 182)), "tile 5, top left");
+        assert_eq!(at(31), Some((285, 182)), "tile 7, one across");
+        assert_eq!(at(36), Some((350, 182)), "tile 12");
+        assert_eq!(at(35), Some((220, 250)), "tile 11 starts the second row");
+
+        // Twelve tiles, each puppeted and given its cast from the table.
+        assert_eq!(
+            out.effects
+                .iter()
+                .filter(|e| matches!(e, Effect::SpriteCastFromTable { .. }))
+                .count(),
+            12
+        );
+        // And the blank is a real tile with its own art, not a gap.
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::SpriteCastFromTable { key, .. } if key == "None"
+        )));
+
+        let guess: Vec<i32> = s
+            .get_all("telegramGuess")
+            .iter()
+            .filter_map(Value::as_int)
+            .collect();
+        assert_eq!(guess, [5, 7, 12, 8, 11, 9, 6, 10, 2, 3, 1, 4]);
     }
 }

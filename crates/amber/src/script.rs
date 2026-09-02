@@ -58,6 +58,12 @@ pub enum Effect {
     /// `getProp(oPuppeteer, #doorStatic)` does. Resolved when applied, since
     /// the table belongs to the chapter and handlers do not carry one.
     SpriteCastNamed { channel: u8, name: String },
+    /// Point a channel at an entry of one of the chapter's lookup tables.
+    ///
+    /// Distinct from `SpriteCastNamed`, which reads the presentation table.
+    /// The multiframe tables are per chapter and keyed by a state value or,
+    /// for the telegram, by the tile's own name.
+    SpriteCastFromTable { channel: u8, table: String, key: String },
     /// Point a channel at one of an inventory item's icons, by position.
     SpriteCastIcon { channel: u8, item: String, index: usize },
     /// Move the player, in timeline order.
@@ -606,6 +612,20 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                         loudness: None,
                     });
                 }
+                // `set the directToStage of cast 1778 to TRUE`, in the room
+                // that plays the opening film.
+                //
+                // Director's `directToStage` takes a digital video member out
+                // of the stage compositor and lets QuickTime draw it straight
+                // to the screen: faster, and the reason a full-screen film
+                // does not stutter under Director 5. Nothing composites films
+                // here in that sense -- a film is drawn into its member's
+                // rect either way -- so there is nothing to switch on.
+                //
+                // Ported as the no-op it is here rather than left unported,
+                // so the tally stops reporting it as work outstanding when
+                // there is no work to do.
+                Some((property, _)) if property.eq_ignore_ascii_case("directToStage") => {}
                 // A sprite property names the channel it acts on, which the
                 // renderer holds as a script-controlled puppet layer.
                 Some(_) => match parse_assignment(text) {
