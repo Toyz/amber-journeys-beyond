@@ -111,7 +111,7 @@ click 495 200
 # Run it. The BAR comes online and the PeeK flashes.
 click 490 130
 # Open the PeeK: it reports the machine running.
-inv 280 440
+inv 110 410
 # Put the unit back.
 click 320 200
 # Out of the front door to the mailbox on the porch.
@@ -141,55 +141,55 @@ click 320 210
 click 320 210
 # 
 # The oscillator goes into the AMBER device in the study.
-browse
-forward
-pointer
-forward
-right
-forward
-examine
-examine
-inv 380 440
+click 20 210
+click 321 207
+click 315 210
+click 296 210
+click 562 209
+click 319 209
+click 329 298
+click 319 226
+inv 250 410
 click 315 190
 # The device reports in on the PeeK unit.
-browse
+click 320 210
+click 171 215
+click 398 209
+click 248 211
+click 46 210
 forward
-forward
-forward
-left
-forward
-right
-right
-inv 280 440
+click 564 209
+click 564 209
+inv 110 410
 click 320 200
 # 
 # Now the cameras. With the BAR running, every move past the sixtieth
 # rolls the haunt clock, and each haunt has to be watched back before the
 # next can be caught. Pacing the porch does as well as anything: it is out
 # of every room a camera is watching.
-right
-left
-inv 280 440
+click 564 209
+click 75 210
+inv 110 410
 click 320 200
-right
-left
-inv 280 440
+click 564 209
+click 75 210
+inv 110 410
 click 320 200
-right
-left
-inv 280 440
+click 564 209
+click 75 210
+inv 110 410
 click 320 200
-right
-left
-inv 280 440
+click 564 209
+click 75 210
+inv 110 410
 click 320 200
-right
-left
-inv 280 440
+click 564 209
+click 75 210
+inv 110 410
 click 320 200
-right
-left
-inv 280 440
+click 564 209
+click 75 210
+inv 110 410
 click 320 200
 # 
 # One tonal residue has to be read as well. The click that does it is on
@@ -197,29 +197,29 @@ click 320 200
 # does not read yet -- see WORKLOG 145 -- so it is done here by hand.
 trim tonalresidueremaining PkPatioScan
 # Putting the unit away tests for psionic waves, and the phone rings.
-inv 280 440
+inv 110 410
 click 320 200
 # 
 # Answer it. Roxy is on the other end; then the line goes dead.
-forward
-pointer
-forward
-left
-forward
-forward
-examine
-examine
+click 321 207
+click 315 210
+click 296 210
+click 75 210
+click 313 210
+click 346 245
+click 387 338
+click 405 217
 click 320 250
 click 100 300
 # The AMBER device is waiting. Raise the headgear and put it on.
-browse
-browse
-forward
-forward
-forward
-forward
-examine
-examine
+click 620 210
+click 320 210
+click 166 213
+click 553 191
+click 316 208
+click 319 209
+click 329 298
+click 319 226
 click 320 220
 click 300 200
 click 300 200
@@ -229,33 +229,33 @@ click 600 100
 # 
 # The ghostly-key haunt showed where the key to the last upstairs door is:
 # the right-hand bedside drawer in the master bedroom.
-forward
-forward
-forward
-right
+click 171 215
+click 398 209
+click 248 211
+click 586 209
 click 224 253
-forward
-forward
-left
-left
-forward
-forward
+click 525 204
+click 418 209
+click 222 210
+click 212 210
+click 471 209
+click 409 206
 click 477 271
-examine
+click 320 287
 click 300 160
 click 340 215
 # Turn it in the 1940s bedroom door.
 browse
-right
-right
-forward
-forward
-forward
-examine
-inv 420 440
+click 564 209
+click 564 209
+click 328 237
+click 462 218
+click 153 209
+click 218 307
+inv 320 410
 click 320 310
 # Push the door open and walk in.
-forward
+click 320 210
 click 320 210
 forward
 # 
@@ -268,11 +268,11 @@ click 320 240
 # kitchen; the other two are earned.
 # 
 # Tune up to the kitchen, and step back into it.
-right
-right
-forward
-examine
-examine
+click 487 240
+click 487 240
+click 458 260
+click 307 254
+click 385 274
 click 412 335
 click 412 335
 click 412 335
@@ -300,7 +300,7 @@ click 300 200
 click 254 246
 # 
 # Back to the bedroom, and put the knitting needle into the waiter.
-examine
+click 320 318
 click 390 335
 click 390 335
 click 390 335
@@ -318,7 +318,7 @@ click 300 200
 click 259 293
 click 200 330
 # Down to the kitchen again, send the waiter down, and take it out below.
-examine
+click 465 254
 click 412 335
 click 412 335
 click 412 335
@@ -334,7 +334,7 @@ click 412 335
 click 412 335
 click 300 200
 click 254 265
-examine
+click 355 208
 click 315 295
 # 
 # The living room is the fourth station, and it comes on the air when a
@@ -346,7 +346,7 @@ set tunedin livingRm
 # 
 # Tune up to the living room and step into it.
 browse
-examine
+click 320 318
 click 412 335
 click 412 335
 click 412 335
@@ -378,9 +378,9 @@ click 300 200
 # 
 # The wastepaper basket beside her desk. Tip it out; the telegram she tore
 # up is on the floor.
-right
-forward
-down
+click 487 240
+click 219 273
+click 356 349
 click 318 248
 # Kneel to it, and the pieces lay themselves out four across and three down.
 click 330 250

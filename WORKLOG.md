@@ -6875,3 +6875,95 @@ confirmed one, and entry 144's second half stays open until helba sees it
 again -- or does not.
 
 298 tests, nine recordings.
+
+## 147. Stuck in a cardboard box, and the bar was in the wrong place
+
+helba got stuck inside the opened package on the porch. The room listing
+offered two pointers, one of which said it led back out, and typing `pointer`
+took the other one for ever.
+
+That is not a fault in the room. `PorchMailboxCU2` has nine hotspots and the
+last of them is guarded `#always`:
+
+```text
+[#pointer, rect(14, 55, 627, 366),
+ ["setState( oStoryteller, #playerIsExaminingPackage, #open )",
+  "updateDisplay( oPuppeteer )", "goTo( #PorchMailboxCU, #fadeIn )"],
+ [#equals: [#always, 1]]]
+```
+
+so there is always a way out, and it is the whole screen. What sits above it in
+the list is the letter, at `rect(268, 61, 514, 170)`, and above that a
+full-screen region that puts the letter down again. Clicking the letter reads
+it; clicking anywhere else leaves. That is a fine piece of design with a mouse
+and a cursor, and it is unusable through a terminal that only lets you say the
+word "pointer" -- which takes the first live hotspot carrying it, which is the
+letter.
+
+Two changes to the walkthrough tool, and both were overdue.
+
+**The live exits are numbered per verb.** A room offering three pointers now
+lists `pointer`, `pointer 2`, `pointer 3`, and `pointer 3` takes the third.
+A bare verb still means the first, so every recording already written keeps
+working.
+
+**The click point printed against a row is now a point that actually resolves
+to that row.** It used to be the middle of the region, which is right until
+regions overlap -- and they overlap constantly, since first in the list wins.
+The middle of a region lying under a wider one belongs to the wider one, so the
+listing was printing a point that, clicked, did something else. That is not a
+cosmetic problem: it is a lie a recording then acts on, and it sent my own
+route-finder from the mailbox straight back into the mailbox. The listing now
+probes the middle, the quarter points and the corners, prints the first that
+resolves, and says `(covered; use `pointer 3`)` when none does.
+
+Writing that verification meant a second copy of the hit test, and the second
+copy got the `#browse` exception the wrong way round -- it ranked browse first
+where the real one ranks it last. The listing then swore that the middle of the
+mailbox's browse region reached the browse region, the click went to the
+pointer above it, and the route walked back into the box it had just left. So
+there is one copy now: `hit_index` does the ranking and answers with a place in
+the room's list, and `hit_test` is a line on top of it.
+
+### And then the bar
+
+helba's other question was about the inventory bar: why do items show as
+outlines when nothing has been clicked, and why does an item sometimes vanish.
+
+Neither is a bug. `updateInventory` draws icon 1 while the cursor is over the
+bar and icon 2 while it is anywhere else, and those are "full colour" and "a
+glowing outline" -- the hint book describes exactly that, and says to move the
+cursor down and watch it happen. The outline is the resting state, not a mark
+of anything. And an item that is in hand is skipped entirely, because in the
+original it is on the cursor; taking the PeeK out of the bag is what makes it
+disappear from the bag.
+
+But going to check that turned up a real fault next to it. The bar's geometry
+is written down and I had guessed it:
+
+```text
+foundationSprite = 3 : itemV = 410 : itemH = 110
+repeat with i = 1 to 7
+  ...
+  set the loc of sprite itemSprite = point( itemH, itemV ) + gOriginPoint
+  itemH = itemH + 70
+```
+
+Seven fixed slots, left-aligned from 110, seventy apart, all on the row whose
+centre is 410. Every icon is 67 by 67 registered at (33, 33), so the first
+slot's corner is (77, 377). This engine centred the whole group and put it
+flush with the bottom of the stage at (`(640 - n*67)/2`, 413) -- so the bar sat
+thirty-six pixels too low, and every icon moved sideways whenever anything was
+picked up or put down. `gInventoryTopY`, which decides when the icons light up,
+was `stage_h - ICON` for the same reason; `birth` sets it to 380.
+
+The moving is the part that mattered beyond looks. A recorded click on the bar
+means a slot, and a slot that shifts when you pick up a crowbar is a recording
+that stops meaning what it meant. All three recordings that click the bar have
+been repointed at the real slots, and the driver that writes them computes
+`110 + 70 * slot` now rather than measuring a centred row.
+
+`full.walk` is regenerated against the corrected bar and still plays start to
+finish.
+
+300 tests, nine recordings.

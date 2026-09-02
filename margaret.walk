@@ -99,7 +99,7 @@ click 495 200
 # Run it. The BAR comes online and the PeeK flashes.
 click 490 130
 # Open the PeeK: it reports the machine running.
-inv 280 440
+inv 110 410
 # Put the unit back.
 click 320 200
 # Out of the front door to the mailbox on the porch.

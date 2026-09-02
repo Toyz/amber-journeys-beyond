@@ -88,21 +88,40 @@ impl Inventory {
 
     /// Where each held item's icon sits, as `(item, x, y)`.
     ///
-    /// The bar runs along the bottom of the stage, centred, which is clear of
-    /// the room art: rooms are drawn at most 452 pixels tall on a 480 stage
-    /// and centred, so the lowest band is free.
-    pub fn layout(&self, held: &[String], stage_w: i32, stage_h: i32) -> Vec<(String, i32, i32)> {
-        let shown: Vec<&String> = held.iter().filter(|i| self.icons(i).is_some()).collect();
-        if shown.is_empty() {
-            return Vec::new();
-        }
-        let total = shown.len() as i32 * ICON;
-        let x0 = (stage_w - total) / 2;
-        let y = stage_h - ICON;
-        shown
-            .iter()
+    /// `updateInventory` says exactly where the bar is, and it is not centred:
+    ///
+    /// ```text
+    /// itemV = 410 : itemH = 110
+    /// repeat with i = 1 to 7
+    ///   ...
+    ///   set the loc of sprite itemSprite = point( itemH, itemV ) + gOriginPoint
+    ///   itemH = itemH + 70
+    /// ```
+    ///
+    /// Seven fixed slots, left-aligned from 110 and 70 apart, all on one row
+    /// whose centre line is 410. `the loc` is the registration point, and
+    /// every icon is 67 by 67 registered at (33, 33), so a slot's top-left
+    /// corner is 33 up and 33 left of its point.
+    ///
+    /// Centring the whole group at the very bottom of the stage instead --
+    /// which is what this did -- put the bar 36 pixels too low and moved every
+    /// icon whenever anything was picked up or put down.
+    pub fn layout(&self, held: &[String], _stage_w: i32, _stage_h: i32) -> Vec<(String, i32, i32)> {
+        const FIRST: i32 = 110;
+        const STEP: i32 = 70;
+        const ROW: i32 = 410;
+        const SLOTS: usize = 7;
+        held.iter()
+            .filter(|i| self.icons(i).is_some())
+            .take(SLOTS)
             .enumerate()
-            .map(|(i, item)| ((*item).clone(), x0 + i as i32 * ICON, y))
+            .map(|(i, item)| {
+                (
+                    item.clone(),
+                    FIRST + i as i32 * STEP - ICON / 2,
+                    ROW - ICON / 2,
+                )
+            })
             .collect()
     }
 
@@ -110,9 +129,11 @@ impl Inventory {
     ///
     /// The cursor being below this is what turns the icons from outlines to
     /// full colour; the original compares `the mouseV` against it once a
-    /// frame from `idle`.
-    pub fn top_y(stage_h: i32) -> i32 {
-        stage_h - ICON
+    /// frame from `idle`. `birth` sets it to 380 on a PC, where
+    /// `gOriginPoint` is the origin -- three pixels above the icons, not at
+    /// the bottom of the stage.
+    pub fn top_y(_stage_h: i32) -> i32 {
+        380
     }
 
     /// The item whose icon covers a point, if any.
@@ -145,9 +166,10 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_starts_one_icon_up_from_the_bottom() {
-        // `gInventoryTopY`, which the cursor crossing is measured against.
-        assert_eq!(Inventory::top_y(480), 480 - ICON);
+    fn the_bar_top_is_where_birth_puts_it() {
+        // `birth` sets `gInventoryTopY = 380` on a PC, and that is what the
+        // cursor crossing is measured against -- not the bottom of the stage.
+        assert_eq!(Inventory::top_y(480), 380);
     }
 
     #[test]
@@ -156,6 +178,36 @@ mod tests {
         let held = ["ScanDevice".to_string(), "Nonesuch".to_string()];
         let placed = inv.layout(&held, 640, 480);
         assert_eq!(placed.len(), 1);
-        assert_eq!(placed[0].1, (640 - ICON) / 2, "the one icon is centred");
+        // `updateInventory` puts the first slot's registration point at
+        // (110, 410), and the icon is registered at its own centre.
+        assert_eq!(placed[0].1, 110 - ICON / 2);
+        assert_eq!(placed[0].2, 410 - ICON / 2);
+    }
+
+    #[test]
+    fn the_slots_are_fixed_and_seventy_apart() {
+        // Left-aligned from 110, not centred: an item is in the same place
+        // whatever else is being carried, which is what makes a recorded
+        // click on the bar mean the same thing twice.
+        let inv = table();
+        let one = inv.layout(&["ScanDevice".to_string()], 640, 480);
+        let two = inv.layout(
+            &["ScanDevice".to_string(), "Crowbar".to_string()],
+            640,
+            480,
+        );
+        assert_eq!(one[0].1, two[0].1, "the first slot does not move");
+        assert_eq!(two[1].1 - two[0].1, 70);
+    }
+
+    #[test]
+    fn the_bar_holds_seven() {
+        // `repeat with i = 1 to 7`, and the eighth slot would run off the
+        // right-hand edge: 110 + 7 * 70 is 600, and the icon is 67 wide.
+        let inv = table();
+        let held: Vec<String> = std::iter::repeat_n("Crowbar".to_string(), 9).collect();
+        let placed = inv.layout(&held, 640, 480);
+        assert_eq!(placed.len(), 7);
+        assert!(placed.last().unwrap().1 + ICON <= 640);
     }
 }

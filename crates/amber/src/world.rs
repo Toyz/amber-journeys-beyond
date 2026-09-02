@@ -373,19 +373,36 @@ impl Node {
         holding: bool,
         live: impl Fn(&Cond) -> bool,
     ) -> Option<&Hotspot> {
+        self.hit_index(x, y, holding, live).map(|i| &self.hotspots[i])
+    }
+
+    /// The same test, answering with the hotspot's place in the room's list.
+    ///
+    /// The walkthrough needs to ask "does clicking here reach *this* row",
+    /// which needs identity rather than the hotspot itself. Ranking this a
+    /// second time somewhere else got the browse exception backwards and sent
+    /// a route into a loop, so there is one copy of it and both callers use
+    /// it.
+    pub fn hit_index(
+        &self,
+        x: i32,
+        y: i32,
+        holding: bool,
+        live: impl Fn(&Cond) -> bool,
+    ) -> Option<usize> {
         self.hotspots
             .iter()
-            .filter(|h| h.bounds.contains(x, y))
-            .filter(|h| !h.actions.is_empty())
+            .enumerate()
+            .filter(|(_, h)| h.bounds.contains(x, y))
+            .filter(|(_, h)| !h.actions.is_empty())
             // An `#itemInUse` region is there to catch something being used on
             // the scene, and does not exist with empty hands. Nearly every room
             // has one covering the whole stage, so leaving it in the running
             // put it above the browse region underneath -- which meant most of
             // most rooms showed the wrong cursor, and clicking the scenery
             // stowed nothing instead of walking.
-            .filter(|h| holding || h.verb != Verb::ItemInUse)
-            .filter(|h| live(&h.condition))
-            .enumerate()
+            .filter(|(_, h)| holding || h.verb != Verb::ItemInUse)
+            .filter(|(_, h)| live(&h.condition))
             // First in the room's list wins, with `#browse` alone ranked
             // below everything.
             //
@@ -410,7 +427,7 @@ impl Node {
             .max_by_key(|(index, h)| {
                 (h.verb != Verb::Browse, std::cmp::Reverse(*index))
             })
-            .map(|(_, h)| h)
+            .map(|(index, _)| index)
     }
 }
 

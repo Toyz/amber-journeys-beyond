@@ -301,14 +301,24 @@ fn settle(game: &mut Game) {
 
 /// Takes one step: a verb, or a room name to jump to.
 fn step(game: &mut Game, cmd: &str) -> Result<(), String> {
-    if let Some(verb) = parse_verb(cmd) {
+    // `pointer 2` takes the second live hotspot carrying that verb, which the
+    // room listing numbers. A bare verb is the first, as it always was.
+    let (word, nth) = match cmd.split_once(char::is_whitespace) {
+        Some((w, rest)) => match rest.trim().parse::<usize>() {
+            Ok(n) if n >= 1 => (w, n),
+            _ => (cmd, 1),
+        },
+        None => (cmd, 1),
+    };
+    if let Some(verb) = parse_verb(word) {
         let hit = {
             let state = &game.state;
             game.node()
                 .hotspots
                 .iter()
                 .filter(|h| h.verb == verb && !h.actions.is_empty())
-                .find(|h| state.test(&h.condition))
+                .filter(|h| state.test(&h.condition))
+                .nth(nth - 1)
                 .cloned()
         };
         let Some(h) = hit else {
@@ -319,7 +329,18 @@ fn step(game: &mut Game, cmd: &str) -> Result<(), String> {
                 .hotspots
                 .iter()
                 .any(|h| h.verb == verb && !h.actions.is_empty());
-            return Err(if gated {
+            let live = {
+                let state = &game.state;
+                game.node()
+                    .hotspots
+                    .iter()
+                    .filter(|h| h.verb == verb && !h.actions.is_empty())
+                    .filter(|h| state.test(&h.condition))
+                    .count()
+            };
+            return Err(if nth > 1 && live > 0 {
+                format!("{cmd}: only {live} live here")
+            } else if gated {
                 format!("{cmd}: present but blocked by its guard (try `blocked`)")
             } else {
                 format!("{cmd}: no such exit here")
@@ -422,33 +443,67 @@ fn show(game: &mut Game) {
         println!("  ambience: {}", parts.join(", "));
     }
 
-    let state = &game.state;
     let mut any = false;
-    for h in &game.node().hotspots {
-        if h.actions.is_empty() || !state.test(&h.condition) {
+    // Numbered per verb, because naming a verb takes the first live hotspot
+    // that carries it and rooms routinely offer several. The open package on
+    // the porch offers two pointers: one reads the letter and one leaves, and
+    // typing `pointer` takes the letter for ever. `pointer 2` takes the other.
+    let mut seen: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (index, h) in game.node().hotspots.clone().iter().enumerate() {
+        if h.actions.is_empty() || !game.state.test(&h.condition) {
             continue;
         }
+        let verb = format!("{:?}", h.verb).to_lowercase();
+        let nth = seen.entry(verb.clone()).or_default();
+        *nth += 1;
+        let label = if *nth > 1 { format!("{verb} {nth}") } else { verb.clone() };
+
         let _speculative = crate::trace::Probe::begin();
-        let mut probe = state.clone();
+        let mut probe = game.state.clone();
         let dest = script::run(&h.actions, &mut probe)
             .destination
             .unwrap_or_else(|| "-".into());
-        // The centre of the region, so a recording can click this exact
-        // affordance rather than naming a verb and taking whichever hotspot
-        // happens to match first. Most rooms offer several `#examine`s.
-        let (cx, cy) = (
-            (h.bounds.left + h.bounds.right) / 2,
-            (h.bounds.top + h.bounds.bottom) / 2,
-        );
-        println!(
-            "  {:<11} -> {dest:<24} click {cx} {cy}",
-            format!("{:?}", h.verb).to_lowercase()
-        );
+        match click_point(game, index, h) {
+            Some((cx, cy)) => println!("  {label:<11} -> {dest:<24} click {cx} {cy}"),
+            // A region entirely underneath others cannot be clicked at all, so
+            // say so rather than printing a point that lands somewhere else.
+            None => println!("  {label:<11} -> {dest:<24} (covered; use `{label}`)"),
+        }
         any = true;
     }
     if !any {
         println!("  (no live exits)");
     }
+}
+
+/// A point inside a hotspot that the hit test actually resolves *to* it.
+///
+/// The middle of the region is the obvious answer and is usually right, but
+/// hotspots overlap and the first in the room's list wins, so the middle of a
+/// region lying under a wider one belongs to the wider one. Printing that
+/// point against this row is a lie a recording then acts on -- which is how a
+/// route out of the mailbox turned into a click straight back into it.
+fn click_point(game: &Game, index: usize, h: &crate::world::Hotspot) -> Option<(i32, i32)> {
+    let b = &h.bounds;
+    let mid = |lo: i32, hi: i32| (lo + hi) / 2;
+    let holding = game.state.item_in_use().is_some();
+    let hits = |x: i32, y: i32| {
+        let state = &game.state;
+        game.node().hit_index(x, y, holding, |c| state.test(c)) == Some(index)
+    };
+    // The middle first, then the four quarter points and the corners just
+    // inside the edge: enough to find a sliver of a region that is only
+    // partly covered, without searching every pixel of a 640 by 480 rect.
+    let xs = [mid(b.left, b.right), b.left + 2, b.right - 2, mid(b.left, mid(b.left, b.right)), mid(mid(b.left, b.right), b.right)];
+    let ys = [mid(b.top, b.bottom), b.top + 2, b.bottom - 2, mid(b.top, mid(b.top, b.bottom)), mid(mid(b.top, b.bottom), b.bottom)];
+    for y in ys {
+        for x in xs {
+            if b.contains(x, y) && hits(x, y) {
+                return Some((x, y));
+            }
+        }
+    }
+    None
 }
 
 /// Lists the hotspots that exist but whose guards currently fail.
