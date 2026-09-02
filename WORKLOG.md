@@ -6245,3 +6245,46 @@ twice and the dining room only opens if it does.
 the shaft, and the dial to 56 for the dining room.
 
 293 tests, and five recordings that pass.
+
+## 137. The last station
+
+Margaret's chapter is four areas behind two puzzles, and the second one is the
+clock.
+
+```text
+if clockTime = #t7 and getState( #clockPuzzleActivated ) = 1 then
+  addState( #tunedIn, #livingRm )
+```
+
+That is in `moveClock`, and neither it nor `touchClock` is ported. So the
+living room is the one part of her house still out of reach, and it is the part
+her chapter ends in -- `livingRm_trashcanCU` and `MLR_FLOOR_CU`, the telegram,
+the montage, and `enterNewDomain( #ROXY, 12 )`.
+
+I checked the rest of the way is clear rather than assuming it. Putting
+`#livingRm` on the air by hand and tuning to 196 steps into `livingRm_c2_n`, and
+all thirty-four of her living room rooms open up from there, the trashcan
+included. So the only thing between here and the end of her chapter is the
+clock puzzle.
+
+Two notes for whoever ports it, from reading `touchClock`:
+
+It tracks `#mostRecentClock` and `#mostRecentTime`, and reacts to touching the
+*same* clock showing the *same* time -- so the puzzle is about noticing that
+the clocks are not running, and the game has a line for the player who keeps
+prodding one. `#clockPuzzleFrustration` counts those prods, and past four she
+says something about wasting time.
+
+And all of that is behind `hipToThePuzzle`, which is
+`inState( #utterancesRemaining, #Iwonder )`. The remarks only start once she
+has said the thing that puts the idea in your head. A game that will not
+explain a puzzle to a player who has not yet been told there is one.
+
+### And the tools lie in a way worth remembering
+
+Twice while chasing this I set a flag with the walkthrough's `set` and watched
+it vanish. Both times the reason was correct behaviour: entering a chapter
+seeds its flags from the schema, so anything set before the jump is overwritten
+by the arrival. The `set` command is for steering a chapter you are already in.
+
+293 tests, five recordings.
