@@ -48,7 +48,8 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
     if interactive {
         println!("\ncommands: a verb (forward, left, right, up, down, examine, pointer),");
         println!("          a room name, `state [filter]`, `blocked`,");
-        println!("          `give <item>`, `use <item>`, `click x y`, `inv x y`,");
+        println!("          `give <item>`, `use <item>`, `set <flag> <value>`,");
+        println!("          `click x y`, `inv x y`,");
         println!("          `skip`, `quit`");
     }
 
@@ -184,6 +185,25 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
     }
     if cmd == "blocked" {
         show_blocked(game);
+        return Step::Done;
+    }
+    // Puts a flag where a long stretch of play would have put it, so the
+    // second half of the game can be reached without replaying the first.
+    // A symbol unless it parses as a number, which is how the data reads.
+    if let Some(rest) = cmd.strip_prefix("set ") {
+        let mut parts = rest.split_whitespace();
+        let (Some(key), Some(value)) = (parts.next(), parts.next()) else {
+            println!("  usage: set <flag> <value>");
+            return Step::Broken;
+        };
+        let value = value.trim_start_matches('#');
+        let parsed = value
+            .parse::<i32>()
+            .map(lingo::Value::Int)
+            .unwrap_or_else(|_| lingo::Value::Symbol(value.to_string()));
+        game.state.set(key, parsed.clone());
+        println!("  {key} = {parsed:?}");
+        show(game);
         return Step::Done;
     }
     // Granting an item makes the #itemInUse hotspots reachable, which is most

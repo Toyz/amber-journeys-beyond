@@ -1,0 +1,30 @@
+# The second act's opening, from the telephone to the Amber vision.
+#
+# The three counts testForPsionicWaves needs are set directly rather than
+# replayed, since hints.walk already covers earning them; what this exercises
+# is the chain from the ringing phone to the vision being on, which is what
+# lets the ghosts call and opens the portals.
+give Oscillator
+use Oscillator
+StudyAmberCU
+click 315 190
+state oscillatorinplace
+set psionicWavesPresent 1
+set ghostlyPhoneCall ringingNow
+# Answer the telephone. The handset and its buttons are their own hotspots,
+# so hanging up means clicking the room around them.
+LivingRmPhoneCU
+click 320 250
+state ghostlyphonecall
+click 100 300
+state ambervision
+# Approach the AMBER device: activated, ready, raised, and put on.
+StudyAmberMid
+click 320 220
+click 300 200
+click 300 200
+state playerhasheadgear
+# Stow the headgear and step back, and the vision comes on.
+click 600 100
+click 600 100
+state ambervision

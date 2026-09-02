@@ -320,6 +320,10 @@ living room set to 6, 5 and 8. It replays from a cold start:
 ./target/release/amber play extract --replay hints.walk --mute   # watch it
 ```
 
+`headgear.walk` picks up where it leaves off: the telephone, Roxy's message,
+the headgear, and the Amber vision coming on -- which is what lets the ghosts
+call and opens the portals into the other three chapters.
+
 A replay exits non-zero when a step names a room or an exit that no longer
 resolves, so a recording is a regression test. A click that lands on nothing
 is counted and reported but does not fail the run: a recording replays what a

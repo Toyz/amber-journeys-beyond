@@ -413,10 +413,39 @@ fn eval_condition(cond: &str, state: &State) -> Option<bool> {
         let i = cond.find('=')?;
         (i, false)
     };
-    let lhs = eval_arg(&parse_value(cond[..op].trim()).ok()?, state);
+    let lhs = eval_side(cond[..op].trim(), state)?;
     let rhs_text = cond[op + if negate { 2 } else { 1 }..].trim();
-    let rhs = eval_arg(&parse_value(rhs_text).ok()?, state);
+    let rhs = eval_side(rhs_text, state)?;
     Some(lhs.loosely_eq(&rhs) != negate)
+}
+
+/// Reads one side of a comparison, which may be a call rather than a value.
+///
+/// `parse_value` is for Lingo literals and does not know what to do with
+/// `getState(oStoryteller, #AMBERVISION)`; it returns something that is not
+/// the flag and not an error, so the comparison quietly came out false. That
+/// is the worst of the three possible answers: an unreadable condition is
+/// supposed to fail *open* and run its body, because these guards gate
+/// presentation rather than progress.
+///
+/// It cost the second half of the game. Approaching the AMBER device runs
+///
+/// ```text
+/// if getState(oStoryteller, #AMBERVISION) = #waitingForPlayer
+///    then setState( oStoryteller,#AMBERVISION, #readyToGo )
+/// ```
+///
+/// and that is the only way the headgear moves from activated to ready. With
+/// the comparison false the player could answer the telephone, walk to the
+/// device, and click on it for ever.
+fn eval_side(text: &str, state: &State) -> Option<Value> {
+    if let Some(call) = parse_call(text) {
+        if call.name == "getstate" {
+            let key = call.args.last().and_then(|v| v.as_str())?;
+            return Some(state.get(key));
+        }
+    }
+    Some(eval_arg(&parse_value(text).ok()?, state))
 }
 
 /// Runs a room's action list against `state`, returning what should happen next.
@@ -914,5 +943,27 @@ mod assert_sound_tests {
         let out = run(&["assertSound #thoseBees".into()], &mut s);
         assert_eq!(spoke(&out), ["thoseBees"]);
     }
-}
 
+    #[test]
+    fn an_inline_guard_on_a_flag_is_evaluated() {
+        // The study's AMBER device: approaching it moves the headgear on to
+        // the next stage, but only once the telephone has activated it.
+        //
+        //   if getState(oStoryteller, #AMBERVISION) = #waitingForPlayer
+        //      then setState( oStoryteller,#AMBERVISION, #readyToGo )
+        //
+        // Note the missing space after the comma in the body, which is in the
+        // shipped data.
+        let line = "if getState(oStoryteller, #AMBERVISION) = #waitingForPlayer then setState( oStoryteller,#AMBERVISION, #readyToGo )";
+
+        let mut s = State::new();
+        s.set_all("AMBERVISION", vec![Value::Symbol("waitingForPlayer".into())]);
+        run(&[line.to_string()], &mut s);
+        assert!(s.get("AMBERVISION").is_symbol("readyToGo"), "guard held when it should pass");
+
+        let mut s = State::new();
+        s.set_all("AMBERVISION", vec![Value::Symbol("off".into())]);
+        run(&[line.to_string()], &mut s);
+        assert!(s.get("AMBERVISION").is_symbol("off"), "guard passed when it should hold");
+    }
+}

@@ -5927,3 +5927,64 @@ list, then the oscillator, then a residue, checking at each step that the phone
 is still silent and that it rings only when the last of the three lands.
 
 287 tests.
+
+## 131. One comparison, half a game
+
+The Amber vision comes on. The whole chain runs: the telephone rings, Roxy's
+message plays, the headgear is activated, raised, put on, and the vision is
+live -- which is the gate on the ghost calls, which are the signposts to the
+portals, which are the way into the other three chapters.
+
+What was in the way was one line of the condition evaluator.
+
+Approaching the AMBER device runs this, and it is the only way the headgear
+moves from activated to ready:
+
+```text
+if getState(oStoryteller, #AMBERVISION) = #waitingForPlayer
+   then setState( oStoryteller,#AMBERVISION, #readyToGo )
+```
+
+`eval_condition` read each side with `parse_value`, which is for Lingo
+literals and has no idea what to do with a call. It did not fail -- it
+returned something that was neither the flag nor an error, the comparison came
+out false, and the body never ran.
+
+That is the worst of the three possible answers. An unreadable condition is
+supposed to fail **open**, and there is a comment saying so: "these guards gate
+presentation, not progress, so failing open keeps the game moving." The design
+was right and one of the two paths into it silently returned a wrong value
+instead of no value.
+
+The symptom was a player who could answer the telephone, walk to the device,
+and click on it for ever.
+
+Both sides of a comparison now go through `parse_call` first, so `getState` is
+read as a call rather than guessed at as a literal.
+
+### Playing the chain
+
+Worth writing down, because none of it is guessable from the code:
+
+```text
+testForPsionicWaves  -> #ghostlyPhoneCall = #ringingNow
+answer the phone     -> #speaking, Roxy's message plays
+                     -> #AMBERVISION = #waitingForPlayer, phoneMessage trimmed
+approach the device  -> #readyToGo
+click the headgear   -> #popUp
+click again          -> #startingUp, useInventory( #Headgear )
+stow it and step back-> #on
+```
+
+Two things a player would swear were bugs and are not. Hanging up the phone
+means clicking the room *around* the handset: the buttons and the handset are
+their own hotspots and are listed first, so clicking the middle presses
+buttons for ever -- which is exactly what helba reported as not being able to
+put the phone down. And the headgear has to be stowed before stepping back,
+because the room-sized `#itemInUse` catcher takes the first click.
+
+`headgear.walk` records the whole chain. It sets the three counts directly
+rather than replaying the hour of play that earns them -- `hints.walk` covers
+earning them -- so what it tests is the second act's opening.
+
+288 tests, and four recordings that pass.
