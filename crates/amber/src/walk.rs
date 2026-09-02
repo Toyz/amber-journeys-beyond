@@ -50,7 +50,7 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         println!("          a room name, `state [filter]`, `blocked`,");
         println!("          `give <item>`, `use <item>`, `set <flag> <value>`,");
         println!("          `click x y`, `inv x y`,");
-        println!("          `skip`, `quit`");
+        println!("          `look`, `skip`, `quit`");
     }
 
     let stdin = std::io::stdin();
@@ -143,6 +143,16 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
                 Step::Broken
             }
         };
+    }
+    // Reprints the room without touching anything.
+    //
+    // `skip` used to stand in for this, and it does print the room -- but it
+    // also cuts short whatever film is playing, which can let a queued move
+    // run. Anything that reads the room between steps has to be able to do it
+    // without changing where the player is standing.
+    if cmd == "look" || cmd.is_empty() {
+        show(game);
+        return Step::Done;
     }
     if cmd == "skip" {
         let skipped = game.skip_video();

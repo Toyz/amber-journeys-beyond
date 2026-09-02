@@ -7051,3 +7051,38 @@ filename as a step. The environment variables still work and are still what a
 script should use.
 
 300 tests, nine recordings.
+
+## 149. A recording is only as honest as the steps you leave out
+
+helba sent the log of `full.walk` playing, and it walks back into the mailbox
+it has just left, fumbles the PeeK, and clicks points that hit nothing. Every
+step in the file resolves -- the replay's own tally says so -- and it still
+looks like the player has lost their mind.
+
+The file was written by a driver that plays the game live and records what it
+sends. Between steps it needs to read the room to find out where it is, and
+there was no command that only reads: `skip` prints the room, so it used
+`skip`. `skip` also cuts short whatever film is playing, and cutting a film
+short can let a queued move run.
+
+So the driver would refresh, the refresh would move the player, and the next
+recorded step would be one that only makes sense from where the refresh had
+put them. Replayed without the refreshes, those steps land somewhere else, and
+the router's next move is a recovery from a position the recording never
+mentions. Half the porch is that.
+
+`walk` has a `look` command now, which prints the room and does nothing else.
+It is two lines, and it is the difference between a recording that describes a
+playthrough and one that describes a playthrough plus a ghost.
+
+The other half was the PeeK. Opening it holds for a click, and that click is
+spent dismissing the playback rather than putting the unit away -- so one click
+leaves it in the hand, and an item in the hand puts an `#itemInUse` region over
+the whole stage. Every exit in the room disappears underneath it. The driver
+now clicks until the hand is empty before going anywhere.
+
+Regenerated, the route reads: out of the package, out of the mailbox, in
+through the front door. Six haunts caught and watched, six `#ActivityDetected`
+in the log, and no dead steps at all.
+
+300 tests, nine recordings.
