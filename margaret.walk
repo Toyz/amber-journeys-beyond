@@ -41,6 +41,10 @@ forward
 examine
 # Take the PeeK unit; the next click stows it.
 pointer
+# Taking it opens it. The first click dismisses what it is showing and the
+# second puts it back in the bag; until it is back, the item in hand covers
+# every exit in the room.
+click 320 200
 click 320 200
 # Back down to the writing desk.
 browse
@@ -100,6 +104,7 @@ click 495 200
 click 490 130
 # Open the PeeK: it reports the machine running.
 inv 320 410
+click 320 200
 # Put the unit back.
 click 320 200
 # Out of the front door to the mailbox on the porch.

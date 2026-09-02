@@ -858,8 +858,24 @@ impl Game {
         // nothing at all.
         for _ in 0..256 {
             // Whatever is due now, in order. The waits are the timing and
-            // there is no clock here, so they are named and stepped over.
+            // there is no clock here, so they are named and stepped over --
+            // all but one.
+            //
+            // A click wait is not the clock's, it is the player's, and
+            // stepping over it here is what made a recording written in the
+            // terminal wrong in the window. The terminal needed no click to
+            // dismiss a playback and the window did, so from the first one
+            // onwards every step landed one out of phase: `full.walk` opened
+            // the PeeK and then spent the next step putting it away rather
+            // than walking, and the route came apart from there. Both front
+            // ends now want the same clicks.
             while !self.pending.is_empty() {
+                if matches!(self.pending.first().and_then(wait_for), Some(Wait::Click)) {
+                    self.pending.remove(0);
+                    self.effect_wait = Some(Wait::Click);
+                    report.push("wait for a click".into());
+                    return report;
+                }
                 let effect = self.pending.remove(0);
                 match &effect {
                     // Sound is reported rather than played: the walkthrough

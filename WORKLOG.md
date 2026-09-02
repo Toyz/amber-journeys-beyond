@@ -7086,3 +7086,53 @@ through the front door. Six haunts caught and watched, six `#ActivityDetected`
 in the log, and no dead steps at all.
 
 300 tests, nine recordings.
+
+## 150. The terminal and the window finally want the same clicks
+
+Entry 149 blamed `skip`, and that was a real fault, but it was not helba's.
+Their log is the window replaying `full.walk`, and lining it up against the
+same file replayed in the terminal shows where the two front ends part company.
+
+```text
+  window                                terminal
+  27  pointer      OfficePeekTable      27  pointer      OfficePeekTable
+  28  browse       OfficeLoftWwall      28  click 320 200  OfficePeekTable
+```
+
+Taking the PeeK unit opens it, and it holds for a click. The window honours
+that hold: the next step is spent dismissing the playback, and the unit stays
+in the hand. `settle`, which is how the terminal runs a queue, cleared every
+wait it met including that one -- so in the terminal the unit came back to the
+bag on its own and the recorded route never needed the click.
+
+From there the two runs are a step out of phase for the rest of the game, and
+an item left in the hand is not a cosmetic difference: it puts an `#itemInUse`
+region over the whole stage, so every exit in the room vanishes underneath it.
+That is the flailing helba was watching -- clicks landing on the catcher, the
+route recovering, and the recording describing none of it.
+
+`settle` now stops at a click wait and leaves it standing:
+
+```rust
+if matches!(self.pending.first().and_then(wait_for), Some(Wait::Click)) {
+    self.pending.remove(0);
+    self.effect_wait = Some(Wait::Click);
+    report.push("wait for a click".into());
+    return report;
+}
+```
+
+Every other wait is still stepped over, because every other wait is the clock's
+and the terminal has no clock. This one is the player's.
+
+Both front ends now want the same clicks, and the three recordings that open
+the PeeK have gained the one they were missing: one click to dismiss what it is
+showing, one to put it back. `full.walk` is regenerated and is thirteen steps
+longer than it was.
+
+This is the fourth time the two front ends have disagreed and the first time
+the disagreement has been removed rather than worked around. The rule it leaves
+behind: if the window makes the player do something, the terminal has to make
+them do it too, or a recording written in one is fiction in the other.
+
+300 tests, nine recordings.

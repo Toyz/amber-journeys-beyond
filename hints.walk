@@ -33,6 +33,9 @@ forward
 forward
 examine
 pointer
+# Taking it opens it: the first click dismisses the readout, the second
+# stows it.
+click 320 200
 click 320 200
 # The office desk: open the top drawer and read the BAR manual.
 OfficeDrawersCU
@@ -67,6 +70,7 @@ click 490 130
 state baronline
 # The PeeK unit flashes: pick it out of the bar and it reports the BAR running.
 inv 320 410
+click 320 200
 state pkbarstatus
 # The unit stays in the hand until it is put back, so put it back.
 click 320 200

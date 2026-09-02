@@ -53,6 +53,10 @@ forward
 examine
 # Take the PeeK unit; the next click stows it.
 pointer
+# Taking it opens it. The first click dismisses what it is showing and the
+# second puts it back in the bag; until it is back, the item in hand covers
+# every exit in the room.
+click 320 200
 click 320 200
 # Back down to the writing desk.
 browse
@@ -112,6 +116,7 @@ click 495 200
 click 490 130
 # Open the PeeK: it reports the machine running.
 inv 320 410
+click 320 200
 # Put the unit back.
 click 320 200
 # Out of the front door to the mailbox on the porch.
@@ -162,6 +167,7 @@ click 564 209
 click 564 209
 inv 320 410
 click 320 200
+click 320 200
 # 
 # Now the cameras. With the BAR running, every move past the sixtieth
 # rolls the haunt clock, and each haunt has to be watched back before the
@@ -171,25 +177,31 @@ click 564 209
 click 75 210
 inv 320 410
 click 320 200
-click 564 209
-click 75 210
-inv 320 410
 click 320 200
 click 564 209
 click 75 210
 inv 320 410
 click 320 200
-click 564 209
-click 75 210
-inv 320 410
 click 320 200
 click 564 209
 click 75 210
 inv 320 410
 click 320 200
+click 320 200
 click 564 209
 click 75 210
 inv 320 410
+click 320 200
+click 320 200
+click 564 209
+click 75 210
+inv 320 410
+click 320 200
+click 320 200
+click 564 209
+click 75 210
+inv 320 410
+click 320 200
 click 320 200
 # 
 # One tonal residue has to be read as well. The click that does it is on
@@ -198,6 +210,7 @@ click 320 200
 trim tonalresidueremaining PkPatioScan
 # Putting the unit away tests for psionic waves, and the phone rings.
 inv 320 410
+click 320 200
 click 320 200
 # 
 # Answer it. Roxy is on the other end; then the line goes dead.
