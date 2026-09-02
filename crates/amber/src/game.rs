@@ -246,6 +246,15 @@ impl Game {
     /// value stay hidden. `DEFAULT_LOCATION` is deliberately not used as a
     /// fallback start; it is an empty placeholder room with no art at all.
     pub fn enter_chapter(&mut self, domain: &str) {
+        // Being sent to a chapter abandons the opening, for the same reason a
+        // jump does: `play <dir> MARGARET` seeds Margaret's chapter and lands
+        // in her first room, and then the opening's queued `goTo` fired on the
+        // second frame and pulled the player back out to the boathouse. The
+        // chapter was unreachable from the command line entirely.
+        //
+        // Harmless later on: nothing is running to cancel once the game has
+        // started, and this is called before the opening is armed at startup.
+        self.cancel_intro();
         let start = self.chapter(domain).and_then(|c| {
             let schema = c.schema.as_ref()?;
             Some((schema.start_location()?.to_string(), ()))

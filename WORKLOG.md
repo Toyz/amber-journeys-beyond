@@ -5366,3 +5366,93 @@ difficult bug to see from the code and a trivial one to hear, which is the
 whole argument for the log.
 
 267 tests.
+
+## 123. Loud, long, and nobody calling
+
+Three reports from helba, and they turned out to be three different things: one
+faithful, one a real fault, and one a feature that was never wired up.
+
+### The chapter was unreachable from the command line
+
+`play <dir> MARGARET` started in Margaret's bedroom and was pulled back out to
+the boathouse on the second frame. Entry 120's opening queues a `goTo
+#Gbhs_gameEntry` behind its film, and `jump_to` learned to cancel that but
+`enter_chapter` did not -- and naming a chapter goes through `enter_chapter`.
+Both cancel it now. Harmless later in a game, since there is nothing to cancel
+once the opening is done.
+
+### The entry sound is 45 seconds, and that is correct
+
+`toMargaret` runs for 45.8 seconds over a montage that lasts about thirteen, so
+it carries on for another half minute inside the bedroom. That looks exactly
+like a decoder reading past the end of a cast member, so I added a level
+readout to `sfx` -- one line per second -- and looked:
+
+```text
+  0s #####      640          25s ######################################## 5127
+  3s #############  1750     30s ######################################## 5111
+ 10s ############   1553     40s ##################  2392
+ 15s #######################  3013   45s ####   613
+```
+
+A clean swell: quiet at both ends, peaking two thirds through. That is a
+forty-five second recording, not two seconds of sound and forty-three of
+whatever came next in the file. `enterNewDomain` touches no sound either, so
+nothing in the original cuts it short. It is meant to run on under the first
+half minute of the chapter.
+
+The tool is the point here. A sound that is longer than it should be looks
+quite unlike a sound that is long, and until I could see the shape of one I had
+no way to tell those apart without listening.
+
+### But it was half again too loud
+
+What was wrong was the level. The game's own table says `#toMargaret: 1.5`, and
+this engine multiplied the samples by it -- so its peaks passed full scale and
+were flattened by the limiter. Reading `soundEffect` settles what 1.5 means:
+
+```text
+on soundEffect whichSound, volumeDesired
+  if voidp( volumeDesired ) then volumeDesired = 255
+  ... setProp( channelData, #volume, volumeDesired )
+```
+
+Director's channel volume is 0 to 255 and the default is already the top, so a
+tweak of 1.5 on a full channel is 382, which is 255. It means "as loud as it
+goes", not "half again louder". The tweak exists so a sound asked for quietly
+still comes up. Gains are clamped at unity now, which is where the original's
+volume clamps.
+
+So helba heard a long sound played too hot and clipping its own peaks, which is
+a fair description of something that has gone on too long.
+
+### Nobody is calling
+
+The third report was that an expected sound never came, and chasing it found
+something larger. `MargPortal_headOn` declares
+
+```text
+#earShot: [#houseHum: 0, #phoneVol: 64, #MargVol: 224, #BriceVol: 0, #EdwinVol: 0]
+```
+
+`#MargVol: 224` is how loudly Margaret's ghost calls from that spot. The
+ghosts telephone the player through the chapter and that is how anyone learns
+where to go -- it is the game's whole signposting.
+
+`ghostCalls` is ported, weighting and all. Nothing calls it. No room action
+list mentions it, and the render loop does not drive it; in the original it
+runs from a frame handler, through `playDomainEntrySound`, which this engine
+has no equivalent of. So the ghosts have been silent for the entire project.
+
+That is a seventh variant of the same fault this log keeps recording, and a new
+one: not an effect emitted and never applied, but a handler ported and never
+reached. `verify` cannot see it, because its whole model is "which handlers do
+the room scripts name", and this one is named by the score.
+
+Also noted while looking: `usePeekUnit` is not ported at all. That is the
+PeeK unit's own interface -- its icons, its display, its play button -- and it
+is reached from the inventory bar rather than from a room, so it too is
+invisible to the tally. The residue the hint book tells a new player to listen
+to on their first minute is behind it.
+
+268 tests.

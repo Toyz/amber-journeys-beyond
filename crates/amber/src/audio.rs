@@ -64,6 +64,14 @@ impl Mixer {
         looping: bool,
         channelled: bool,
     ) {
+        // Director's channel volume is 0 to 255, and a level above the top is
+        // the top. `soundEffect` defaults its volume to 255 and the game's own
+        // `soundVolTweaks` scales that -- `#toMargaret: 1.5` on a full channel
+        // is 382, which is 255. Multiplying the samples by 1.5 instead makes
+        // the sound half again as loud as the original can play it and clips
+        // its own peaks: the swell that carries the player into Margaret's
+        // chapter came out loud and hard where it should be a bed.
+        let gain = gain.clamp(0.0, 1.0);
         if let Some(k) = &key {
             if let Some(i) = self
                 .voices
@@ -401,6 +409,34 @@ mod tests {
     }
 
     #[test]
+    fn a_level_above_full_is_full() {
+        // Director's channel volume tops out at 255, and the game's own
+        // `soundVolTweaks` scales a channel that already defaults to 255:
+        // `#toMargaret: 1.5` means "as loud as it goes", not half again
+        // louder. Multiplying the samples by 1.5 clips the peaks of the swell
+        // that carries the player into Margaret's chapter.
+        let mut m = Mixer {
+            voices: Vec::new(),
+            rate: 44100,
+            channels: 2,
+            master: 1.0,
+            duck: 1.0,
+            suspended: false,
+        };
+        m.start(
+            Some("toMargaret"),
+            None,
+            Arc::new(vec![1000i16; 64]),
+            1,
+            0.5,
+            1.5,
+            false,
+            true,
+        );
+        assert_eq!(m.voices[0].gain, 1.0);
+    }
+
+    #[test]
     fn different_sounds_still_play_together() {
         let mut m = mixer(vec![]);
         m.start(Some("MCALL7"), None, pcm(), 1, 1.0, 1.0, false, true);
@@ -696,7 +732,7 @@ impl Audio {
         for voice in mixer.voices.iter_mut() {
             if let Some(k) = &voice.key {
                 if let Some((_, gain)) = wanted.iter().find(|(n, _)| n == k) {
-                    voice.gain = *gain;
+                    voice.gain = gain.clamp(0.0, 1.0);
                 }
             }
         }

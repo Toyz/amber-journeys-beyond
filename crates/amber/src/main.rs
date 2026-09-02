@@ -835,6 +835,22 @@ fn cmd_sfx(dir: &Path, name: Option<&str>) -> Res {
                     pcm.len(),
                     game.sounds.gain(n)
                 );
+                // Asked for by name, show the shape of it over time. A
+                // sound that is longer than it should be looks quite unlike a
+                // sound that is long: the first goes quiet, or turns to noise,
+                // partway along. Forty-five seconds of steady level is a
+                // forty-five second recording; forty-five seconds with two of
+                // signal is a decoder reading past the end.
+                if names.len() == 1 && !pcm.is_empty() {
+                    let per = (rate.max(1) * channels.max(1) as u32) as usize;
+                    println!("  level, one line per second:");
+                    for (i, chunk) in pcm.chunks(per).enumerate() {
+                        let sum: f64 = chunk.iter().map(|v| (*v as f64).powi(2)).sum();
+                        let rms = (sum / chunk.len() as f64).sqrt();
+                        let bars = ((rms / 32768.0) * 260.0) as usize;
+                        println!("    {i:>3}s {:<40} {rms:>7.0}", "#".repeat(bars.min(40)));
+                    }
+                }
                 if peak == 0 {
                     silent += 1;
                 } else {
