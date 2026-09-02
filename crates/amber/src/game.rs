@@ -451,6 +451,26 @@ impl Game {
         self.move_to(room);
     }
 
+    /// Goes straight to where the opening was heading, without playing it.
+    ///
+    /// Distinct from `skip_intro`, which cuts short a film already running.
+    /// At startup nothing has drained yet: the whole opening is still sitting
+    /// in the queue, so clearing the wait only lets it play from the top and
+    /// hold on `WaitForVideo` for the length of the film. The terminal hid
+    /// that, because its `settle` runs the queue out ignoring waits; the
+    /// window honours them, and sat on the intro for a minute and a half.
+    pub fn skip_opening(&mut self) {
+        if !self.intro_running {
+            return;
+        }
+        self.cancel_intro();
+        let from = self.node().domain.clone();
+        if let Some(i) = self.world.resolve("Gbhs_gameEntry", Some(&from)) {
+            self.move_to(i);
+            self.start_room_video();
+        }
+    }
+
     /// Throws the opening away, film and destination together.
     fn cancel_intro(&mut self) {
         if !self.intro_running {

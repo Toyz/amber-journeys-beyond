@@ -67,7 +67,7 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
             println!("> {cmd}");
         }
 
-        command(&mut game, cmd);
+        command(&mut game, cmd, true);
     }
     Ok(())
 }
@@ -77,95 +77,86 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
 /// Shared with the window's `--replay`, so a recording drives the real game
 /// through exactly the path the terminal takes -- there is no second reading
 /// of a `.walk` file that could drift from this one.
-pub(crate) fn command(game: &mut Game, cmd: &str) {
-        if let Some(filter) = cmd.strip_prefix("state") {
-            dump_state(game, filter.trim());
-            return;
-        }
-        // A click at a point goes through the same hit test the window uses,
-        // so an overlap that resolves the wrong way can be reproduced exactly.
-        // A click on the inventory bar, which `play` records separately
-        // because it never reaches the room's hotspots.
-        if let Some(rest) = cmd.strip_prefix("inv ") {
-            let nums: Vec<i32> = rest
-                .split_whitespace()
-                .filter_map(|n| n.parse().ok())
-                .collect();
-            match nums[..] {
-                [x, y] => {
-                    let taken = game.click_inventory(x, y, 640, 480);
-                    println!(
-                        "  inventory ({x}, {y}): {}",
-                        if taken { "taken" } else { "nothing there" }
-                    );
-                    show(game);
-                }
-                _ => println!("  usage: inv <x> <y>"),
-            }
-            return;
-        }
-        if cmd == "skip" {
-            let skipped = game.skip_video();
-            println!("  skip: {}", if skipped { "moved on" } else { "no movie" });
-            settle(game);
-            show(game);
-            return;
-        }
-        if let Some(rest) = cmd.strip_prefix("click ") {
-            let nums: Vec<i32> = rest
-                .split_whitespace()
-                .filter_map(|n| n.parse().ok())
-                .collect();
-            match nums[..] {
-                [x, y] => match game.hotspot_at(x, y) {
-                    Some((verb, bounds)) => {
-                        println!("  hits {verb:?} {bounds:?}");
-                        if let Some(o) = game.click(x, y) {
-                            if let Some(d) = &o.destination {
-                                println!("  -> {d}");
-                            }
-                        }
-                        settle(game);
-                        show(game);
-                    }
-                    None => println!("  nothing at ({x}, {y})"),
-                },
-                _ => println!("  usage: click <x> <y>"),
-            }
-            return;
-        }
-        if cmd == "blocked" {
-            show_blocked(game);
-            return;
-        }
-        // Granting an item makes the #itemInUse hotspots reachable, which is
-        // most of the game's interaction and otherwise needs real progress.
-        if let Some(item) = cmd.strip_prefix("give ") {
-            game.state.add_inventory(item.trim());
-            println!("  carrying: {}", game.state.inventory().join(", "));
-            return;
-        }
-        if let Some(item) = cmd.strip_prefix("use ") {
-            let item = item.trim();
-            game.state.stow();
-            game.state
-                .set("itemInUse", lingo::Value::Symbol(item.to_string()));
-            println!("  in hand: {item}");
-            show(game);
-            return;
-        }
-
-        match step(game, cmd) {
-            Ok(()) => {
-                settle(game);
+pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) {
+    if let Some(filter) = cmd.strip_prefix("state") {
+        dump_state(game, filter.trim());
+        return;
+    }
+    // A click on the inventory bar, which `play` records separately because it
+    // never reaches the room's hotspots.
+    if let Some(rest) = cmd.strip_prefix("inv ") {
+        let nums: Vec<i32> = rest.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+        match nums[..] {
+            [x, y] => {
+                let taken = game.click_inventory(x, y, 640, 480);
+                println!(
+                    "  inventory ({x}, {y}): {}",
+                    if taken { "taken" } else { "nothing there" }
+                );
                 show(game);
             }
-            Err(msg) => println!("  {msg}"),
+            _ => println!("  usage: inv <x> <y>"),
         }
+        return;
+    }
+    if cmd == "skip" {
+        let skipped = game.skip_video();
+        println!("  skip: {}", if skipped { "moved on" } else { "no movie" });
+        if drain {
+            settle(game);
+        }
+        show(game);
+        return;
+    }
+    // A click at a point goes through the same hit test the window uses, so an
+    // overlap that resolves the wrong way can be reproduced exactly.
+    if let Some(rest) = cmd.strip_prefix("click ") {
+        let nums: Vec<i32> = rest.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+        match nums[..] {
+            [x, y] => match game.hotspot_at(x, y) {
+                Some((verb, bounds)) => {
+                    println!("  hits {verb:?} {bounds:?}");
+                    if let Some(o) = game.click(x, y) {
+                        if let Some(d) = &o.destination {
+                            println!("  -> {d}");
+                        }
+                    }
+                    if drain {
+                        settle(game);
+                    }
+                    show(game);
+                }
+                None => println!("  nothing at ({x}, {y})"),
+            },
+            _ => println!("  usage: click <x> <y>"),
+        }
+        return;
+    }
+    if cmd == "blocked" {
+        show_blocked(game);
+        return;
+    }
+    // Granting an item makes the #itemInUse hotspots reachable, which is most
+    // of the game's interaction and otherwise needs real progress.
+    if let Some(item) = cmd.strip_prefix("give ") {
+        game.state.add_inventory(item.trim());
+        println!("  carrying: {}", game.state.inventory().join(", "));
+        return;
+    }
+    if let Some(item) = cmd.strip_prefix("use ") {
+        let item = item.trim();
+        game.state.stow();
+        game.state.set("itemInUse", lingo::Value::Symbol(item.to_string()));
+        println!("  in hand: {item}");
+        show(game);
+        return;
+    }
 
     match step(game, cmd) {
         Ok(()) => {
-            settle(game);
+            if drain {
+                settle(game);
+            }
             show(game);
         }
         Err(msg) => println!("  {msg}"),

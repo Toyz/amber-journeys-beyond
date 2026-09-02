@@ -42,6 +42,7 @@ pub fn play_with(
     root: &Path,
     start: Option<&str>,
     steps: Vec<String>,
+    muted: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut game = Game::new(root)?;
     if let Some(name) = start {
@@ -76,10 +77,17 @@ pub fn play_with(
 
     // A machine with no audio device is not an error; the game is playable
     // silently and this is the normal case over a remote session.
-    let audio = Audio::open();
-    match &audio {
-        Some(a) => eprintln!("audio out at {} Hz", a.rate()),
-        None => eprintln!("no audio device; running silently"),
+    //
+    // `--mute` is not the same thing as having no device. It runs the whole
+    // mixer -- gains, the four channels, the groups that refuse to talk over
+    // each other -- into nowhere, and turns the audio log on, so what the game
+    // asked to hear can be read instead of heard. That is the only way I can
+    // check the sound of a game I cannot listen to.
+    let audio = if muted { Some(Audio::silent()) } else { Audio::open() };
+    match (&audio, muted) {
+        (Some(_), true) => eprintln!("muted; sound is logged, not played"),
+        (Some(a), false) => eprintln!("audio out at {} Hz", a.rate()),
+        (None, _) => eprintln!("no audio device; running silently"),
     }
     let mut playing_soundtrack = false;
     let mut ambience_room = usize::MAX;
@@ -134,11 +142,11 @@ pub fn play_with(
     if !replay.is_empty() {
         // Clicking through the opening, which is what a viewer would do: a
         // recording is not usually a recording of the intro, and waiting out
-        // the film before the first step is a minute of nothing. Skipping
-        // rather than abandoning keeps the `goTo` the opening ends with, so a
-        // recording that starts by walking from the entry still works and one
-        // that starts by jumping somewhere cancels it on the jump.
-        game.skip_video();
+        // the film before the first step is a minute and a half of nothing.
+        // Going where it was going, so a recording that starts by walking from
+        // the entry still works and one that starts by jumping somewhere
+        // cancels it on the jump.
+        game.skip_opening();
     }
     let mut next_step = std::time::Instant::now();
     let mut was_down = false;
@@ -150,8 +158,19 @@ pub fn play_with(
     // how far through that transition we are.
     let mut outgoing: Vec<u32> = vec![0; STAGE_W * STAGE_H];
     let mut dissolve: Option<(f32, crate::game::Transition)> = None;
+    let mut last_frame = std::time::Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
         frames += 1;
+        // Nothing pulls samples through a silent mixer, so without this every
+        // sound would run for ever, the four channels would fill, and the log
+        // would report each later sound as dropped -- which is exactly the
+        // false picture `mix` gave of the music boxes.
+        if muted {
+            if let Some(a) = &audio {
+                a.settle(last_frame.elapsed().as_secs_f32());
+            }
+        }
+        last_frame = std::time::Instant::now();
         crate::trace::frame(frames);
 
         // Director's `the ticks` is sixtieths since startup, and the scan
@@ -188,7 +207,7 @@ pub fn play_with(
         {
             if let Some(cmd) = replay.pop_front() {
                 println!("> {cmd}");
-                crate::walk::command(&mut game, &cmd);
+                crate::walk::command(&mut game, &cmd, false);
                 dirty = true;
                 next_step = std::time::Instant::now() + std::time::Duration::from_millis(600);
                 if replay.is_empty() {

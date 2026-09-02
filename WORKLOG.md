@@ -5289,3 +5289,80 @@ rarely a recording of the intro; skipping rather than abandoning keeps the
 entry still works.
 
 265 tests.
+
+## 122. Muting to hear it
+
+helba asked for a way to play with the sound muted but logged, so that I can
+work on a game I cannot listen to. `play <dir> --mute` does that: the whole
+mixer runs -- gains, the four channels, the groups that refuse to talk over
+each other -- into nowhere, and the audio log goes on. It found a real bug
+within a minute of existing.
+
+Two things had to be right for it to be honest.
+
+A silent mixer has no stream pulling samples through it, so nothing ever
+finishes. Left alone it would fill its four channels and report every later
+sound as dropped, which is exactly the false picture entry 121 caught `mix`
+giving of the music boxes. The render loop now runs the mixer forward by the
+frame time when muted.
+
+Worse, the replay was swallowing the sound before the mixer saw it. Both the
+terminal and the window drive a recording through the same dispatcher, and that
+dispatcher ran the effect queue out itself, naming the sounds it could not
+play. In a window that has a mixer and a clock, that is the wrong half of the
+job: the queue has to reach the render loop. Who drains is now the caller's
+choice. The five music boxes had been playing to nobody.
+
+### Skipping something that has not started
+
+`--replay` is supposed to click through the opening, and it did not work at
+all. `skip_video` cuts short a film that is running, and at startup nothing has
+drained yet -- the whole opening is still queued -- so clearing the wait only
+let the queue play the film from the top and hold on `WaitForVideo` for its
+full minute and a half.
+
+The terminal hid this completely, because its `settle` runs the queue out
+ignoring waits, so the same call there produced the right answer for the wrong
+reason. The window honours waits, and sat there. There is now a separate
+`skip_opening` that drops the queue and goes where the opening was going.
+
+It is worth naming the shape: a tool that steps over the thing being tested
+will agree with you about anything.
+
+### The chord that never played
+
+With the log working, the box puzzle in Margaret's bedroom said this:
+
+```text
+play snd1box      play snd4box  -> no free channel, dropped
+play snd2box      play snd5box
+play snd3box      play allboxes -> no free channel, dropped
+```
+
+helba had said twice that the puzzle was missing sounds. Entry 121 concluded
+the engine was fine and the tool was lying, and that was half right: `mix` was
+lying, and there was also a real bug underneath it.
+
+The original plays each box like this:
+
+```text
+prerollQT
+startSound whichBox
+if gHorsepower <> #low then wait 30
+pushQTcarefully startTime, stopTime, 4
+```
+
+I had left out the wait. For the four boxes with a stretch of film it hardly
+shows -- the film's own wait covers it. The fifth box has no stretch, because
+its times are written as two symbols where the others have numbers, so that
+half second is the *only* gap between its sound and the `allboxes` chord that
+follows a solved puzzle. Queued in the same breath, sharing a channel, the
+chord lost. The game played the five boxes and went quiet exactly where the
+payoff belongs.
+
+So the puzzle solved correctly, every sound existed and decoded, each box asked
+for the right one, and the moment it was all for made no sound. That is a
+difficult bug to see from the code and a trivial one to hear, which is the
+whole argument for the log.
+
+267 tests.

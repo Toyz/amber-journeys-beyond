@@ -78,7 +78,7 @@ commands:
   cast      <dir> <movie.dxr>  list a movie's cast members
   export    <dir> <movie.dxr> <cast#> <out.png>
                                decode one bitmap cast member
-  play      <dir> [room|chapter] [--record <file>] [--replay <file>]
+  play      <dir> [room|chapter] [--record <file>] [--replay <file>] [--mute]
                                open the game window
   shot      <dir> <room> <out.png> [flag=value ...]
                                render one room headlessly
@@ -152,11 +152,17 @@ fn main() -> ExitCode {
                     }
                 }
             }
+            // Muting turns the audio log on, since the point of playing
+            // without sound is to read what the sound would have been.
+            let muted = args.iter().any(|a| a == "--mute");
+            if muted && std::env::var("AMBER_TRACE").is_err() {
+                std::env::set_var("AMBER_TRACE", "audio");
+            }
             let room = args
                 .get(2)
                 .filter(|a| !a.starts_with("--"))
                 .map(String::as_str);
-            render::play_with(&dir, room, steps)
+            render::play_with(&dir, room, steps, muted)
         }
         "shot" => match (args.get(2), args.get(3)) {
             (Some(room), Some(out)) => cmd_shot(&dir, room, Path::new(out), &args[4.min(args.len())..]),

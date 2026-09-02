@@ -234,6 +234,16 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 name: format!("{asked}box"),
                 loudness: None,
             });
+            // `if gHorsepower <> #low then wait 30`, between the sound and the
+            // film. Half a second, and it is the only gap the fifth box gets:
+            // that one has no stretch of film, so without this its sound and
+            // the `allboxes` chord that follows a solved puzzle were queued in
+            // the same breath. Sharing a channel, the chord lost -- the game
+            // plays the five boxes and then goes quiet exactly where the
+            // payoff belongs.
+            if !state.get("gHorsepower").is_symbol("low") {
+                out.effects.push(Effect::WaitTicks(30));
+            }
             if let Some(&(_, from, to)) = TIMES.iter().find(|(b, _, _)| b.eq_ignore_ascii_case(&asked)) {
                 out.effects.push(Effect::PlayVideoSegment { from, to });
                 out.effects.push(Effect::WaitForVideo);
@@ -793,6 +803,59 @@ mod box_tests {
             let out = open(&mut s, b);
             assert!(!sounds(&out).contains(&"allboxes".to_string()));
         }
+    }
+
+    #[test]
+    fn the_chord_that_solves_the_puzzle_is_not_queued_on_top_of_the_last_box() {
+        // `startSound whichBox / if gHorsepower <> #low then wait 30 /
+        // pushQTcarefully`. The fifth box has no stretch of film -- its times
+        // are two symbols where the others have numbers -- so that wait is the
+        // only thing between its sound and the `allboxes` chord that follows a
+        // solved puzzle. Without it the two were queued in the same breath,
+        // they shared a channel, and the chord lost: the game played the five
+        // boxes and went quiet exactly where the payoff belongs.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all("gHorsepower", vec![Value::Symbol("high".into())]);
+        s.set_all(
+            "boxList",
+            ["snd1", "snd2", "snd3", "snd4"]
+                .iter()
+                .map(|b| Value::Symbol((*b).into()))
+                .collect(),
+        );
+
+        let mut out = Outcome::default();
+        assert!(call("setopenbox", &[Value::Symbol("snd5".into())], &mut s, &mut out));
+
+        let at = |want: &str| {
+            out.effects.iter().position(|e| match e {
+                Effect::PlaySound { name, .. } => name == want,
+                _ => false,
+            })
+        };
+        let last_box = at("snd5box").expect("the fifth box sounds");
+        let chord = at("allboxes").expect("the puzzle is solved");
+        assert!(last_box < chord);
+        assert!(
+            out.effects[last_box..chord]
+                .iter()
+                .any(|e| matches!(e, Effect::WaitTicks(30))),
+            "nothing separates the box from the chord: {:?}",
+            &out.effects[last_box..=chord]
+        );
+    }
+
+    #[test]
+    fn a_slow_machine_gets_no_such_pause() {
+        // The wait is behind `gHorsepower <> #low`, and the original means it:
+        // a machine that cannot keep up is not made to sit through it.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        s.set_all("gHorsepower", vec![Value::Symbol("low".into())]);
+        let mut out = Outcome::default();
+        call("setopenbox", &[Value::Symbol("snd1".into())], &mut s, &mut out);
+        assert!(!out.effects.iter().any(|e| matches!(e, Effect::WaitTicks(30))));
     }
 
     #[test]
