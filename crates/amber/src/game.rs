@@ -1907,16 +1907,40 @@ impl Game {
             Wait::Until(t) => Instant::now() >= *t,
             // A room with no movie has nothing to wait for; treating that as
             // satisfied stops a missing video from stalling the sequence.
-            Wait::Video => self.player.as_ref().is_none_or(|p| p.finished),
+            // Not while the queue still has work. A script's `wait
+            // #videoStop` is waiting for the film the `pushVideo` on the line
+            // above it starts, and that `pushVideo` is an *effect* -- it is
+            // sitting in the queue, unapplied, at the moment the wait is set.
+            // Asking whether a film is playing yet answers no, the wait is
+            // satisfied on the spot, and the script runs on past its own
+            // cutscene.
+            //
+            // The breaker in Roxy's office is the clearest case: throw it and
+            // the sequence is meant to play the switch being thrown in the
+            // dark, move to the lit room, and play the lights coming up.
+            // Every state write landed in one frame and neither film was ever
+            // opened.
+            Wait::Video => {
+                self.pending.is_empty() && self.player.as_ref().is_none_or(|p| p.finished)
+            }
             // Only a click clears this, so it is never satisfied by waiting.
             Wait::Click => false,
         }
     }
 
-    /// Applies an outcome from outside the click path, used by the
-    /// walkthrough so it exercises the same movement code as the game.
-    pub fn apply_outcome(&mut self, outcome: &Outcome) {
-        self.apply(outcome);
+
+    /// Starts a hotspot's actions, the way a click on it would.
+    ///
+    /// The difference from running the list outright is the timeline: a
+    /// sequence that plays a film, waits for it, moves, and plays another has
+    /// to stop at each wait and let the queue catch up. Running the list in
+    /// one go writes every flag and queues every film in the same instant, so
+    /// the room has already changed by the time the first film is asked for
+    /// and it is never the one the script meant.
+    pub fn begin(&mut self, actions: &[String]) -> Outcome {
+        self.script = actions.to_vec();
+        self.waiting = None;
+        self.pump()
     }
 
     fn apply(&mut self, outcome: &Outcome) {

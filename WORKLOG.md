@@ -6443,3 +6443,65 @@ by a frame handler this engine has no equivalent of -- `cursorDance`, the
 which is still the last architectural gap.
 
 296 tests, six recordings.
+
+## 141. The films that never played
+
+helba said the power switch did not play its film. It did not, and neither did
+any other film inside a scripted sequence reached by a verb. Two faults, one on
+top of the other.
+
+Throwing the breaker is meant to be:
+
+```text
+setState( #eSwitchInUse, TRUE )
+soundEffect #breakerSwitch
+pushVideo : wait #videoStop            -- the switch thrown, in the dark
+setState( #eSwitchInUse, #blackout )
+goTo( #OfficeEmergencySwitch )
+pushVideo : wait #videoStop            -- the lights coming up, in the lit room
+setState( #houseLightsAreOn, TRUE )
+```
+
+What the trace showed instead was all three flag writes landing in the same
+frame and neither film ever opened.
+
+### A wait satisfied before the thing it waits for starts
+
+`wait #videoStop` becomes a `Wait::Video`, and that asked "is a film playing,
+and has it finished". At the moment the wait is set the answer is that no film
+is playing -- because the `pushVideo` on the line above is an *effect*, still
+sitting in the queue unapplied. So the wait was satisfied on the spot and the
+script ran on past its own cutscene.
+
+The log line even said so: "will hold on WaitForVideo once the effects above
+are applied". The intent was written down and the test did not check for it. A
+script's video wait now also requires the queue to be empty, because the film
+it is waiting for is in that queue.
+
+### And the walkthrough's verbs never used the timeline at all
+
+That fix alone changed nothing, which is the more interesting half. Clicking a
+hotspot goes through `pump`, which runs a sequence one action at a time and
+stops at each wait. Typing a *verb* ran the whole action list in a single call
+to `script::run` and applied the result in one go -- every flag written and
+every film queued in the same instant, so the room had already changed before
+the first film was asked for.
+
+So a recording made of clicks played its cutscenes and the same recording
+made of verbs did not, and `margaret.walk` uses `pointer` for the breaker.
+Both paths go through `pump` now.
+
+The trace after both fixes, which is what it should always have looked like:
+
+```text
+[37] set eswitchinuse = Int(1)
+[37] open DKSWITCH.MOV        -- in DarkUp_OfficeEswitch
+[58] set eswitchinuse = #blackout
+[58] open ESWTCHUP.mov        -- in OfficeEmergencySwitch
+[84] set eswitchinuse = Int(0)
+```
+
+Three flag writes twenty frames apart with a film between each, instead of
+three writes in one frame and no films at all.
+
+296 tests, six recordings.

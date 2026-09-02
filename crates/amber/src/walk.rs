@@ -273,8 +273,9 @@ fn step(game: &mut Game, cmd: &str) -> Result<(), String> {
                 format!("{cmd}: no such exit here")
             });
         };
-        let outcome = script::run(&h.actions, &mut game.state);
-        game.apply_outcome(&outcome);
+        // Through the same path a click takes, so a sequence stops at each
+        // of its waits instead of running to the end in one instant.
+        game.begin(&h.actions);
         return Ok(());
     }
 
