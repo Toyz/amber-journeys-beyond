@@ -193,6 +193,12 @@ pub fn play_with(
             }
         }
 
+        // Whichever ghost's turn it is calls. The original runs this from
+        // `idle`, so it is a frame concern rather than a click one -- the
+        // calls carry on while the player stands still, which is the point of
+        // them.
+        game.tick_ghost_call();
+
         // The recording takes its next step once the game has gone quiet: a
         // step that starts a film has to be allowed to finish it, or the
         // replay races ahead of what it is meant to show.
@@ -261,8 +267,8 @@ pub fn play_with(
                 match effect {
                     Effect::PlaySound { name, loudness } => {
                         let scale = match loudness.as_deref() {
-                            Some("low") => 0.5,
-                            Some("medium") => 0.75,
+                            Some("low") => 90.0 / 255.0,
+                            Some("medium") => 180.0 / 255.0,
                             _ => 1.0,
                         };
                         let gain = game.sounds.gain(&name) * scale;
@@ -578,12 +584,17 @@ fn apply_effect(
     }
     let Some(a) = audio else { return };
     match effect {
+        Effect::StopGhostCall => {
+            if let Some(n) = game.state.get("gLastCall").as_str() {
+                a.stop_oneshot(n);
+            }
+        }
         Effect::PlaySound { name, loudness } => {
-            // The loudness word is a coarse mix hint, not a
-            // level: quiet lines sit under the ambience.
+            // `ghostCalls` names the levels: [#low: 90, #medium: 180,
+            // #high: 255], out of Director's 255.
             let scale = match loudness.as_deref() {
-                Some("low") => 0.5,
-                Some("medium") => 0.75,
+                Some("low") => 90.0 / 255.0,
+                Some("medium") => 180.0 / 255.0,
                 _ => 1.0,
             };
             let gain = game.sounds.gain(&name) * scale;

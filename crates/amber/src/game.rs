@@ -61,6 +61,13 @@ pub struct Game {
     /// True while the opening film is playing, because that one film -- and
     /// only that one -- can be cut short by a click.
     intro_running: bool,
+    /// When the ghost call now sounding -- or the pause standing in for one --
+    /// is over, and the next turn of the rota may take its place.
+    ghost_call_until: Option<Instant>,
+    /// How far through each ghost's own calls the game has got. The original
+    /// keeps this in `gCurrentEntrySounds` and never resets it, so a ghost
+    /// works through its recordings in order and starts again at the top.
+    ghost_call_at: HashMap<String, usize>,
     /// A transition the scripts have armed for the next stage change.
     transition: Option<String>,
     /// Sprite channels a script has taken over, keyed by channel so they
@@ -136,6 +143,8 @@ impl Game {
             cursor_hidden: false,
             effect_wait: None,
             intro_running: false,
+            ghost_call_until: None,
+            ghost_call_at: HashMap::new(),
             transition: None,
             puppets: BTreeMap::new(),
             repeating: None,
@@ -894,6 +903,129 @@ impl Game {
         Some(transition_for(&kind))
     }
 
+    /// Each ghost's calls, in the order the game lists them.
+    ///
+    /// String order, not numeric -- the authors built these from a directory
+    /// listing, so `Mcall1` is followed by `Mcall10` and then `Mcall2`. A
+    /// ghost works through its own list in that order, which is why the calls
+    /// come in a fixed sequence rather than at random.
+    const GHOST_CALLS: [(&'static str, &'static [&'static str]); 3] = [
+        (
+            "Margaret",
+            &[
+                "Mcall1", "Mcall10", "Mcall2", "Mcall3", "Mcall4", "Mcall5", "Mcall6", "Mcall7",
+                "Mcall8", "Mcall9",
+            ],
+        ),
+        (
+            "Brice",
+            &[
+                "Bcall1", "Bcall10", "Bcall11", "Bcall2", "Bcall3", "Bcall4", "Bcall5", "Bcall6",
+                "Bcall7", "Bcall8", "Bcall9",
+            ],
+        ),
+        (
+            "Edwin",
+            &[
+                "Ecall1", "Ecall10", "Ecall11", "Ecall12", "Ecall2", "Ecall3", "Ecall4", "Ecall5",
+                "Ecall6", "Ecall7", "Ecall8", "Ecall9",
+            ],
+        ),
+    ];
+
+    /// Lets whichever ghost's turn it is call, once a frame.
+    ///
+    /// This is `playDomainEntrySound`, which the original runs from `idle`:
+    ///
+    /// ```text
+    /// on playDomainEntrySound
+    ///   if gSoundsSuspended = 1 then return
+    ///   batterUp = getState( #ghostsCalling )
+    ///   ... if a call is still sounding on its channel then return ...
+    ///   soundList = gEntrySoundFiles[ batterUp ]
+    ///   newSound  = ( gCurrentEntrySounds[ batterUp ] mod count(soundList) ) + 1
+    ///   if batterUp = #nobody then waitaSec( #start )
+    ///   else soundEffect( getAt(soundList, newSound), getState(#ghostCallVol) )
+    ///   gCurrentEntrySounds[ batterUp ] = newSound
+    ///   -- rotate: the last of the list becomes the first
+    ///   if count( #ghostsCalling ) > 1 then
+    ///     addAt( stateList, 1, getLast(stateList) )
+    ///     deleteAt( stateList, count(stateList) )
+    /// ```
+    ///
+    /// The ghosts telephone the player, and it is the whole of the game's
+    /// signposting -- how anyone learns there is somewhere to go. Fifty-seven
+    /// room scripts call `ghostCalls` to say who is calling from where and how
+    /// loudly, and nothing in this engine ever ran the other half. The ghosts
+    /// have been silent for the entire project.
+    ///
+    /// `#nobody` in the rota is a one-second pause rather than a sound, which
+    /// is what the padding in `ghostCalls` is: an entry call lands every turn,
+    /// a warm one one turn in three, a cool one one in four. The rotation
+    /// moves the *last* entry to the front rather than stepping forward, so a
+    /// list of three ghosts and three pauses gives one call, three seconds of
+    /// quiet, then two calls together.
+    pub fn tick_ghost_call(&mut self) {
+        if self.ghost_call_until.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        let rota = self.state.get_all("ghostsCalling").to_vec();
+        let Some(batter) = rota.first().and_then(|v| v.as_str()).map(|s| {
+            s.trim_start_matches('#').to_string()
+        }) else {
+            return;
+        };
+
+        // The last becomes the first, which is how the original steps on.
+        if rota.len() > 1 {
+            let mut next = rota;
+            if let Some(last) = next.pop() {
+                next.insert(0, last);
+            }
+            self.state.set_all("ghostsCalling", next);
+        }
+
+        if batter.eq_ignore_ascii_case("nobody") {
+            self.ghost_call_until = Some(Instant::now() + Duration::from_secs(1));
+            return;
+        }
+
+        let Some((_, files)) = Self::GHOST_CALLS
+            .iter()
+            .find(|(who, _)| who.eq_ignore_ascii_case(&batter))
+        else {
+            return;
+        };
+        let cursor = self.ghost_call_at.entry(batter).or_insert(0);
+        *cursor = (*cursor + 1) % files.len();
+        let name = files[*cursor].to_string();
+
+        // Hold the rota until this call has finished, which is the original's
+        // `soundBusy` check on the channel it went out on.
+        let secs = self
+            .sound(&name)
+            .map(|(pcm, rate, ch)| pcm.len() as f64 / (rate.max(1) * ch.max(1) as u32) as f64)
+            .unwrap_or(0.0);
+        self.ghost_call_until = Some(Instant::now() + Duration::from_secs_f64(secs));
+
+        let loudness = match self.state.get("ghostCallVol").as_int().unwrap_or(180) {
+            v if v <= 90 => "low",
+            v if v <= 180 => "medium",
+            _ => "high",
+        };
+        trace!(
+            crate::trace::Topic::Audio,
+            "ghost call {name} at {loudness} ({secs:.1}s)"
+        );
+        // `gLastCall` is how the original finds the channel again, both to
+        // ask whether the call is still going and to take it down.
+        self.state.set("gLastCall", lingo::Value::String(name.clone()));
+        self.pending.push(Effect::PlaySound {
+            name,
+            loudness: Some(loudness.into()),
+        });
+    }
+
     /// Drops a wait in progress, for a tool with no clock to wait against.
     pub fn clear_effect_wait(&mut self) {
         self.effect_wait = None;
@@ -954,6 +1086,9 @@ impl Game {
             // in a file that applies effects and this one was mentioned in a
             // list of effects to emit.
             Effect::CursorOff => self.cursor_hidden = true,
+            // Leaving the spot a ghost calls from stops it mid-call, and
+            // frees the rota so the next room's ghosts can start at once.
+            Effect::StopGhostCall => self.ghost_call_until = None,
             Effect::SetTransition { kind } => {
                 trace!(crate::trace::Topic::Room, "transition armed: {kind}");
                 self.transition = Some(kind.clone());
@@ -1916,6 +2051,88 @@ fn blit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ghost_works_through_its_calls_in_the_order_the_game_lists_them() {
+        // `newSound = ( gCurrentEntrySounds[who] mod count(list) ) + 1`, and
+        // the cursor starts at 1, so the *second* file is the first one
+        // heard. The lists are in string order because the authors built them
+        // from a directory listing, so Margaret's second file is `Mcall10`.
+        let mut game = Game::for_test();
+        game.state.set_all("ghostsCalling", vec![lingo::Value::Symbol("Margaret".into())]);
+
+        let mut heard = Vec::new();
+        for _ in 0..4 {
+            game.ghost_call_until = None;
+            game.tick_ghost_call();
+            heard.extend(game.pending.drain(..).filter_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name),
+                _ => None,
+            }));
+        }
+        assert_eq!(heard, ["Mcall10", "Mcall2", "Mcall3", "Mcall4"]);
+    }
+
+    #[test]
+    fn nobody_in_the_rota_is_a_pause_rather_than_a_call() {
+        // The padding `ghostCalls` adds is what spaces the calls out: an
+        // entry call lands every turn, a warm one one turn in three.
+        let mut game = Game::for_test();
+        game.state.set_all(
+            "ghostsCalling",
+            ["Margaret", "nobody", "nobody"]
+                .iter()
+                .map(|w| lingo::Value::Symbol((*w).into()))
+                .collect(),
+        );
+
+        let mut turns = Vec::new();
+        for _ in 0..6 {
+            game.ghost_call_until = None;
+            game.tick_ghost_call();
+            let played = game.pending.drain(..).find_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name),
+                _ => None,
+            });
+            turns.push(played);
+        }
+        // The rotation moves the *last* entry to the front rather than
+        // stepping forward, so one call is followed by both pauses.
+        assert_eq!(
+            turns,
+            [
+                Some("Mcall10".into()),
+                None,
+                None,
+                Some("Mcall2".into()),
+                None,
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn a_call_holds_the_rota_until_it_has_finished() {
+        // The original asks `soundBusy` on the channel the last call went out
+        // on and gives up if it is still speaking, so two ghosts never talk
+        // over each other.
+        let mut game = Game::for_test();
+        game.state.set_all("ghostsCalling", vec![lingo::Value::Symbol("Margaret".into())]);
+        game.ghost_call_until = Some(Instant::now() + Duration::from_secs(30));
+        game.tick_ghost_call();
+        assert!(game.pending.is_empty(), "called over the top of a call");
+    }
+
+    #[test]
+    fn silencing_the_ghosts_frees_the_rota_at_once() {
+        // `ghostCalls #None` is on the way out of a room, and the next room's
+        // ghosts should be able to start straight away rather than waiting
+        // out a call that has just been cut off.
+        let mut game = Game::for_test();
+        game.ghost_call_until = Some(Instant::now() + Duration::from_secs(30));
+        game.apply_puppet(&Effect::StopGhostCall);
+        assert!(game.ghost_call_until.is_none());
+    }
 
     #[test]
     fn going_somewhere_deliberately_abandons_the_opening() {

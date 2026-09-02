@@ -71,6 +71,9 @@ pub enum Effect {
         room: String,
         transition: Option<String>,
     },
+    /// Takes down a ghost call still sounding, which is what `ghostCalls
+    /// #None` does when the player leaves the spot a ghost was calling from.
+    StopGhostCall,
     /// Write a flag in timeline order, for a value that must land between two
     /// waits rather than when the handler ran.
     SetState { key: String, value: Value },

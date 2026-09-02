@@ -594,6 +594,20 @@ impl Audio {
             .retain(|v| v.looping || v.position < v.samples.len() as f64 / v.channels.max(1) as f64);
     }
 
+    /// Takes down a named one-shot that is still sounding.
+    ///
+    /// Distinct from `stop`, which retires a loop by its key. Loops are left
+    /// alone here: they belong to the room's bed and are stopped by the
+    /// ambience changing, not by this.
+    pub fn stop_oneshot(&self, name: &str) {
+        let Ok(mut mixer) = self.mixer.lock() else {
+            return;
+        };
+        mixer.voices.retain(|v| {
+            v.looping || !v.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))
+        });
+    }
+
     /// Every voice the mixer is holding, for reporting.
     pub fn voices(&self) -> Vec<String> {
         let Ok(mixer) = self.mixer.lock() else {

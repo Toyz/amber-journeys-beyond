@@ -428,11 +428,11 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 .to_string();
             let loudness = args.get(1).and_then(Value::as_str).unwrap_or("medium");
 
-            // Volume by loudness, stored where the mixer can read it.
+            // `[#low: 90, #medium: 180, #high: 255]`, out of Director's 255.
             let volume = match loudness.trim_start_matches('#') {
                 "low" => 90,
                 "high" => 255,
-                _ => 160,
+                _ => 180,
             };
             state.set("ghostCallVol", Value::Int(volume));
 
@@ -473,31 +473,34 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                     };
                     candidates.extend(std::iter::repeat_n(None, padding));
                 }
+            } else if lower == "none" {
+                // No ghost calls from here. The original walks the sound
+                // channels and takes down any call still running, so leaving
+                // the room a ghost calls from stops it calling.
+                state.set_all("ghostsCalling", Vec::new());
+                out.effects.push(Effect::StopGhostCall);
+                return true;
             } else {
-                // #None and anything unrecognised place no call.
+                // Anything unrecognised places no call.
                 return true;
             }
 
-            if candidates.is_empty() {
-                return true;
-            }
-            let pick = roll(state, candidates.len() as i32) as usize - 1;
-            let Some(Some(who)) = candidates.get(pick) else {
-                return true;
-            };
-
-            // Each ghost's calls are external files named by initial: Brice
-            // has eleven, Edwin twelve, Margaret ten.
-            let (prefix, count) = match *who {
-                "Brice" => ("BCALL", 11),
-                "Edwin" => ("ECALL", 12),
-                _ => ("MCALL", 10),
-            };
-            let n = roll(state, count);
-            out.effects.push(Effect::PlaySound {
-                name: format!("{prefix}{n}"),
-                loudness: Some(loudness.trim_start_matches('#').to_string()),
-            });
+            // The list is stored, not played. `ghostCalls` only says who is
+            // calling from here and how loudly; `playDomainEntrySound` runs
+            // off the front of it once a frame and rotates it.
+            //
+            // This used to pick one candidate at random and play a random
+            // call file on the spot. That is a different game: the rota is
+            // what spaces the calls out and what the `#nobody` padding is
+            // for, and a room that sets the rota was making a single noise
+            // and then falling silent for ever.
+            state.set_all(
+                "ghostsCalling",
+                candidates
+                    .iter()
+                    .map(|c| Value::Symbol(c.unwrap_or("nobody").to_string()))
+                    .collect(),
+            );
         }
 
         // on peekAlert
@@ -3121,5 +3124,62 @@ mod phone_tests {
         assert_ne!(second, third);
         // Then it has nothing left to say.
         assert_eq!(said(&mut s), None);
+    }
+
+    #[test]
+    fn ghost_calls_sets_the_rota_rather_than_making_a_noise() {
+        // `setProp( oStoryteller.states, #ghostsCalling, suggestedCalls )` --
+        // the whole weighted list, which `playDomainEntrySound` then works
+        // off the front of. Playing a call here instead meant a room made one
+        // noise and fell silent for ever.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        let mut out = Outcome::default();
+        assert!(call(
+            "ghostcalls",
+            &[Value::Symbol("Margaret_warm".into()), Value::Symbol("medium".into())],
+            &mut s,
+            &mut out
+        ));
+
+        assert!(out.effects.is_empty(), "ghostCalls played something itself");
+        let rota: Vec<String> = s
+            .get_all("ghostsCalling")
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        // A warm call lands one turn in three: the ghost and two pauses.
+        assert_eq!(rota, ["Margaret", "nobody", "nobody"]);
+        assert_eq!(s.get("ghostCallVol").as_int(), Some(180));
+    }
+
+    #[test]
+    fn an_entry_call_lands_every_turn_and_a_cool_one_less_often() {
+        let rota = |kind: &str| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+            let mut out = Outcome::default();
+            call(
+                "ghostcalls",
+                &[Value::Symbol(format!("Brice_{kind}")), Value::Symbol("high".into())],
+                &mut s,
+                &mut out,
+            );
+            s.get_all("ghostsCalling").len()
+        };
+        assert_eq!(rota("entry"), 1, "an entry call has no padding");
+        assert_eq!(rota("warm"), 3);
+        assert_eq!(rota("cool"), 4);
+    }
+
+    #[test]
+    fn none_empties_the_rota_and_takes_down_a_call_in_progress() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
+        s.set_all("ghostsCalling", vec![Value::Symbol("Margaret".into())]);
+        let mut out = Outcome::default();
+        call("ghostcalls", &[Value::Symbol("None".into())], &mut s, &mut out);
+        assert!(s.get_all("ghostsCalling").is_empty());
+        assert!(out.effects.iter().any(|e| matches!(e, Effect::StopGhostCall)));
     }
 }

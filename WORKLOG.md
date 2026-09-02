@@ -5456,3 +5456,92 @@ invisible to the tally. The residue the hint book tells a new player to listen
 to on their first minute is behind it.
 
 268 tests.
+
+## 124. The ghosts start calling
+
+The ghosts telephone the player. It is how anyone learns there is somewhere to
+go: a call from Margaret gets louder as you climb the stairs towards her door,
+and that is the entire signposting system of a game with no map and no journal.
+
+Fifty-seven room scripts call `ghostCalls` to say who is calling from where and
+how loudly. This engine has never once made a sound from it.
+
+Two separate faults, and the second was mine.
+
+### Half the mechanism was missing
+
+`ghostCalls` only *decides*. The playing is `playDomainEntrySound`, which the
+original runs from `idle` -- once a frame, not on a click:
+
+```text
+on playDomainEntrySound
+  if gSoundsSuspended = 1 then return
+  batterUp = getState( #ghostsCalling )
+  ... if a call is still sounding on its channel then return ...
+  soundList = gEntrySoundFiles[ batterUp ]
+  newSound  = ( gCurrentEntrySounds[ batterUp ] mod count(soundList) ) + 1
+  if batterUp = #nobody then waitaSec( #start )
+  else soundEffect( getAt(soundList, newSound), getState(#ghostCallVol) )
+  gCurrentEntrySounds[ batterUp ] = newSound
+  if count( #ghostsCalling ) > 1 then
+    addAt( stateList, 1, getLast(stateList) )
+    deleteAt( stateList, count(stateList) )
+```
+
+Being a frame concern is the whole character of it. The calls carry on while
+the player stands still and thinks, which is what makes a house feel occupied.
+Nothing in this engine ran from the frame except the scan unit's clock, so
+there was nowhere for it to live and I had not noticed it was missing.
+
+### And my `ghostCalls` was playing a slot machine
+
+Worse, because it looked finished. My port built the weighted candidate list
+faithfully and then picked one at random and played a random call file on the
+spot. So a room made a single noise and fell silent for ever.
+
+`ghostCalls` stores the list -- `setProp( oStoryteller.states, #ghostsCalling,
+suggestedCalls )` -- and the list *is* the rota. The padding is not weighting
+to sample from; it is turns. `#nobody` is a one-second pause in the sequence.
+
+The rotation is worth reading twice: it moves the **last** entry to the front
+rather than stepping forward. So `#Margaret_warm`, which is `[Margaret,
+nobody, nobody]`, gives a call, then both pauses, then the next call -- and
+`#allGhosts`, which is three ghosts and three pauses, gives one call, three
+seconds of quiet, then two ghosts speaking one after the other. Sampling at
+random gives none of that shape.
+
+Each ghost then works through its own recordings in order, and the order is
+the one the authors' directory listing gave them:
+
+```text
+Mcall1, Mcall10, Mcall2, Mcall3 ... Mcall9
+```
+
+The cursor starts at 1 and the step is `(n mod count) + 1`, so the *second*
+file is the first one heard. Standing at the top of the stairs, Margaret says
+`Mcall10` first. That is not a detail I would have invented.
+
+Checked by standing in the upstairs hall with the sound logged:
+
+```text
+[  61] ghost call Mcall10 at medium (3.6s)
+[ 396] ghost call Mcall2  at medium (5.0s)
+[ 816] ghost call Mcall3  at medium (4.5s)
+```
+
+Three hundred and thirty-five frames between the first two: a 3.6 second call
+and two one-second pauses, which is exactly the warm rota. It works.
+
+Two smaller corrections fell out of reading the handler. The loudness words
+are `[#low: 90, #medium: 180, #high: 255]` out of 255, where this engine had
+been using 0.5 and 0.75 and, in `ghostCalls` itself, 160 for medium. And
+`ghostCalls #None` takes down a call already sounding rather than only
+clearing the rota, so walking away from a ghost stops it mid-sentence.
+
+This is the seventh variant of the fault this log keeps recording, and a new
+shape of it: not an effect emitted and never applied, but a handler ported,
+tested, and never reached. `verify` counts which handlers the room scripts
+name, and every one of the fifty-seven named this one. What it cannot see is
+the other half, which the score calls and no room mentions.
+
+275 tests.
