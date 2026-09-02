@@ -374,6 +374,157 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //
         // The win sound is behind `if gCPU = #PC` and is not played here; on
         // the Macintosh the film carries its own audio.
+        // on moveClock command
+        //   oldTime = getState( #clockTime )          -- #t4, or #t4.30
+        //   ... split the symbol on "." into Hrs and min ...
+        //   if command = #add_15min then min = min + 15
+        //   if command = #add_30min then min = min + 30
+        //   if command = #add_3hr   then Hrs = Hrs + 3
+        //   if command = #reset_4pm then Hrs = 4 : min = 0
+        //   Hrs = Hrs + ( min / 60 ) : min = min mod 60
+        //   Hrs = Hrs mod 12 : if Hrs = 0 then Hrs = 12
+        //   if min = 0 then newTime = value( "#t" & Hrs )
+        //   else            newTime = value( "#t" & Hrs & "." & min )
+        //   setProp( oStoryteller.states, #clockTime, list(newTime) )
+        //   if newTime = #t7 and getState( #clockPuzzleActivated ) = 1 then
+        //     addState( #tunedIn, #livingRm )
+        //
+        // Margaret's clocks. They all read the same time and none of them is
+        // running, and setting them to seven o'clock puts the living room on
+        // her wireless -- the last of its four stations.
+        //
+        // The time is carried in the flag's own name: `#t4` is four o'clock
+        // and `#t4.30` is half past, so the handler takes a symbol apart into
+        // numbers, does the arithmetic, and puts a symbol back together.
+        //
+        // Four moves and no way back except the reset, which is what makes it
+        // a puzzle rather than a dial: from four o'clock, three hours lands
+        // exactly on seven, and every other route has to come round the
+        // twelve.
+        "moveclock" => {
+            let asked = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|s| s.trim_start_matches('#').to_ascii_lowercase())
+                .unwrap_or_default();
+
+            let now = state.get("clockTime");
+            let now = now.as_str().unwrap_or("t4").trim_start_matches('#').trim_start_matches('t');
+            let (hrs, min) = now.split_once('.').unwrap_or((now, "0"));
+            let (mut hrs, mut min) = (
+                hrs.parse::<i32>().unwrap_or(4),
+                min.parse::<i32>().unwrap_or(0),
+            );
+
+            match asked.as_str() {
+                "add_15min" => min += 15,
+                "add_30min" => min += 30,
+                "add_3hr" => hrs += 3,
+                "reset_4pm" => {
+                    hrs = 4;
+                    min = 0;
+                }
+                _ => {
+                    trace!(
+                        crate::trace::Topic::Script,
+                        "moveClock: no entry for the command {asked}"
+                    );
+                    return true;
+                }
+            }
+
+            hrs += min / 60;
+            min %= 60;
+            hrs %= 12;
+            if hrs == 0 {
+                hrs = 12;
+            }
+            let reads = if min == 0 {
+                format!("t{hrs}")
+            } else {
+                format!("t{hrs}.{min}")
+            };
+            state.set_all("clockTime", vec![Value::Symbol(reads.clone())]);
+            out.redraw = true;
+
+            if reads == "t7" && state.get("clockPuzzleActivated").as_int() == Some(1) {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "seven o'clock: the living room comes on the air"
+                );
+                state.add_item("tunedIn", Value::Symbol("livingRm".into()));
+            }
+        }
+
+        // on touchClock whichClock
+        //   valid = [#bedroom, #kitchen, #livingRm, #diningRm]
+        //   hipToThePuzzle = not inState( #utterancesRemaining, #Iwonder )
+        //   if getState( #mostRecentClock ) = whichClock
+        //      and getState( #clockTime ) = getState( #mostRecentTime ) then
+        //     if hipToThePuzzle then
+        //       assertSound #timeIsntPassing
+        //       if getState( #clockPuzzleFrustration ) > 4 then
+        //         assertSound #wastingTime
+        //   else assertSound #theseClocks
+        //   setProp( states, #mostRecentClock, list(whichClock) )
+        //   setProp( states, #mostRecentTime, list(getState(#clockTime)) )
+        //   if hipToThePuzzle then
+        //     setProp( states, #clockPuzzleFrustration, list(... + 1) )
+        //
+        // What she says when you touch one. The puzzle is noticing that the
+        // clocks are not running, so the handler remembers the last clock and
+        // the last time and reacts to being shown the same one twice.
+        //
+        // All of it is behind `hipToThePuzzle`, which is whether she has
+        // already said `#Iwonder` -- so the remarks only begin once the idea
+        // is in the player's head. The game will not explain a puzzle to
+        // somebody who has not been told there is one, and it counts how many
+        // times they prod at it before saying so more sharply.
+        "touchclock" => {
+            const CLOCKS: [&str; 4] = ["bedroom", "kitchen", "livingRm", "diningRm"];
+            let Some(which) = args
+                .first()
+                .and_then(Value::as_str)
+                .map(|s| s.trim_start_matches('#').to_string())
+                .filter(|w| CLOCKS.iter().any(|c| c.eq_ignore_ascii_case(w)))
+            else {
+                return true;
+            };
+
+            // `#utterancesRemaining` lists what she has yet to say, so having
+            // said it is her *not* being in the list.
+            let hip = !state
+                .get_all("utterancesRemaining")
+                .iter()
+                .any(|u| u.as_str().is_some_and(|s| s.eq_ignore_ascii_case("Iwonder")));
+
+            let same_clock = state
+                .get("mostRecentClock")
+                .as_str()
+                .is_some_and(|c| c.trim_start_matches('#').eq_ignore_ascii_case(&which));
+            let now = state.get("clockTime");
+            let same_time = now.loosely_eq(&state.get("mostRecentTime"));
+
+            if same_clock && same_time {
+                if hip {
+                    crate::natives::assert_sound("timeIsntPassing", None, state, out);
+                    if state.get("clockPuzzleFrustration").as_int().unwrap_or(0) > 4 {
+                        crate::natives::assert_sound("wastingTime", None, state, out);
+                    }
+                }
+            } else {
+                crate::natives::assert_sound("theseClocks", None, state, out);
+            }
+
+            state.set_all("mostRecentClock", vec![Value::Symbol(which)]);
+            state.set_all("mostRecentTime", vec![now]);
+            if hip {
+                let prods = state.get("clockPuzzleFrustration").as_int().unwrap_or(0);
+                state.set_all("clockPuzzleFrustration", vec![Value::Int(prods + 1)]);
+            }
+            out.redraw = true;
+        }
+
         "setdumbwaiter" => {
             let asked = args
                 .first()
@@ -1444,5 +1595,85 @@ mod box_tests {
         let mut out = Outcome::default();
         call("backawayfromradio", &[], &mut s, &mut out);
         assert!(!out.effects.iter().any(|e| matches!(e, Effect::GoToRoom { .. })));
+    }
+
+    #[test]
+    fn the_clocks_read_their_time_out_of_their_own_name() {
+        // `#t4` is four o'clock and `#t4.30` is half past, so the handler
+        // takes the symbol apart, does the arithmetic, and puts one back.
+        let step = |from: &str, command: &str| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+            s.set_all("clockTime", vec![Value::Symbol(from.into())]);
+            let mut out = Outcome::default();
+            assert!(call("moveclock", &[Value::Symbol(command.into())], &mut s, &mut out));
+            s.get("clockTime").as_str().unwrap_or_default().to_string()
+        };
+        assert_eq!(step("t4", "add_15min"), "t4.15");
+        assert_eq!(step("t4.30", "add_30min"), "t5");
+        assert_eq!(step("t4.45", "add_30min"), "t5.15");
+        // Three hours from four lands exactly on seven, which is the answer.
+        assert_eq!(step("t4", "add_3hr"), "t7");
+        // Round the twelve rather than through a thirteen.
+        assert_eq!(step("t11", "add_3hr"), "t2");
+        assert_eq!(step("t9", "add_3hr"), "t12");
+        assert_eq!(step("t9.30", "reset_4pm"), "t4");
+    }
+
+    #[test]
+    fn seven_oclock_puts_the_living_room_on_the_air() {
+        // And only once the puzzle has been started, which is what hearing
+        // one of the dining room's announcements out does.
+        let reach_seven = |activated: i32| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+            s.set_all("clockTime", vec![Value::Symbol("t4".into())]);
+            s.set_all("clockPuzzleActivated", vec![Value::Int(activated)]);
+            s.set_all("tunedIn", vec![Value::Symbol("bedroom".into())]);
+            let mut out = Outcome::default();
+            call("moveclock", &[Value::Symbol("add_3hr".into())], &mut s, &mut out);
+            assert!(s.get("clockTime").is_symbol("t7"));
+            s.get_all("tunedIn")
+                .iter()
+                .any(|v| v.as_str().is_some_and(|t| t == "livingRm"))
+        };
+        assert!(!reach_seven(0), "tuned in without the puzzle started");
+        assert!(reach_seven(1));
+    }
+
+    #[test]
+    fn she_says_nothing_about_the_clocks_until_she_has_raised_them() {
+        // Everything `touchClock` says is behind `hipToThePuzzle`, which is
+        // whether `#Iwonder` has already been said. The game will not explain
+        // a puzzle to somebody who has not been told there is one.
+        let touch_twice = |said: bool| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+            s.set_all("clockTime", vec![Value::Symbol("t4".into())]);
+            // `assertSound` says a line once and strikes it off this list,
+            // so the lines she has yet to say stay in it. Having *said*
+            // `#Iwonder` is it no longer being there.
+            let mut remaining = vec![
+                Value::Symbol("timeIsntPassing".into()),
+                Value::Symbol("theseClocks".into()),
+            ];
+            if !said {
+                remaining.push(Value::Symbol("Iwonder".into()));
+            }
+            s.set_all("utterancesRemaining", remaining);
+            let mut out = Outcome::default();
+            call("touchclock", &[Value::Symbol("diningRm".into())], &mut s, &mut out);
+            call("touchclock", &[Value::Symbol("diningRm".into())], &mut s, &mut out);
+            (
+                out.effects.iter().any(|e| matches!(
+                    e, Effect::PlaySound { name, .. } if name == "timeIsntPassing"
+                )),
+                s.get("clockPuzzleFrustration").as_int().unwrap_or(0),
+            )
+        };
+        assert_eq!(touch_twice(false), (false, 0), "spoke before raising it");
+        let (spoke, prods) = touch_twice(true);
+        assert!(spoke, "said nothing when the same clock showed the same time");
+        assert_eq!(prods, 2, "the prods are counted");
     }
 }

@@ -6288,3 +6288,72 @@ seeds its flags from the schema, so anything set before the jump is overwritten
 by the arrival. The `set` command is for steering a chapter you are already in.
 
 293 tests, five recordings.
+
+## 138. Seven o'clock
+
+Margaret's clock puzzle, ported: `moveClock`, `touchClock`, and the thing that
+starts it.
+
+The clocks carry the time in their own flag's name. `#clockTime` opens as `#t4`
+and reads `#t4.30` for half past, so `moveClock` takes a symbol apart into
+numbers, does the arithmetic, and puts a symbol back together:
+
+```text
+Hrs = Hrs + ( min / 60 ) : min = min mod 60
+Hrs = Hrs mod 12 : if Hrs = 0 then Hrs = 12
+if min = 0 then newTime = value( "#t" & Hrs )
+else            newTime = value( "#t" & Hrs & "." & min )
+```
+
+Four moves and no way back except a reset to four o'clock. From four, three
+hours lands exactly on seven, and seven is the answer -- it puts the living
+room on the wireless, the fourth and last of her stations.
+
+### It will not tell you there is a puzzle
+
+`touchClock` is the nicest thing I have read in this game. It remembers
+`#mostRecentClock` and `#mostRecentTime`, and reacts to being shown the same
+clock at the same time -- the whole puzzle being to notice that the clocks are
+not running. She says `#timeIsntPassing`; if you keep prodding, and
+`#clockPuzzleFrustration` passes four, she says something about wasting time.
+
+And every line of it is behind `hipToThePuzzle`:
+
+```text
+hipToThePuzzle = not inState( #utterancesRemaining, #Iwonder )
+```
+
+`#utterancesRemaining` is what she has *yet* to say, so this is "has she
+already wondered aloud about the clocks". Until she has, touching them says
+nothing at all. The game refuses to explain a puzzle to a player who has not
+been told there is one, and it counts their prods so it can change its tone
+once they have.
+
+### Started by listening
+
+What activates it is not a click. `prodVLoops` -- the virtual-loop sequencer,
+which is the same job as this engine's programme ticker from entry 71 --
+watches the dining room radio and fires when one of two announcements has
+nearly finished:
+
+```text
+if sndName = #news   then sndLength = 707
+if sndName = #buster then sndLength = 946
+if sndElapsedTime > sndLength - 60 and sndElapsedTime < sndLength + 300 then
+  setState( #clockPuzzleActivated, 1 )
+```
+
+So you have to stand in her dining room and let an announcement play out. The
+programme ticker already knows when an item ends, because that is what
+schedules the next one, so it fires as the announcement gives way rather than
+on a measured deadline.
+
+### What is still in the way
+
+The hands themselves. No room hotspot calls `moveClock`; the clock rooms only
+set `#playerIsExaminingClock`, and the hands are a sprite `mouseDown`. There
+are twenty-seven of those in this game and this engine runs none of them --
+the headgear is another. That is the last architectural gap between here and
+the end of Margaret's chapter, and it is now the only one.
+
+296 tests, five recordings.

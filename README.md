@@ -386,6 +386,9 @@ Working:
 
 Not yet done:
 
+- Sprite `mouseDown` scripts. Twenty-seven of them, and they are how a few
+  things are touched that no room hotspot names -- the hands of Margaret's
+  clocks among them, which is the last step of her chapter's second puzzle
 - The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs
   after five seconds of no input with the Amber vision on
 - The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs

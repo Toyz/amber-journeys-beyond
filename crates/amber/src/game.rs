@@ -1352,6 +1352,7 @@ impl Game {
         self.program = Some(Program {
             group: group.to_string(),
             order,
+            playing: None,
             next: 0,
             due: Instant::now(),
             gain,
@@ -1394,12 +1395,45 @@ impl Game {
         if Instant::now() < program.due {
             return None;
         }
-        let (group, item, gain) = {
+        let (group, item, gain, finished) = {
             let p = self.program.as_mut()?;
             let item = p.order[p.next % p.order.len()].clone();
+            let finished = p.playing.replace(item.clone());
             p.next = p.next.wrapping_add(1);
-            (p.group.clone(), item, p.gain)
+            (p.group.clone(), item, p.gain, finished)
         };
+
+        // Hearing one of the dining room's announcements out is what starts
+        // Margaret's clock puzzle. `prodVLoops` watches the elapsed time of
+        // the sound against a hard-coded length -- 707 ticks for `#news`, 946
+        // for `#buster` -- and fires once it is within a second of the end:
+        //
+        //   if sndElapsedTime > sndLength - 60
+        //      and sndElapsedTime < sndLength + 300 then
+        //     setState( #clockPuzzleActivated, 1 )
+        //     if getState( #clockTime ) = #t7 then
+        //       addState( #tunedIn, #livingRm )
+        //
+        // Here the programme already knows when an item ends, because that is
+        // what schedules the next one, so this fires as the announcement
+        // gives way rather than on a measured deadline. She tells you there
+        // is something wrong with the clocks, and from then on the clocks
+        // will listen.
+        if group.eq_ignore_ascii_case("DRradio") {
+            if let Some(heard) = finished {
+                if ["news", "buster"].iter().any(|a| heard.eq_ignore_ascii_case(a)) {
+                    trace!(
+                        crate::trace::Topic::Script,
+                        "heard {heard} out: the clock puzzle is live"
+                    );
+                    self.state.set("clockPuzzleActivated", lingo::Value::Int(1));
+                    if self.state.get("clockTime").is_symbol("t7") {
+                        self.state
+                            .add_item("tunedIn", lingo::Value::Symbol("livingRm".into()));
+                    }
+                }
+            }
+        }
 
         // Advance the clock before anything can fail. An item that does not
         // resolve must still cost a beat: returning early without setting
@@ -2053,6 +2087,10 @@ struct Program {
     order: Vec<String>,
     /// Index of the next item to play, wrapping so the programme cycles.
     next: usize,
+    /// The item on the air now, so the one it replaces is known to have been
+    /// heard out. Margaret's clock puzzle starts on hearing an announcement
+    /// to its end.
+    playing: Option<String>,
     /// When the current item is expected to finish.
     due: Instant,
     gain: f32,
