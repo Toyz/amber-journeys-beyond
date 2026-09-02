@@ -158,6 +158,9 @@ pub fn play_with(
     // how far through that transition we are.
     let mut outgoing: Vec<u32> = vec![0; STAGE_W * STAGE_H];
     let mut dissolve: Option<(f32, crate::game::Transition)> = None;
+    // Whether the cursor is over the inventory bar, which decides whether
+    // its icons are drawn in full colour or as outlines.
+    let mut inventory_hot = false;
     let mut last_frame = std::time::Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
         frames += 1;
@@ -337,7 +340,7 @@ pub fn play_with(
                 dissolve = Some((0.0, t));
             }
             game.draw(&mut frame, STAGE_W as u32, STAGE_H as u32);
-            game.draw_inventory(&mut frame, STAGE_W as u32, STAGE_H as u32);
+            game.draw_inventory(&mut frame, STAGE_W as u32, STAGE_H as u32, inventory_hot);
             dirty = false;
         }
 
@@ -371,6 +374,14 @@ pub fn play_with(
         };
 
         let pos = window.get_mouse_pos(MouseMode::Pass).map(|(x, y)| map(x, y));
+        // `if the mouseV > gInventoryTopY` -- the bar lights up under the
+        // cursor and goes back to outlines when it leaves, and the original
+        // redraws the stage on each crossing.
+        let over_bar = pos.is_some_and(|(_, y)| y > crate::inventory::Inventory::top_y(STAGE_H as i32));
+        if over_bar != inventory_hot {
+            inventory_hot = over_bar;
+            dirty = true;
+        }
 
         // Report the room and the affordance under the cursor in the title bar,
         // which stands in for the cursor art until that is wired up.

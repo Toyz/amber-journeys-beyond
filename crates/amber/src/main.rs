@@ -722,7 +722,8 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path, force: &[String]) -> Res {
     // headless render answered a slightly different question than the one the
     // player is looking at -- which is how the portal's trouble stayed
     // invisible here while being the first thing on screen there.
-    game.draw_inventory(&mut frame, W, H);
+    // A headless shot has no cursor, so the bar is drawn cool.
+    game.draw_inventory(&mut frame, W, H, false);
 
     // The framebuffer is BGRA-in-a-u32; the writer wants straight RGBA bytes.
     let mut rgba = Vec::with_capacity(frame.len() * 4);

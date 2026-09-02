@@ -5,8 +5,8 @@
 //! held, all of them are unreachable, so this is the difference between walking
 //! around the house and playing the game.
 //!
-//! Each item has a pair of 67x67 icons, plain and lit, listed in the movie's
-//! `inventory.DATA` cast member as `#ScanDevice: [954, 955]`. The lit icon
+//! Each item has a pair of 67x67 icons, listed in the movie's
+//! `inventory.DATA` cast member as `#ScanDevice: [954, 955]`. The second icon
 //! marks the item currently in hand.
 
 use std::collections::HashMap;
@@ -18,12 +18,16 @@ pub const ICON: i32 = 67;
 
 /// Cast numbers for one item's icons.
 ///
-/// Most items list two, plain and lit. The peek unit lists three, the extra
+/// Most items list two. The peek unit lists three, the extra
 /// being a brighter glow it alternates with while alerting.
 #[derive(Clone, Debug)]
 pub struct Icons {
-    pub plain: u32,
-    pub lit: u32,
+    /// Full colour, shown while the cursor is over the inventory bar --
+    /// `updateInventory #hot` takes `getAt(itemData, 1)`.
+    pub hot: u32,
+    /// A glowing outline, shown while the cursor is anywhere else, from
+    /// `getAt(itemData, 2)`.
+    pub cool: u32,
     /// Every cast the item lists, in order, for handlers that index them.
     pub all: Vec<u32>,
 }
@@ -53,12 +57,12 @@ impl Inventory {
                     .filter(|n| *n > 0)
                     .map(|n| n as u32)
                     .collect();
-                if let [plain, lit, ..] = nums[..] {
+                if let [hot, cool, ..] = nums[..] {
                     icons.insert(
                         name.clone(),
                         Icons {
-                            plain,
-                            lit,
+                            hot,
+                            cool,
                             all: nums.clone(),
                         },
                     );
@@ -102,11 +106,56 @@ impl Inventory {
             .collect()
     }
 
+    /// The top of the inventory bar, which is what `gInventoryTopY` is.
+    ///
+    /// The cursor being below this is what turns the icons from outlines to
+    /// full colour; the original compares `the mouseV` against it once a
+    /// frame from `idle`.
+    pub fn top_y(stage_h: i32) -> i32 {
+        stage_h - ICON
+    }
+
     /// The item whose icon covers a point, if any.
     pub fn hit(&self, held: &[String], stage_w: i32, stage_h: i32, x: i32, y: i32) -> Option<String> {
         self.layout(held, stage_w, stage_h)
             .into_iter()
             .find(|(_, ix, iy)| x >= *ix && x < ix + ICON && y >= *iy && y < iy + ICON)
             .map(|(item, _, _)| item)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn table() -> Inventory {
+        Inventory::from_texts(&["[#ScanDevice: [954, 955], #Crowbar: [960, 961]]".to_string()])
+    }
+
+    #[test]
+    fn the_first_icon_is_the_lit_one_and_the_second_the_outline() {
+        // `updateInventory` takes `getAt(itemData, 1)` for `#hot` and
+        // `getAt(itemData, 2)` for `#cool`, and the hint book describes what
+        // those look like: full colour under the cursor, a glowing outline
+        // away from it.
+        let inv = table();
+        let icons = inv.icons("ScanDevice").expect("in the table");
+        assert_eq!(icons.hot, 954);
+        assert_eq!(icons.cool, 955);
+    }
+
+    #[test]
+    fn the_bar_starts_one_icon_up_from_the_bottom() {
+        // `gInventoryTopY`, which the cursor crossing is measured against.
+        assert_eq!(Inventory::top_y(480), 480 - ICON);
+    }
+
+    #[test]
+    fn an_item_with_no_icons_takes_no_room_in_the_bar() {
+        let inv = table();
+        let held = ["ScanDevice".to_string(), "Nonesuch".to_string()];
+        let placed = inv.layout(&held, 640, 480);
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].1, (640 - ICON) / 2, "the one icon is centred");
     }
 }

@@ -61,6 +61,9 @@ pub struct Game {
     /// True while the opening film is playing, because that one film -- and
     /// only that one -- can be cut short by a click.
     intro_running: bool,
+    /// True between `suspendSounds` and `restoreSounds`, which a cutscene
+    /// brackets itself with. The ghosts hold their tongues in between.
+    sounds_suspended: bool,
     /// When the ghost call now sounding -- or the pause standing in for one --
     /// is over, and the next turn of the rota may take its place.
     ghost_call_until: Option<Instant>,
@@ -143,6 +146,7 @@ impl Game {
             cursor_hidden: false,
             effect_wait: None,
             intro_running: false,
+            sounds_suspended: false,
             ghost_call_until: None,
             ghost_call_at: HashMap::new(),
             transition: None,
@@ -966,6 +970,19 @@ impl Game {
     /// list of three ghosts and three pauses gives one call, three seconds of
     /// quiet, then two calls together.
     pub fn tick_ghost_call(&mut self) {
+        // `idle` puts this behind `getState( #AMBERVISION ) = #on`, and the
+        // hint book agrees: the calls begin once the headgear is on and
+        // calibrated, and they are what lead the player to the domain entry
+        // tunnels. Ungated, the ghosts start telephoning from the boathouse
+        // path before there is anything to be led to.
+        if !self.state.get("AMBERVISION").is_symbol("on") {
+            return;
+        }
+        // `if gSoundsSuspended = 1 then return`, so a cutscene is not talked
+        // over by a ghost part way through.
+        if self.sounds_suspended {
+            return;
+        }
         if self.ghost_call_until.is_some_and(|t| Instant::now() < t) {
             return;
         }
@@ -1089,6 +1106,8 @@ impl Game {
             // Leaving the spot a ghost calls from stops it mid-call, and
             // frees the rota so the next room's ghosts can start at once.
             Effect::StopGhostCall => self.ghost_call_until = None,
+            Effect::SuspendSounds { .. } => self.sounds_suspended = true,
+            Effect::RestoreSounds { .. } => self.sounds_suspended = false,
             Effect::SetTransition { kind } => {
                 trace!(crate::trace::Topic::Room, "transition armed: {kind}");
                 self.transition = Some(kind.clone());
@@ -1644,18 +1663,34 @@ impl Game {
     ///
     /// The item in hand is drawn lit, which is how the player can tell what a
     /// click on the scene will be carrying.
-    pub fn draw_inventory(&mut self, frame: &mut [u32], width: u32, height: u32) {
+    /// Draws the inventory bar.
+    ///
+    /// `hot` says whether the cursor is over the bar. `updateInventory` takes
+    /// the first of an item's two icons when it is and the second when it is
+    /// not -- full colour under the cursor, a glowing outline away from it,
+    /// which is the first thing the hint book teaches a new player about the
+    /// interface.
+    ///
+    /// This engine had the pair standing for something else entirely: the
+    /// second icon marked the item in hand and the first everything else, so
+    /// the bar never changed as the cursor moved and the outline art appeared
+    /// on exactly the one item that should not have been in the bar at all.
+    /// The item in hand is on the cursor; `updateInventory` moves its sprite
+    /// off the stage.
+    pub fn draw_inventory(&mut self, frame: &mut [u32], width: u32, height: u32, hot: bool) {
         let held: Vec<String> = self.state.inventory().to_vec();
-        let in_use = self.state.item_in_use().map(str::to_ascii_lowercase);
+        let in_use = self.state.item_in_use().map(|s| s.to_ascii_lowercase());
         let placed = self
             .inventory
             .layout(&held, width as i32, height as i32);
         let domain = self.node().domain.clone();
 
         for (item, x, y) in placed {
+            if in_use.as_deref() == Some(item.to_ascii_lowercase().as_str()) {
+                continue;
+            }
             let Some(icons) = self.inventory.icons(&item) else { continue };
-            let lit = in_use.as_deref() == Some(item.to_ascii_lowercase().as_str());
-            let cast = if lit { icons.lit } else { icons.plain };
+            let cast = if hot { icons.hot } else { icons.cool };
             let Some(art) = self.art(&domain, cast, false) else { continue };
             let (w, h) = (art.width, art.height);
             blit(frame, width, height, &art.rgba, w, h, x, y);
@@ -2059,6 +2094,7 @@ mod tests {
         // heard. The lists are in string order because the authors built them
         // from a directory listing, so Margaret's second file is `Mcall10`.
         let mut game = Game::for_test();
+        game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("on".into())]);
         game.state.set_all("ghostsCalling", vec![lingo::Value::Symbol("Margaret".into())]);
 
         let mut heard = Vec::new();
@@ -2078,6 +2114,7 @@ mod tests {
         // The padding `ghostCalls` adds is what spaces the calls out: an
         // entry call lands every turn, a warm one one turn in three.
         let mut game = Game::for_test();
+        game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("on".into())]);
         game.state.set_all(
             "ghostsCalling",
             ["Margaret", "nobody", "nobody"]
@@ -2117,10 +2154,50 @@ mod tests {
         // on and gives up if it is still speaking, so two ghosts never talk
         // over each other.
         let mut game = Game::for_test();
+        game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("on".into())]);
         game.state.set_all("ghostsCalling", vec![lingo::Value::Symbol("Margaret".into())]);
         game.ghost_call_until = Some(Instant::now() + Duration::from_secs(30));
         game.tick_ghost_call();
         assert!(game.pending.is_empty(), "called over the top of a call");
+    }
+
+    #[test]
+    fn nobody_calls_until_the_headgear_is_on() {
+        // `idle` runs `playDomainEntrySound` only when `#AMBERVISION` is
+        // `#on`. The hint book says the same: the calls begin once the
+        // headgear is calibrated and they are what lead the player to the
+        // domain entry tunnels. Ungated, the ghosts telephone from the
+        // boathouse path before there is anywhere to be led.
+        let mut game = Game::for_test();
+        game.state.set_all("ghostsCalling", vec![lingo::Value::Symbol("Margaret".into())]);
+
+        for state in ["off", "startingUp", "readyToGo"] {
+            game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol(state.into())]);
+            game.ghost_call_until = None;
+            game.tick_ghost_call();
+            assert!(game.pending.is_empty(), "called with the vision {state}");
+        }
+
+        game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("on".into())]);
+        game.ghost_call_until = None;
+        game.tick_ghost_call();
+        assert!(!game.pending.is_empty(), "silent with the vision on");
+    }
+
+    #[test]
+    fn a_cutscene_is_not_talked_over() {
+        // `if gSoundsSuspended = 1 then return`.
+        let mut game = Game::for_test();
+        game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("on".into())]);
+        game.state.set_all("ghostsCalling", vec![lingo::Value::Symbol("Margaret".into())]);
+        game.apply_puppet(&Effect::SuspendSounds { fade: true });
+        game.tick_ghost_call();
+        assert!(game.pending.iter().all(|e| !matches!(e, Effect::PlaySound { .. })));
+
+        game.apply_puppet(&Effect::RestoreSounds { fade: true });
+        game.ghost_call_until = None;
+        game.tick_ghost_call();
+        assert!(game.pending.iter().any(|e| matches!(e, Effect::PlaySound { .. })));
     }
 
     #[test]

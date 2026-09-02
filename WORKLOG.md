@@ -5545,3 +5545,63 @@ name, and every one of the fifty-seven named this one. What it cannot see is
 the other half, which the score calls and no room mentions.
 
 275 tests.
+
+## 125. What else the frame was doing
+
+Entry 124 found the ghosts by reading `idle`, the original's per-frame handler.
+Having opened it, it was worth reading the whole thing rather than taking the
+one piece I went in for. It drives six things, and this engine was doing two of
+them.
+
+### The ghosts should not have been calling yet
+
+The first correction is to the entry before this one. `idle` runs
+`playDomainEntrySound` inside a guard:
+
+```text
+if getState( #AMBERVISION ) = #on then
+  playDomainEntrySound
+  if lastEvent() > 5 * 60 and ... then ripple
+```
+
+The calls only begin once the Amber headgear is on. The hint book says the same
+thing in words: "Once the AMBER device is properly calibrated (it happens
+automatically) you will start hearing ghost calls which will lead you to the
+domain entry tunnels." Ungated -- which is how I shipped it an hour ago -- the
+ghosts telephone from the boathouse path at the start of the game, before there
+is anywhere to be led and before the player has any idea what the noise is.
+
+`playDomainEntrySound` opens with `if gSoundsSuspended = 1 then return` as
+well, so a cutscene is not talked over part way through. That is tracked now
+too.
+
+I would rather have got this right the first time, but the shape of the mistake
+is worth keeping: I read the handler I was looking for and not the two lines
+above it.
+
+### The inventory bar never lit up
+
+`updateInventory` takes `getAt(itemData, 1)` when the puppeteer is `#hot` and
+`getAt(itemData, 2)` when it is `#cool`, and `idle` switches between them on
+`the mouseV > gInventoryTopY`. So the icons are full colour while the cursor is
+over the bar and a glowing outline when it is not. It is the first thing the
+hint book teaches about the interface, and it is a nice piece of design: the
+bar tells you it is live before you click it.
+
+This engine had the pair standing for something else entirely -- the second
+icon marked the item in hand and the first everything else -- so the bar never
+changed as the cursor moved, and the outline art turned up on exactly the one
+item that should not have been in the bar at all. The item in hand is on the
+cursor; `updateInventory` moves its sprite off the stage.
+
+Two icons, two states, and I had guessed at which was which. `plain` and `lit`
+are now `hot` and `cool`, which is what the game calls them.
+
+### Still outstanding from that handler
+
+`idle` also installs the menu bar when the cursor reaches the top of the
+screen, runs `cursorDance`, and calls `ripple` after five seconds of no input
+with the vision on. None of those are ported. They are recorded here so the
+next reading of `idle` starts from a list rather than from scratch.
+
+280 tests.
