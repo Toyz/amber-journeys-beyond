@@ -319,6 +319,13 @@ fn parse_verb(s: &str) -> Option<Verb> {
         "examine" | "x" => Verb::Examine,
         "pointer" | "p" => Verb::Pointer,
         "nextpage" | "n" => Verb::NextPage,
+        // The three that were missing. `browse` is how a close-up is backed
+        // out of and appears in most rooms, and the two dials turn Margaret's
+        // wireless -- so a recording could not say them, and every route that
+        // needed one had to be written as a jump to a room name instead.
+        "browse" | "b" => Verb::Browse,
+        "rotateleft" => Verb::RotateLeft,
+        "rotateright" => Verb::RotateRight,
         _ => return None,
     })
 }
@@ -373,7 +380,17 @@ fn show(game: &mut Game) {
         let dest = script::run(&h.actions, &mut probe)
             .destination
             .unwrap_or_else(|| "-".into());
-        println!("  {:<10} -> {dest}", format!("{:?}", h.verb).to_lowercase());
+        // The centre of the region, so a recording can click this exact
+        // affordance rather than naming a verb and taking whichever hotspot
+        // happens to match first. Most rooms offer several `#examine`s.
+        let (cx, cy) = (
+            (h.bounds.left + h.bounds.right) / 2,
+            (h.bounds.top + h.bounds.bottom) / 2,
+        );
+        println!(
+            "  {:<11} -> {dest:<24} click {cx} {cy}",
+            format!("{:?}", h.verb).to_lowercase()
+        );
         any = true;
     }
     if !any {

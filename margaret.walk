@@ -1,0 +1,126 @@
+# Amber: Journeys Beyond, played from the opening film through the first act,
+# without jumping to a single room by name. Every line below is a move or a
+# click a player could make, so the films play where a player would see them.
+#
+# It ends holding the oscillator, with the BAR running and the PeeK unit
+# having reported it. What comes after -- the telephone, the headgear, the
+# portal -- is behind seeing all six camera haunts, which happen on their own
+# clock as the house is explored and so cannot be written down as a route.
+#
+#   amber play extract --replay margaret.walk --mute
+#
+# Up the hill from the boathouse to Roxy's front door.
+down
+forward
+right
+forward
+forward
+forward
+forward
+right
+forward
+forward
+# Open the door. Without the power on, the house inside is dark.
+pointer
+forward
+# Along the hall, up the stairs to the office, and pull the breaker.
+forward
+forward
+left
+left
+forward
+forward
+forward
+forward
+examine
+pointer
+# Up the circular stairs to the loft.
+browse
+forward
+forward
+examine
+# Take the PeeK unit; the next click stows it.
+pointer
+click 320 200
+# Back down to the writing desk.
+browse
+left
+forward
+forward
+click 472 298
+click 395 326
+# Open the top drawer, open the BAR manual, turn two pages.
+click 320 160
+click 320 200
+click 320 200
+click 450 200
+click 450 200
+# The computer table and the videotape.
+browse
+left
+forward
+click 565 321
+click 187 250
+# One click lifts it, the second takes it.
+click 300 200
+click 300 200
+# Downstairs to the living room, and the BAR.
+pointer
+right
+forward
+click 306 205
+right
+forward
+click 477 265
+forward
+forward
+right
+click 444 303
+click 316 244
+examine
+# Power.
+click 500 280
+# LEVEL to 6, GAIN to 5, FREQ MOD to 8 -- the manual's numbers.
+click 495 200
+click 495 200
+click 490 170
+click 495 200
+click 495 200
+click 495 200
+click 490 170
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+click 495 200
+# Run it. The BAR comes online and the PeeK flashes.
+click 490 130
+# Open the PeeK: it reports the machine running.
+inv 280 440
+# Put the unit back.
+click 320 200
+# Out of the front door to the mailbox on the porch.
+click 323 411
+browse
+right
+forward
+right
+forward
+left
+examine
+examine
+# Open it, take the box, read the label and the letter; the oscillator is under it.
+click 350 200
+click 350 250
+examine
+pointer
+click 300 200
+click 320 200
+click 310 230
+click 300 300
+# Put the box back down.
+pointer
+state playerhasoscillator

@@ -6357,3 +6357,49 @@ the headgear is another. That is the last architectural gap between here and
 the end of Margaret's chapter, and it is now the only one.
 
 296 tests, five recordings.
+
+## 139. A route rather than a list of rooms
+
+helba asked to watch the game played rather than teleported through, so
+`margaret.walk` names no rooms at all. Ninety-seven steps, every one a move or
+a click, from the opening film to the oscillator in hand.
+
+Building it needed three fixes to the walkthrough tool, and each of them was
+the tool being less able to express play than the game is.
+
+`browse`, `rotateLeft` and `rotateRight` were not parsed as verbs. Every route
+that needed one had to be written as a jump to a room name instead -- so the
+teleporting helba objected to was partly the recorder's fault rather than a
+shortcut I had chosen.
+
+Exits now print where to click them. A recording that says `examine` gets the
+first `#examine` in the room, and most rooms have four or five, so a route
+computed as a list of verbs walks into the wrong close-up. Printing each
+region's centre lets a recording name the affordance it means.
+
+And the builder picks between them: a verb when the room has only one hotspot
+of that verb, a click otherwise. A region that blankets the frame is the
+exception in the other direction -- `#browse` covers everything, so its middle
+is always underneath something listed before it, and it can *only* be reached
+by verb.
+
+### A room you can get stuck in
+
+Taking the oscillator leaves `PorchMailboxCU2` with three exits, two of which
+lead nowhere, and `browse` takes one of those. After it, the room reports no
+live exits at all.
+
+The way out is `pointer`, which is on the room's last hotspot and always true.
+So the player is not stranded, but the affordance that reads as "step back"
+is a dead end and the one that works is the one that reads as "touch it". I
+have not chased whether that is the game's shape or my hit test's; it is the
+next thing to look at, and it is the sort of thing only walking into finds.
+
+### Where the recording stops
+
+It ends with the oscillator in hand rather than at the portal, and the reason
+is honest: the telephone needs all six camera haunts watched back, and those
+arrive on their own clock as the house is explored. A route cannot be written
+for waiting.
+
+296 tests, six recordings.
