@@ -1,0 +1,54 @@
+# The end of Margaret's chapter: the torn telegram in her living room, and
+# what putting it back together does.
+#
+#   amber play extract --replay telegram.walk --mute
+#
+# Her living room is reached by tuning her wireless (see radio.walk); this
+# starts at the wastepaper basket beside the desk.
+livingRm_trashcanCU
+# Tip it out. The telegram is on the floor.
+click 318 248
+# Kneel to it, and the pieces lay themselves out four across and three down.
+click 330 250
+state telegramguess
+# Eleven pieces and a hole. Slide them back into order.
+click 285 318
+click 285 250
+click 220 250
+click 220 318
+click 285 318
+click 350 318
+click 350 250
+click 285 250
+click 285 318
+click 350 318
+click 350 250
+click 415 250
+click 415 318
+click 350 318
+click 350 250
+click 350 182
+click 415 182
+click 415 250
+click 350 250
+click 350 182
+click 285 182
+click 285 250
+click 220 250
+click 220 182
+click 285 182
+click 285 250
+click 285 318
+click 350 318
+click 415 318
+click 415 250
+click 350 250
+click 350 182
+click 285 182
+state telegramguess
+# Whole again. She is ready to be let go.
+state showmontage
+click 319 241
+# And out of her chapter, back to Roxy's house.
+click 319 241
+state currentdomain

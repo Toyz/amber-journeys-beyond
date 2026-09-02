@@ -1830,6 +1830,40 @@ impl Game {
         // Handlers such as `stashClick` want the click position, which the
         // scripts read from the mouse rather than being passed.
         self.state.set("gMouseLoc", lingo::Value::Point(x, y));
+
+        // A sprite a script is driving takes the click before the room does.
+        // It has no rectangle in the room data, so the room's own hotspots
+        // know nothing about it -- the telegram's twelve tiles sit on top of a
+        // `#browse` region that would otherwise swallow every one of them.
+        //
+        // Only the tiles for now. The game has twenty-seven of these scripts
+        // and this is the first, so the dispatch is by which puzzle is on the
+        // stage rather than by a member's own script, which is not read yet.
+        if let Some(channel) = self.sprite_at(x, y) {
+            // ...and only while the puzzle is still a puzzle. The tiles stay
+            // on the stage once it is solved, and a solved tile that still
+            // swallowed clicks left the player looking at a finished telegram
+            // with no way to go on from it.
+            let order: Vec<i32> = self
+                .state
+                .get_all("telegramGuess")
+                .iter()
+                .filter_map(lingo::Value::as_int)
+                .collect();
+            let unsolved = order.len() == 12 && order != (1..=12).collect::<Vec<i32>>();
+            if (25..=36).contains(&channel) && unsolved {
+                let mut out = Outcome::default();
+                if crate::natives::call(
+                    "moveme",
+                    &[lingo::Value::Int(channel as i32)],
+                    &mut self.state,
+                    &mut out,
+                ) {
+                    self.apply(&out);
+                    return Some(out);
+                }
+            }
+        }
         let actions = {
             let state = &self.state;
             let holding = self.state.item_in_use().is_some();
@@ -1938,6 +1972,43 @@ impl Game {
         }
     }
 
+
+    /// Which script-driven sprite is under a point, topmost first.
+    ///
+    /// Director's `the clickOn`. A sprite a script has taken over is not a
+    /// hotspot -- it has no rectangle in the room data -- so the only way to
+    /// know it was clicked is to ask where its art actually landed, which is
+    /// the same sum the renderer does.
+    ///
+    /// This is how the telegram is played: its twelve tiles are sprites 25 to
+    /// 36, moved about the stage by `initTelegramPuzzle`, and `moveMe` reads
+    /// `the clickOn` to learn which one was picked up.
+    pub fn sprite_at(&mut self, x: i32, y: i32) -> Option<u8> {
+        let domain = self.node().domain.clone();
+        let placed: Vec<PlacedSprite> = self
+            .puppets
+            .iter()
+            .filter(|(_, p)| !p.hidden && p.cast != 0)
+            .map(|(ch, p)| (*ch, p.cast, p.loc))
+            .collect();
+        // Highest channel first: later channels draw over earlier ones.
+        for (channel, cast, loc) in placed.into_iter().rev() {
+            let Some(art) = self.art(&domain, cast, true) else { continue };
+            let (w, h) = (art.width as i32, art.height as i32);
+            let (rx, ry) = (art.reg_x as i32, art.reg_y as i32);
+            let (ox, oy) = match loc {
+                Some((cx, cy)) => (
+                    cx - if rx != 0 { rx } else { w / 2 },
+                    cy - if ry != 0 { ry } else { h / 2 },
+                ),
+                None => continue,
+            };
+            if x >= ox && x < ox + w && y >= oy && y < oy + h {
+                return Some(channel);
+            }
+        }
+        None
+    }
 
     /// Starts a hotspot's actions, the way a click on it would.
     ///
@@ -2132,6 +2203,10 @@ struct Program {
     /// programme stops instead of polling.
     misses: usize,
 }
+
+/// A script-driven sprite as it currently stands: channel, cast, and where
+/// the script put it.
+type PlacedSprite = (u8, u32, Option<(i32, i32)>);
 
 /// One thing to draw on the stage: its channel, cast member, an override
 /// position when a script has moved it, and its ink.

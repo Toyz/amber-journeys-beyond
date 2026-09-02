@@ -386,9 +386,11 @@ Working:
 
 Not yet done:
 
-- Sprite `mouseDown` scripts. Twenty-seven of them, and they are how a few
-  things are touched that no room hotspot names -- the hands of Margaret's
-  clocks among them, which is the last step of her chapter's second puzzle
+- Most sprite `mouseDown` scripts. The telegram's tiles are wired up, which is
+  how Margaret's chapter ends; the hands of her clocks are not, and they are
+  the last step of her chapter's second puzzle. A member's own script is not
+  read yet, so which sprite runs what is decided by which puzzle is on the
+  stage
 - The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs
   after five seconds of no input with the Amber vision on
 - The rest of `idle`: the menu bar, `cursorDance`, and the `ripple` that runs

@@ -6530,3 +6530,55 @@ lives in two places, a click has to satisfy either, and every time I have
 taught one of them something new the other has been left behind.
 
 296 tests, six recordings.
+
+## 143. The telegram comes together
+
+Margaret's chapter can be finished. `telegram.walk` tips out her wastepaper
+basket, kneels to the torn telegram, slides it back into order in thirty-three
+moves, and comes out the other side in Roxy's house.
+
+This needed the thing that has been called the last architectural gap for
+several entries: a click on a sprite a script is driving.
+
+### The clickOn
+
+A sprite a script has taken over is not a hotspot. It has no rectangle in the
+room data, so the room knows nothing about it -- the telegram's twelve tiles
+sit on top of a `#browse` region that would otherwise swallow every one of
+them. The only way to know one was clicked is to ask where its art actually
+landed, which is the same sum the renderer does: the sprite's location, its
+registration point, and the size of its plate.
+
+That is `the clickOn`, and `moveMe` is the first of the game's twenty-seven
+sprite scripts to be wired to it. Which sprite runs what is decided here by
+which puzzle is on the stage rather than by the member's own script, because
+that link is not read yet -- honest, and enough for the tiles.
+
+### Eleven pieces and a hole
+
+```text
+chosenSpace = getPos( puzzleState, chosenPiece )
+emptySpace  = getPos( puzzleState, theHole )
+if abs( chosenSpace - emptySpace ) = 1
+   and ( chosenSpace - 1 ) / 4 = ( emptySpace - 1 ) / 4 then #sameRow
+if abs( chosenSpace - emptySpace ) = 4 then #sameColumn
+```
+
+Being one apart is not enough -- slot four and slot five are one apart and on
+different rows -- so the row is compared as well. Being four apart needs no
+such check, because in a grid four wide that is always the same column. The
+hole is piece 2, which is why `#telegram`'s second entry was `#None` rather
+than `#two`: the blank is a tile like any other.
+
+Solved is the numbers in order, which sets `#showMontage` to 1, and two clicks
+later `enterNewDomain( #ROXY, 12 )` puts the player back in the hall by her
+living room.
+
+### And a bug of my own making, immediately
+
+Wiring the tiles meant they took every click in that room -- including after
+the puzzle was solved, when the montage needs the clicks instead. So the
+telegram came together and then nothing happened, for ever. The tiles only
+take a click while the order is still out of order.
+
+298 tests, seven recordings.

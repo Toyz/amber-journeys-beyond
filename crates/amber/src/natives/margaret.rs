@@ -374,6 +374,98 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //
         // The win sound is behind `if gCPU = #PC` and is not played here; on
         // the Macintosh the film carries its own audio.
+        // on moveMe
+        //   chosenSprite = the clickOn : chosenPiece = chosenSprite - 24
+        //   theHole = 2 : emptySprite = 26
+        //   puzzleState = getProp( oStoryteller.states, #telegramGuess )
+        //   chosenSpace = getPos( puzzleState, chosenPiece )
+        //   emptySpace  = getPos( puzzleState, theHole )
+        //   if abs( chosenSpace - emptySpace ) = 1
+        //      and ( chosenSpace - 1 ) / 4 = ( emptySpace - 1 ) / 4 then
+        //     isAdjacent = #sameRow
+        //   if abs( chosenSpace - emptySpace ) = 4 then isAdjacent = #sameColumn
+        //   if isAdjacent = 0 then return
+        //   ... slide the tile across, and swap the two entries ...
+        //   if puzzleState = [1,2,3,4,5,6,7,8,9,10,11,12] then
+        //     setState( #showMontage, 1 )
+        //     setTransition( oPuppeteer, #fadeIn ) : updateDisplay
+        //
+        // The torn telegram, and the end of Margaret's chapter. Eleven pieces
+        // and a hole in a four by three frame: click a piece beside the hole
+        // and it slides in.
+        //
+        // The hole is piece 2, which is why `#telegram`'s second entry is
+        // `#None` rather than `#two` -- the blank is a tile like any other and
+        // the puzzle is played by moving the others around it.
+        //
+        // Two things are worth keeping about the adjacency test. Being one
+        // apart is not enough, because slot 4 and slot 5 are one apart and on
+        // different rows, so the row is compared as well. Being four apart
+        // needs no such check, because four apart is always the same column in
+        // a grid four wide.
+        //
+        // And the win is a plain comparison against the numbers in order: put
+        // the telegram back together and she is ready to be let go.
+        "moveme" => {
+            let Some(sprite) = args.first().and_then(Value::as_int) else {
+                return true;
+            };
+            const FIRST_SPRITE: i32 = 25;
+            const HOLE: i32 = 2;
+            let piece = sprite - (FIRST_SPRITE - 1);
+
+            let mut order: Vec<i32> = state
+                .get_all("telegramGuess")
+                .iter()
+                .filter_map(Value::as_int)
+                .collect();
+            let (Some(chosen), Some(empty)) = (
+                order.iter().position(|p| *p == piece),
+                order.iter().position(|p| *p == HOLE),
+            ) else {
+                return true;
+            };
+
+            // Slots are one-based in the original; the arithmetic is the same
+            // either way, but the row is `slot / 4` on the zero-based index.
+            let apart = (chosen as i32 - empty as i32).abs();
+            let same_row = apart == 1 && chosen / 4 == empty / 4;
+            let same_column = apart == 4;
+            if !same_row && !same_column {
+                trace!(
+                    crate::trace::Topic::Script,
+                    "telegram: piece {piece} is not beside the hole"
+                );
+                return true;
+            }
+
+            order.swap(chosen, empty);
+            state.set_all("telegramGuess", order.iter().map(|n| Value::Int(*n)).collect());
+            out.redraw = true;
+
+            // The tiles are laid out by where their number sits in the order,
+            // so moving two of them is moving two sprites.
+            const ORIGIN: (i32, i32) = (220, 182);
+            const GAP: (i32, i32) = (65, 68);
+            for slot in [chosen, empty] {
+                let tile = order[slot];
+                out.effects.push(Effect::SpriteLoc {
+                    channel: (FIRST_SPRITE + tile - 1) as u8,
+                    x: ORIGIN.0 + GAP.0 * (slot as i32 % 4),
+                    y: ORIGIN.1 + GAP.1 * (slot as i32 / 4),
+                });
+            }
+
+            if order == (1..=12).collect::<Vec<i32>>() {
+                trace!(crate::trace::Topic::Script, "the telegram is whole");
+                out.effects.push(Effect::SetTransition { kind: "fadeIn".into() });
+                out.effects.push(Effect::SetState {
+                    key: "showMontage".into(),
+                    value: Value::Int(1),
+                });
+            }
+        }
+
         // on moveClock command
         //   oldTime = getState( #clockTime )          -- #t4, or #t4.30
         //   ... split the symbol on "." into Hrs and min ...
@@ -1675,5 +1767,55 @@ mod box_tests {
         let (spoke, prods) = touch_twice(true);
         assert!(spoke, "said nothing when the same clock showed the same time");
         assert_eq!(prods, 2, "the prods are counted");
+    }
+
+    #[test]
+    fn a_tile_beside_the_hole_slides_into_it() {
+        // Slot 4 and slot 5 are one apart and on different rows, so being one
+        // apart is not enough -- the row is compared too. Four apart needs no
+        // such check, because in a grid four wide that is always the same
+        // column.
+        let slide = |order: [i32; 12], piece: i32| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+            s.set_all("telegramGuess", order.iter().map(|n| Value::Int(*n)).collect());
+            let mut out = Outcome::default();
+            call("moveme", &[Value::Int(24 + piece)], &mut s, &mut out);
+            s.get_all("telegramGuess")
+                .iter()
+                .filter_map(Value::as_int)
+                .collect::<Vec<_>>()
+        };
+        // The hole is piece 2. Here it sits in slot 3 (index 2).
+        let start = [1, 3, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        // Piece 4 is in slot 4, next to it and on the same row.
+        assert_eq!(slide(start, 4), [1, 3, 4, 2, 5, 6, 7, 8, 9, 10, 11, 12]);
+        // Piece 7 is four along, so the same column one row down.
+        assert_eq!(slide(start, 7), [1, 3, 7, 4, 5, 6, 2, 8, 9, 10, 11, 12]);
+        // Piece 12 is nowhere near it, and nothing moves.
+        assert_eq!(slide(start, 12), start);
+
+        // And across a row boundary: the hole in slot 5, piece in slot 4.
+        let wrap = [1, 3, 4, 5, 2, 6, 7, 8, 9, 10, 11, 12];
+        assert_eq!(slide(wrap, 5), wrap, "slot 4 and slot 5 are different rows");
+    }
+
+    #[test]
+    fn putting_the_telegram_together_starts_her_ending() {
+        // The win is a plain comparison against the numbers in order.
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("MARGARET".into())]);
+        // One move from solved: piece 3 and the hole transposed, so the
+        // hole sits in slot 3 with piece 3 beside it in slot 2.
+        let nearly = [1, 3, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        s.set_all("telegramGuess", nearly.iter().map(|n| Value::Int(*n)).collect());
+        let mut out = Outcome::default();
+        call("moveme", &[Value::Int(24 + 3)], &mut s, &mut out);
+
+        let order: Vec<i32> = s.get_all("telegramGuess").iter().filter_map(Value::as_int).collect();
+        assert_eq!(order, (1..=12).collect::<Vec<i32>>());
+        assert!(out.effects.iter().any(|e| matches!(
+            e, Effect::SetState { key, value } if key == "showMontage" && value.as_int() == Some(1)
+        )), "the ending montage did not start");
     }
 }
