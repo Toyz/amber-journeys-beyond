@@ -1229,12 +1229,22 @@ impl Game {
         stage.sort_by_key(|(ch, _)| *ch);
 
         let domain = self.node().domain.clone();
-        let video_centre = self
-            .world
-            .nodes[self.room]
+        // The video sprite whose guard holds, not merely the first one. A
+        // room can declare several films on the video channel, each gated on
+        // a different state and each with its own `#coords`, and `video()`
+        // already picks between them by exactly this test -- so taking the
+        // first one's position put the film that was playing wherever a
+        // different film would have gone.
+        //
+        // The study is the case that shows it: `HGup.mov` and `HGdown.mov`
+        // sit at (303, 220) and `oslator1.mov`, the film of the oscillator
+        // being fitted, at (317, 185). Placing the oscillator played the
+        // right film in the headgear's place.
+        let state = &self.state;
+        let video_centre = self.world.nodes[self.room]
             .sprites
             .iter()
-            .find(|s| matches!(s.channel, Channel::Video))
+            .find(|s| matches!(s.channel, Channel::Video) && state.test(&s.condition))
             .and_then(|s| s.center);
 
         for (channel, layer) in stage {
@@ -2123,6 +2133,56 @@ fn blit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_film_is_placed_by_the_sprite_that_is_actually_showing() {
+        // A room can declare several films on the video channel, each gated
+        // on a different state and each with its own `#coords`. The study
+        // puts the headgear films at (303, 220) and the film of the
+        // oscillator being fitted at (317, 185), so taking the first sprite's
+        // position played the right film in the headgear's place. Forty rooms
+        // declare more than one film and twenty-six of them at differing
+        // coordinates.
+        use crate::world::{Channel, Cond, Node, Sprite};
+
+        let film = |flag: &str, value: &str, centre: (i32, i32)| Sprite {
+            cast_name: None,
+            cast_number: 0,
+            cast_lookup: None,
+            channel: Channel::Video,
+            condition: Cond::Equals {
+                key: flag.into(),
+                value: lingo::Value::Symbol(value.into()),
+            },
+            center: Some(centre),
+            ink: 0,
+            volume: None,
+        };
+        let mut game = Game::for_test();
+        game.world.nodes[0] = Node {
+            sprites: vec![
+                film("AMBERVISION", "waitingForPlayer", (303, 220)),
+                film("oscillatorInPlace", "placingNow", (317, 185)),
+            ],
+            ..Node::default()
+        };
+
+        let centre_now = |g: &Game| {
+            let state = &g.state;
+            g.world.nodes[g.room]
+                .sprites
+                .iter()
+                .find(|s| matches!(s.channel, Channel::Video) && state.test(&s.condition))
+                .and_then(|s| s.center)
+        };
+
+        game.state.set_all("oscillatorInPlace", vec![lingo::Value::Symbol("placingNow".into())]);
+        assert_eq!(centre_now(&game), Some((317, 185)), "the film that is playing");
+
+        game.state.set_all("oscillatorInPlace", vec![lingo::Value::Int(0)]);
+        game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("waitingForPlayer".into())]);
+        assert_eq!(centre_now(&game), Some((303, 220)), "the other one");
+    }
 
     #[test]
     fn a_ghost_works_through_its_calls_in_the_order_the_game_lists_them() {

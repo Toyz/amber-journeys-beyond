@@ -6024,3 +6024,46 @@ finished the way through is gone and the wall is a wall again.
 scale, which is entry 123's clamp doing its job on the sound that prompted it.
 
 288 tests, and four recordings that pass.
+
+## 133. The film in the headgear's place
+
+helba said the film played in the wrong position on the AMBER device after the
+oscillator went in. It did.
+
+A room's video channel can hold more than one film, each gated on a different
+state and each with its own `#coords`. The study holds three:
+
+```text
+HGup.mov      #AMBERVISION = #waitingForPlayer    (303, 220)
+HGdown.mov    #AMBERVISION = #maybeLater          (303, 220)
+oslator1.mov  #oscillatorInPlace = #placingNow    (317, 185)
+```
+
+Choosing *which* film to play already tested each sprite's guard. Choosing
+where to put it took the first video sprite in the list and used its
+coordinates, whatever was actually playing. So the film of the oscillator being
+fitted -- the right film, correctly selected -- was drawn where the headgear's
+films go, fourteen pixels left and thirty-five down from where it belongs.
+
+Forty rooms declare more than one film and twenty-six of them at differing
+coordinates, so this was not one room's problem.
+
+The fix is to place the film by the same test that picked it.
+
+### And a clock that is not broken
+
+helba also mentioned the clock texture. I rendered both: Margaret's bedside
+clock is fine, and the living room's is a dim, warm, low-contrast photograph of
+a wooden clock behind glass, with the wood grain of the cabinet reflected
+across its face. It reads as washed out next to the room around it, which is
+what drew the eye.
+
+It is not a decode fault. The plate uses 243 of its palette's 256 entries, and
+forcing a neighbouring palette makes it markedly worse -- blue and noisy -- so
+the member's own palette reference is the right one. `AMBER_PALETTE` exists for
+exactly this question and answered it in one command.
+
+Recording it as checked rather than fixed, since the next person to look at
+that room will have the same reaction.
+
+289 tests.
