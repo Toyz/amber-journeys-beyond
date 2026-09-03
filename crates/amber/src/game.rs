@@ -834,6 +834,25 @@ impl Game {
         match name {
             Some(n) => {
                 let n = n.trim_start_matches('#').to_string();
+                // The same guard the unnamed case has, and for the same
+                // reason. A handler that pushes a film has almost always just
+                // asked for a redraw, and the redraw starts the room's film --
+                // which, when the handler names that same film, is the one it
+                // is about to push. Starting it again played it twice.
+                //
+                // The weathervane was the unnamed version of this (entry 154);
+                // Edwin's car is the named one, because `driveTheCar` names
+                // `carback.mov` and the room plays `carBack.mov` while the
+                // montage is 3.
+                let already = self
+                    .playing
+                    .as_deref()
+                    .is_some_and(|p| p.eq_ignore_ascii_case(&n));
+                let running = self.player.as_ref().is_some_and(|p| !p.finished);
+                if already && running {
+                    trace!(crate::trace::Topic::Video, "{n} is already running");
+                    return;
+                }
                 self.player = None;
                 match self.movies.find(&n) {
                     Some(path) => {
