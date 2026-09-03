@@ -8719,3 +8719,50 @@ arming instead -- `cues for B` -- and that a recording cannot check them is
 the same blindness entry 172 was about.
 
 264 tests, eleven recordings.
+
+## 177. The clock the terminal did not need
+
+helba, on the limit I had just written down: "how bout you fix that limit it
+shouldn't be impossible".
+
+It was not. The reasoning behind the limit was wrong.
+
+I had said the terminal cannot fire a drive's cues because it reports films
+rather than opening them, so there is no clock to fire against. But the
+terminal's model of a film is already "it happens instantly": `settle` steps
+over the wait, `--strict` runs the film out by hand, and the report shows the
+film and moves straight on. If a film is over the moment it starts, then
+everything keyed to it is due at once -- *in order*.
+
+So `flush_cues` runs the list with no clock at all, and both terminal paths
+call it the moment a film is reported. A drive now reads:
+
+```text
+cues for B
+film b.mov
+  0: passenger 3
+  76: passenger 2
+  163: passenger 3
+  182: passenger 4
+  200: engine at 178
+  302: passenger 3
+  380: passenger 2
+  380: play yell1
+  385: engine at 195
+  ...
+```
+
+Which is the thing that matters: a recording can now carry a drive's cues, and
+therefore check them. `full.walk` fires a hundred and two of them, including
+Chippy yelling twice and being sick once.
+
+The window is unchanged and still runs them against the film's real clock;
+this is the same list read the way a front end without a device has always
+read a film. One `act_on` does the work for both, so the two cannot disagree
+about what a cue means.
+
+Worth saying plainly: the limit was not a property of the terminal, it was a
+property of how I had thought about it. Three entries in a row have now been
+about the walkthrough's blindness, and this one was self-inflicted.
+
+265 tests, eleven recordings.

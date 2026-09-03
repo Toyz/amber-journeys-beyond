@@ -40,6 +40,17 @@ pub enum Cue {
     Run(String),
 }
 
+impl std::fmt::Display for Cue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cue::Sound(name) => write!(f, "play {name}"),
+            Cue::Level(level) => write!(f, "engine at {level}"),
+            Cue::Head(frame) => write!(f, "passenger {frame}"),
+            Cue::Run(line) => write!(f, "{line}"),
+        }
+    }
+}
+
 /// One stretch of track: its film, and the cues for each way of driving it.
 #[derive(Clone, Default, Debug)]
 pub struct Track {

@@ -1126,6 +1126,16 @@ impl Game {
                 if let Some(line) = describe(&effect, room_film.as_deref()) {
                     report.push(line);
                 }
+                // A film reported is a film over, so whatever was keyed to it
+                // is due. This is what lets a recording carry a drive's cues.
+                if matches!(effect, Effect::PlayVideo(_) | Effect::PlayVideoSegment { .. }) {
+                    for (at, said, effects) in self.flush_cues() {
+                        report.push(format!("  {at}: {said}"));
+                        for effect in &effects {
+                            self.apply_puppet(effect);
+                        }
+                    }
+                }
                 self.apply_puppet(&effect);
             }
             self.effect_wait = None;
@@ -1578,6 +1588,16 @@ impl Game {
             // go past: every state write in a sequence was reported and none
             // of them happened.
             self.apply_puppet(effect);
+            // And a film here is a film over, the same as in `settle`, so its
+            // cues come due with it.
+            if matches!(effect, Effect::PlayVideo(_) | Effect::PlayVideoSegment { .. }) {
+                for (at, said, effects) in self.flush_cues() {
+                    report.push(format!("  {at}: {said}"));
+                    for effect in &effects {
+                        self.apply_puppet(effect);
+                    }
+                }
+            }
         }
         report
     }
@@ -1758,6 +1778,26 @@ impl Game {
         self.cues = cues;
     }
 
+    /// Every cue still to come, without a clock.
+    ///
+    /// A front end with no device plays a film by reporting it, which takes no
+    /// time at all -- so the film is over the moment it starts and everything
+    /// keyed to it is due. That is exactly the terminal's model of a film
+    /// already: `settle` steps over the wait and `--strict` runs the film out
+    /// by hand. Firing the cues the same way is what lets a recording carry
+    /// them, and check them.
+    ///
+    /// The times come back with the effects so the report can show the order,
+    /// which is the thing worth checking.
+    pub fn flush_cues(&mut self) -> Vec<(u32, String, Vec<Effect>)> {
+        let mut out = Vec::new();
+        while let Some((at, cue)) = self.cues.pop() {
+            let said = cue.to_string();
+            out.push((at, said, self.act_on(cue)));
+        }
+        out
+    }
+
     /// Whatever the film has reached, as effects to apply.
     ///
     /// Called every frame while a film is running. Without it a drive is the
@@ -1771,10 +1811,24 @@ impl Game {
             self.cues.clear();
             return Vec::new();
         };
+        self.cues_up_to(now)
+    }
+
+    /// The cues due at or before `now`, as effects.
+    fn cues_up_to(&mut self, now: u32) -> Vec<Effect> {
         let mut out = Vec::new();
         while self.cues.last().is_some_and(|(at, _)| *at <= now) {
             let Some((at, cue)) = self.cues.pop() else { break };
             trace!(crate::trace::Topic::Script, "cue at {at}: {cue:?}");
+            out.extend(self.act_on(cue));
+        }
+        out
+    }
+
+    /// What one cue does.
+    fn act_on(&mut self, cue: crate::markers::Cue) -> Vec<Effect> {
+        let mut out = Vec::new();
+        {
             match cue {
                 crate::markers::Cue::Sound(name) => out.push(Effect::PlaySound {
                     name,
@@ -3378,6 +3432,40 @@ mod tests {
         assert!(player.finished, "a parked film does not advance");
         player.restart();
         assert!(!player.finished, "and playing it starts it again");
+    }
+
+    /// A front end with no clock still has to run a film's cues, because a
+    /// recording that cannot carry them cannot check them. The terminal plays
+    /// a film by reporting it, which takes no time, so the film is over the
+    /// moment it starts and every cue is due at once -- in order.
+    #[test]
+    fn a_clockless_front_end_still_runs_the_cues() {
+        use crate::markers::Cue;
+
+        let mut game = Game::for_test();
+        // Armed the way `arm_cues` leaves them: latest first.
+        game.cues = vec![
+            (525, Cue::Sound("edwinLaugh".into())),
+            (511, Cue::Level(255)),
+            (510, Cue::Head(3)),
+        ];
+        let fired = game.flush_cues();
+        let said: Vec<(u32, String)> =
+            fired.iter().map(|(at, s, _)| (*at, s.clone())).collect();
+        assert_eq!(
+            said,
+            vec![
+                (510, "passenger 3".to_string()),
+                (511, "engine at 255".to_string()),
+                (525, "play edwinLaugh".to_string()),
+            ]
+        );
+        // The engine level really is applied, not only reported.
+        assert!(fired.iter().any(|(_, _, effects)| effects.iter().any(|e| matches!(
+            e,
+            Effect::StartLoop { name, volume: Some(255) } if name == "trackLoop"
+        ))));
+        assert!(game.cues.is_empty(), "the list is spent");
     }
 
     /// A channel's position is a score property, and the room's `#showIF`
