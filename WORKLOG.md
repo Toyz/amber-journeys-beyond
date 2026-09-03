@@ -8015,3 +8015,54 @@ the film that ends the chapter. So the spine is: free the chipmunk, collect
 him, turn the wind, sail the boat, drive the middle of the C track.
 
 255 tests, ten recordings.
+
+## 168. The wind, and a guard I read backwards
+
+There is no `edwin.walk` yet. Working towards one turned up why there could
+not have been.
+
+The whirligig on the ice is what starts the wind blowing. Both of its handlers
+open with the same line:
+
+```text
+  0  push #Wind
+  6  call getState
+  8  push #None
+ 10  compare <>
+ 11  jump -> 15      -- taken when the comparison is FALSE
+ 14  return
+```
+
+The jump is taken when `Wind <> None` is false -- that is, when the air is
+still -- so the handler *runs* in still air and returns once the wind is up,
+which is what a thing that starts the wind should do. I had ported it as `if
+getState( #Wind ) = #None then return`: the exact opposite, and worse than an
+ordinary inversion, because it made the whirligig refuse to work until there
+was already a wind and nothing else in the chapter makes one. The vane only
+steers a wind that is already blowing; `setSail` only reads it.
+
+So the wind could never start, the boat could never sail, the teddy could never
+reach the anchor, and the film that ends the chapter could never be chosen.
+Edwin's chapter was unstartable, and the reason was one comparison.
+
+Worse, I had written a test that asserted it -- `nothing_happens_in_still_air`
+-- and a fixture called `windy` that set the wind blowing before every case. A
+test can hold a mistake still as easily as it can catch one. It is now
+`nothing_happens_once_the_wind_is_up`, and the fixture is still air, which is
+the state the whirligig is actually worked in.
+
+With that turned round the whirligig starts a north wind on the first click,
+which is what the vane was pointing at.
+
+### What is left
+
+The vane turns to steer it -- `setWeathervane #clockwise` / `#counter` in
+`ice_a_weathervane` -- and a west wind is the one that brings the boat forward
+and hangs the teddy on the anchor. Getting there through Edwin's ice field is
+where my route-finder gives up: it is a grid of `ice_<row><col><facing>` rooms
+and the shortest path in the static graph keeps leading into rooms whose exits
+are not live. That is the next thing to sort out, and then the walk is: free
+the chipmunk with the hook, start the wind, turn the vane west, sail the boat,
+collect the chipmunk with the car, and drive the middle of the C track.
+
+255 tests, ten recordings.

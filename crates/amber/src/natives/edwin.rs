@@ -71,7 +71,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // on enableGust
         //   setState(oStoryteller, #gustEnabled, 1)
         // on initWhirligig
-        //   if getState( #Wind ) = #None then return
+        //   if getState( #Wind ) <> #None then return
         //   disableGust : disableSongs
         //   windDirection = getState( #weatherVane )
         //   gigLoopMovies = getProp( oPuppeteer.frames, #gigLoopMovies )
@@ -97,7 +97,14 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // regard to case, so the mismatch never mattered there and would have
         // silently found nothing here.
         "initwhirligig" => {
-            if state.get("Wind").is_symbol("None") {
+            // `if getState( #Wind ) <> #None then return` -- the jump is taken
+            // when the comparison is *false*, so this runs while the air is
+            // still and does nothing once the wind is up. I had read it the
+            // other way round, which made the whirligig refuse to work until
+            // there was already a wind, and nothing else in the chapter starts
+            // one: the vane only steers a wind that is blowing, `setSail` only
+            // reads it. So Edwin's chapter could not be started at all.
+            if !state.get("Wind").is_symbol("None") {
                 return true;
             }
             call("disablegust", &[], state, out);
@@ -117,7 +124,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         }
 
         // on startWhirligig
-        //   if getState( #Wind ) = #None then return
+        //   if getState( #Wind ) <> #None then return
         //   setState( #showMontage, 1 )
         //   cursorOff : killSongs
         //   setLoop( #steadyWind, 0 )
@@ -138,7 +145,9 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // so a vane turned while the whirligig is still gives the direction
         // the wind picks up in.
         "startwhirligig" => {
-            if state.get("Wind").is_symbol("None") {
+            // The same guard as `initWhirligig`, read the same way: it runs in
+            // still air and returns once the wind is already up.
+            if !state.get("Wind").is_symbol("None") {
                 return true;
             }
             state.set("showMontage", Value::Int(1));
@@ -1253,11 +1262,13 @@ mod tests {
 
     // -- the whirligig ------------------------------------------------------
 
+    /// The vane pointing somewhere and the air still, which is the state the
+    /// whirligig is worked in.
     fn windy(facing: &str) -> State {
         let mut s = State::new();
         s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
         s.set_all("weatherVane", vec![Value::Symbol(facing.into())]);
-        s.set_all("Wind", vec![Value::Symbol(facing.into())]);
+        s.set_all("Wind", vec![Value::Symbol("None".into())]);
         s
     }
 
@@ -1300,9 +1311,13 @@ mod tests {
     }
 
     #[test]
-    fn nothing_happens_in_still_air() {
+    fn nothing_happens_once_the_wind_is_up() {
+        // `if getState( #Wind ) <> #None then return`. The whirligig is what
+        // starts the wind, so it works in still air and has nothing to do once
+        // the air is moving -- the way round I had it, it would only work once
+        // there was already a wind, and nothing in the chapter makes one.
         let mut s = windy("n");
-        s.set("Wind", Value::Symbol("None".into()));
+        s.set("Wind", Value::Symbol("W".into()));
         let mut out = Outcome::default();
         assert!(call("initwhirligig", &[], &mut s, &mut out));
         assert!(out.effects.is_empty());
