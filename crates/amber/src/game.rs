@@ -1440,7 +1440,13 @@ impl Game {
                     "overlay film on ch{} {w}x{h} drawn {:?} at {at:?}{}",
                     o.channel,
                     o.size,
-                    if o.player.finished { " (ended)" } else { "" }
+                    if o.parked {
+                        " (a still, not playing)"
+                    } else if o.player.finished {
+                        " (ended)"
+                    } else {
+                        ""
+                    }
                 ),
             ));
         }
@@ -1629,6 +1635,15 @@ impl Game {
                 let p = self.puppets.entry(*channel).or_default();
                 p.loc = Some((*x, *y));
             }
+            Effect::PlayOverlay { channel } => {
+                if let Some(o) = &mut self.overlay {
+                    if o.channel == *channel {
+                        o.player.restart();
+                        o.started = false;
+                        o.parked = false;
+                    }
+                }
+            }
             Effect::SpriteCastNamed { channel, name } => {
                 if let Some(cast) = self.presentation_cast(name) {
                     self.point_channel(*channel, cast);
@@ -1721,8 +1736,20 @@ impl Game {
                 if let Some(p) = &mut player {
                     p.set_looping(loops);
                 }
-                self.overlay = player.map(|player| Overlay {
+                self.overlay = player.map(|mut player| {
+                    // Pointing a channel at a film shows a frame. Playing it
+                    // is a separate thing a handler asks for, and one of them
+                    // deliberately does not: `setCarLocation` puts the
+                    // junction film on the car's channel and leaves it
+                    // standing, waiting for `chooseTrack` to scrub a third of
+                    // it. Starting it here played the drive again every time
+                    // the car reached a hub, on a loop.
+                    player.park();
+                    player
+                })
+                .map(|player| Overlay {
                     channel,
+                    parked: true,
                     player,
                     size: Some((width as u32, height as u32)).filter(|(w, h)| *w > 0 && *h > 0),
                     started: false,
@@ -3048,6 +3075,9 @@ struct Overlay {
     size: Option<(u32, u32)>,
     /// Whether its soundtrack has been handed to the mixer.
     started: bool,
+    /// Held on its first frame, which is what a channel pointed at a film
+    /// shows until a handler asks for it to play.
+    parked: bool,
 }
 
 #[derive(Copy, Clone, Default)]
@@ -3201,6 +3231,30 @@ mod tests {
                 "{effect:?} was reported but not queued"
             );
         }
+    }
+
+    /// Pointing a channel at a film shows a frame; it does not play it.
+    ///
+    /// `setCarLocation` is the case that proves it: it sets `the castNum of
+    /// sprite 44` to the junction film and calls `updateDisplay`, and that is
+    /// all -- the film stands on its first frame until `chooseTrack` scrubs a
+    /// third of it. Starting it here played the whole drive again, on a loop,
+    /// every time the car reached a hub.
+    #[test]
+    fn a_film_on_a_channel_is_a_still_until_something_plays_it() {
+        let mut game = Game::for_test();
+        // Nothing to point at in the test harness, so the rule is checked on
+        // the player itself, which is what `point_channel` parks.
+        let Some(mut player) = crate::player::VideoPlayer::open(std::path::Path::new(
+            "extract/EDWIN/MOVIES_E/CARBACK.MOV",
+        )) else {
+            // No game data here; the rule is still stated above.
+            return;
+        };
+        player.park();
+        assert!(player.finished, "a parked film does not advance");
+        player.restart();
+        assert!(!player.finished, "and playing it starts it again");
     }
 
     /// A channel's position is a score property, and the room's `#showIF`

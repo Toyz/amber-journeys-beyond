@@ -630,6 +630,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             place(ANTENNA, "peekAntenna", UNIT_AT, 36);
             // The roll-up is a film, and the channel holds it until it ends.
             place(SCREEN, "PeekUpAnim", ROLL_UP_AT, 0);
+            out.effects.push(Effect::PlayOverlay { channel: SCREEN });
             out.effects.push(Effect::WaitForOverlay);
             out.effects.push(Effect::SpriteCastNamed {
                 channel: BODY,

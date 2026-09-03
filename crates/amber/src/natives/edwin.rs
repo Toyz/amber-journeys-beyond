@@ -168,6 +168,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::WaitForVideo);
             out.effects.push(Effect::SpriteLoc { channel: 45, x: -1000, y: -1000 });
             out.effects.push(Effect::SpriteVisible { channel: 44, visible: true });
+            out.effects.push(Effect::PlayOverlay { channel: 44 });
             out.redraw = true;
 
             // The tail. The wind comes up under the film -- the loop is faded
@@ -981,6 +982,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 x: 454,
                 y: 365,
             });
+            out.effects.push(Effect::PlayOverlay { channel: PASSENGER });
             out.effects.push(Effect::WaitForOverlay);
             out.effects.push(Effect::PuppetSprite {
                 channel: PASSENGER,

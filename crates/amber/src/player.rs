@@ -235,6 +235,27 @@ impl VideoPlayer {
         self.looping
     }
 
+    /// Holds the film on its first frame without playing it.
+    ///
+    /// Director shows a digital video sprite's current frame as soon as the
+    /// channel points at it; what makes it *move* is a handler setting the
+    /// movie rate. `set the castNum of sprite 44 = <a film>` on its own is a
+    /// still.
+    pub fn park(&mut self) {
+        self.segment = None;
+        self.finished = true;
+        self.seek(0);
+    }
+
+    /// Starts it from the beginning, which is what `pushVideo` does.
+    pub fn restart(&mut self) {
+        self.segment = None;
+        self.finished = self.frame_count == 0;
+        self.started = Instant::now();
+        self.current = usize::MAX;
+        self.seek(0);
+    }
+
     /// Plays only the part of the movie between two times, given in ticks.
     ///
     /// Margaret's music boxes are five performances in one film: the script

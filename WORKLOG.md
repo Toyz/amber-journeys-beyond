@@ -8515,3 +8515,62 @@ overlay film on ch44 320x240 drawn Some((320, 240)) at Some((322, 204))
 ```
 
 262 tests, eleven recordings.
+
+## 174. A film on a channel is a still
+
+helba: "the first car inside played white ... where he cleans the fog off the
+window", and then "got to the end of the first section and it played the first
+wipe off fog again".
+
+Both are one mistake, and it is a Director one rather than a Lingo one.
+
+`carback.mov` opens on a completely fogged windscreen and clears over its
+hundred and twenty-one frames -- frame 0 is white. So "played white" is a film
+showing its first frame and not advancing, and "played it again" is a film
+that should have been standing still and was running instead.
+
+`setCarLocation`, in full:
+
+```text
+if getPos( validSuggestions, suggestion ) > 3 then
+  set the castNum of sprite 44 = getProp( oPuppeteer.<hubClips>, suggestion )
+  updateDisplay( oPuppeteer )
+```
+
+`#hub_main` is `strt_CBA.mov`, `#hub_A` is `A_ALAMAR.mov`, and so on: the
+junction film whose three thirds are left, straight and right. It is put on
+the channel and *left there*. Nothing plays it. `chooseTrack` scrubs a third
+of it when the player picks a direction, and until then it is a still of the
+junction ahead.
+
+This engine's `point_channel` opened the film and started it, looping. So
+reaching a hub started the junction film playing over and over, and since
+these films all open on the same fogged windscreen it read as the fog wipe
+repeating. The one before it -- the drive itself -- was `carback.mov` held on
+frame 0, white, because the overlay had taken the channel from it.
+
+The rule, which is Director's: pointing a channel at a digital video member
+shows a frame. What makes it move is a handler setting the movie rate, which
+is what `pushVideo` and `pushQT` do. So `point_channel` now parks the film on
+its first frame, and the three handlers that want motion say so with a new
+`PlayOverlay` -- the PeeK unit's roll-up, the chipmunk climbing in through the
+passenger window, and the whirligig, which spins.
+
+The stage report says which it is, since that was the whole difficulty:
+
+```text
+overlay film on ch44 320x240 drawn Some((320, 240)) at Some((322, 204))
+  (a still, not playing)
+```
+
+### The audio in the log
+
+helba's log also had `no free channel for trackLoop, dropped`, and `trackLoop`
+starting twice sixty ticks apart. Both are right. The game mixes on four
+channels and `soundEffect` gives up rather than finding room; with the house
+hum, the water, `homeEdwin` and `iCantSee` all running there was nothing free.
+And the two starts are two separate drives -- `chooseTrack` raises the loop
+and drops it, then `driveTheCar` does the same -- which is what the handlers
+do. A loop already running is left alone; these were not running.
+
+263 tests, eleven recordings.

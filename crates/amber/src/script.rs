@@ -48,6 +48,13 @@ pub enum Effect {
     /// peekAnim` -- rather than a `wait #videoStop`, because the film it is
     /// waiting for is not the room's.
     WaitForOverlay,
+    /// Start the film on a channel.
+    ///
+    /// Pointing a channel at a film shows a frame; it does not play it. The
+    /// handlers that want motion say so, which is what `pushVideo` is in the
+    /// original -- and what `setCarLocation` deliberately does not do when it
+    /// puts the junction film on the car's channel and leaves it standing.
+    PlayOverlay { channel: u8 },
     /// Block until a named sound finishes.
     WaitForSound(String),
     /// Cross-fade to one of the five montage sequences.
