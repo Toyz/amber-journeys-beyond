@@ -526,6 +526,14 @@ impl Game {
                 }
             }
         }
+        // The chapter's own name for itself, which its schema declares and
+        // which therefore stops being written once a chapter is only seeded
+        // once. Room guards and handlers both read it, and after a chapter
+        // handed the player back it still named the chapter they had left.
+        self.state.set_all(
+            "currentDomain",
+            vec![lingo::Value::String(domain.to_string())],
+        );
         // Handlers of the same name differ between chapters -- the door
         // setters cue different sounds -- so the active chapter has to be
         // readable from the state a handler is given.
@@ -1481,6 +1489,14 @@ impl Game {
                 self.icon_override = index.map(|i| (item.clone(), i));
             }
             Effect::ParkSpareSprites => self.park_spare_sprites(),
+            Effect::EnterDomain { domain, room } => {
+                let outcome = Outcome {
+                    new_domain: Some(domain.clone()),
+                    new_domain_room: *room,
+                    ..Outcome::default()
+                };
+                self.apply(&outcome);
+            }
             _ => return false,
         }
         true
@@ -2527,6 +2543,29 @@ impl Game {
         // `enterNewDomain`, and until this was acted on the player watched the
         // whole sequence and stayed where they were.
         if let Some(domain) = &outcome.new_domain {
+            // Not yet, if there is a sequence still to play. A handler that
+            // ends a chapter queues the whole of its ending and *then* asks
+            // for the domain change -- `goodbyeMandy` is the closet opening,
+            // the drips, three montage steps, Mandy, two films and the lights
+            // going out, and `enterNewDomain` is its last line. Acting on the
+            // flag the moment it appears threw all of that away: the click on
+            // the closet went straight from the basement to the gazebo, and
+            // the ending helba could feel was missing was missing entirely.
+            if !self.pending.is_empty()
+                || self.effect_wait.is_some()
+                || !outcome.effects.is_empty()
+            {
+                trace!(
+                    crate::trace::Topic::Room,
+                    "holding the move to {domain} until the queue is done"
+                );
+                self.pending.extend(outcome.effects.iter().cloned());
+                self.pending.push(Effect::EnterDomain {
+                    domain: domain.clone(),
+                    room: outcome.new_domain_room,
+                });
+                return;
+            }
             let target = self
                 .world
                 .domains

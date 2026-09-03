@@ -7863,3 +7863,54 @@ window-only fault, and the second time the answer has been a test rather than
 another rule about how to be careful.
 
 255 tests, ten recordings.
+
+## 165. The ending helba could feel was missing
+
+"I swear there is a missing cutscene at the end of Brice, something feels
+missing." There was, and all of it: the click on the closet went from the
+basement to the gazebo in one frame.
+
+`goodbyeMandy` is a minute of film. The closet swings open, the basement's
+loop fades out and the drips come up, three montage steps walk the closet from
+a first look to a second to Mandy herself, he says his line, `Bxtlites.mov`
+plays over her, the lights go out, `Bexit.mov` plays, and only then does it
+ask for Roxy's house back. Its last line is
+
+```text
+enterNewDomain( oStoryteller, string(#Roxy), 'Brice_reentry' )
+```
+
+and this engine acted on that the moment it saw it. An outcome's `new_domain`
+was handled at the top of `apply`, before the outcome's own effects had even
+been put in the queue, so the whole ending was queued behind a jump that had
+already happened. There is no way to notice this from the state: the chapter
+finished, the flags were right, the player was in the right room. Only the
+minute of film was gone.
+
+A domain change is now an effect. If anything is queued or waiting when the
+flag arrives, the change goes on the end of the queue behind it and takes its
+turn; only an `enterNewDomain` with nothing in front of it still jumps
+straight away, which is what a transit room's last action is.
+
+### And the beat inside it
+
+Step 3 of that montage declares no plate and no film. The screen goes black,
+and
+
+```text
+setState( #showMontage, 3 )
+set the queuedSound of oPuppeteer = #lightsOut
+```
+
+-- the sound of the lights going out is the whole of it. The port had the
+black and not the sound, which makes a moment read as a gap. Steps 3 and 4 arm
+no transition either; only step 5 does, on the way to the re-entry picture.
+
+### One more thing the freezer took with it
+
+`#currentDomain` is declared by each chapter's schema, so seeding a chapter
+once -- entry 156 -- meant it stopped being written. After a chapter handed
+the player back, the flag still named the chapter they had left. It is written
+on every chapter change now, which is what it is for.
+
+255 tests, ten recordings.

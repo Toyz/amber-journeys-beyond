@@ -88,9 +88,27 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::StopVideo);
             out.effects.push(Effect::WaitTicks(15));
 
-            out.effects.push(Effect::FadeToMontage(3));
+            // `setState( #showMontage, 3 )` and then
+            // `set the queuedSound of oPuppeteer = #lightsOut`. There is no
+            // plate declared for step 3 and no film either: the screen goes
+            // black, and the sound of the lights going out is the whole beat.
+            // Without it the black is a gap rather than a moment, which is
+            // what helba could feel was missing.
+            out.effects.push(Effect::SetState {
+                key: "showMontage".into(),
+                value: Value::Int(3),
+            });
+            out.effects.push(Effect::PlaySound {
+                name: "lightsOut".into(),
+                loudness: None,
+            });
             out.effects.push(Effect::WaitTicks(60));
-            out.effects.push(Effect::FadeToMontage(4));
+            // Step 4 is `Bexit.mov`, and neither 3 nor 4 arms a transition --
+            // only 5 does, on the way to the re-entry picture.
+            out.effects.push(Effect::SetState {
+                key: "showMontage".into(),
+                value: Value::Int(4),
+            });
             out.effects.push(Effect::PlayVideo(None));
             out.effects.push(Effect::WaitForVideo);
             out.effects.push(Effect::FadeToMontage(5));

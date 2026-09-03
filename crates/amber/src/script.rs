@@ -77,6 +77,12 @@ pub enum Effect {
     /// asks the bar for a different icon instead of puppeting a channel that
     /// would land in the middle of the room.
     InventoryIcon { item: String, index: Option<usize> },
+    /// Cross into another chapter, once whatever is queued has played.
+    ///
+    /// The outcome carries a `new_domain` too, and that is what a hotspot's
+    /// `enterNewDomain` sets; this is the same thing put in the queue so it
+    /// takes its turn behind a chapter's ending rather than in front of it.
+    EnterDomain { domain: String, room: Option<i32> },
     /// Release every channel above the ones the room itself placed.
     ///
     /// `updateDisplay` ends by walking from just past its last placed sprite
