@@ -7358,3 +7358,66 @@ ends in the basement closet, in a handler called `goodbyeMandy`. That is the
 next block.
 
 254 tests, nine recordings.
+
+## 155. Where the second chapter is, and what stands in front of it
+
+The route to Brice's portal is all there and all reachable -- the weedkiller,
+the kitchen's rear door, the weeds, the gazebo -- and the last step is not:
+
+```text
+up  blocked by And([ Equals { ambervision, #on },
+                     Includes { ghostsremaining, #Brice } ])
+```
+
+The portal in the gazebo roof is only there with the Amber vision on. Coming
+home from Margaret's chapter it is off, and nothing I can find turns it back
+on.
+
+The chain that turns it on runs
+
+```text
+#waitingForPlayer -> #readyToGo -> #popUp -> (put it on) -> #startingUp -> #on
+```
+
+and every step of it is a hotspot in the study guarded on the step before.
+The only thing that sets the first is `setGhostlyPhoneCall`, which is the
+telephone -- and answering it trims `#phoneMessage` out of `#hauntsRemaining`
+in the same breath, so the phone rings once in the whole game.
+
+Margaret's chapter never touches `#AMBERVISION`. What turns it off is Roxy's
+own portal, on the way in:
+
+```text
+"setState( oStoryteller, #ambervision, #off )", ... ,
+"enterNewDomain( oStoryteller, string(#Margaret), 12 )"
+```
+
+So by the plain reading of the data, entering one chapter spends the vision
+for good and the other two portals can never open -- which cannot be what the
+game does, because the hint book says "you may enter these domains in any
+order".
+
+The thing I have not ported is what closes it. `enterNewDomain` does not just
+swap rooms; it stashes a domain's flags and puts them back:
+
+```text
+if count( lsStateData ) then
+  ... put the stored state-data back ...
+  "Just put stored state-data into lsStateData of oPuppeteer"
+else
+  setProp( ..., #houseLightsAreOn, [0, 1] )
+  quietly( me, #AMBERVISION, #off )
+  endLoop #amberHum
+```
+
+-- and elsewhere, "Just stashed Roxy's state-data into #stateOnIce". Two
+stores, one of them named for Roxy's house specifically. This engine has one
+flat state and no stash at all, which is what entry 154's seeding bug was a
+symptom of: I patched the symptom by seeding once, and the real shape is
+per-domain state that is saved on the way out and restored on the way in.
+
+That is the next thing to build, and it is the difference between a game with
+two chapters and a game with four. Until it exists, `full.walk` ends at the
+foot of the gazebo with the portal shut.
+
+254 tests, nine recordings.
