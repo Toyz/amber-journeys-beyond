@@ -39,7 +39,7 @@ struct Chapter {
     palettes: Vec<Palette>,
     /// Decoded plates, keyed by cast member and by whether its
     /// background is painted -- the same member is used both ways.
-    art: HashMap<(u32, bool), Option<CachedArt>>,
+    art: HashMap<(u32, i32), Option<CachedArt>>,
     schema: Option<Schema>,
     /// Lookup tables for sprites whose cast is chosen by a state flag.
     tables: CastTables,
@@ -369,6 +369,15 @@ impl Game {
             (false, _) if !leaving.is_empty() && !leaving.eq_ignore_ascii_case(domain) => {
                 trace!(crate::trace::Topic::State, "freezing {leaving} to enter {domain}");
                 self.on_ice = Some(self.state.clone());
+                // `states <- value( the text of cast 'stateData' )` replaces
+                // the list; it does not write over it. A chapter starts with
+                // its own declarations and nothing else -- which means the
+                // player walks into it carrying nothing, because Roxy's tools
+                // are Roxy's and they went into the freezer with her house.
+                // Seeding on top of the old state left the PeeK unit, the
+                // videotape and the headgear sitting in the bar in Margaret's
+                // bedroom in 1943.
+                self.state = State::new();
                 self.seeded.remove(domain);
                 self.seed_chapter(domain);
             }
@@ -685,9 +694,9 @@ impl Game {
 
     /// Decodes a cast member to RGBA, caching both hits and misses so a missing
     /// member is not re-decoded every frame.
-    fn art(&mut self, domain: &str, cast: u32, matte: bool) -> Option<&CachedArt> {
+    fn art(&mut self, domain: &str, cast: u32, ink: i32) -> Option<&CachedArt> {
         let chapter = self.chapter(domain)?;
-        let key = (cast, matte);
+        let key = (cast, ink);
         if !chapter.art.contains_key(&key) {
             let decoded = chapter.movie.bitmap(cast).ok().map(|b: Bitmap| {
                 // The member names the palette cast it was authored against.
@@ -696,20 +705,29 @@ impl Game {
                     .palette_for_cast(b.palette_ref)
                     .or_else(|| chapter.palettes.first().cloned())
                     .unwrap_or_default();
-                // The whole game uses two inks: 0 for the 2345 sprites that
-                // are a room's own plates, and 36 for the fifteen that are
-                // something held up in front of one -- a phone lifted to the
-                // ear, a bottle turned over, a newspaper being read. Those
-                // fifteen are drawn on a white field that must not be painted,
-                // and index zero is white in every one of this game's
-                // palettes.
+                // A room's own plates are ink 0 and painted whole. The
+                // fifteen sprites held up in front of one -- a phone lifted to
+                // the ear, a bottle turned over, a newspaper being read -- are
+                // ink 36, Director's background-transparent, which keys out
+                // every pixel of the background colour; index zero is white in
+                // every one of this game's palettes and that is the field they
+                // are drawn on.
                 //
-                // Not painting it is the whole of what ink means here, so
-                // rather than model Director's ink table this asks the one
-                // question the data actually poses.
-                let transparent = matte.then_some(0u8);
+                // Ink 8 is `#matte`, and it is not the same thing. Matte keys
+                // out the background *outside the shape*, from a mask derived
+                // from the member's outline, so a slab of the background
+                // colour in the middle of the art stays painted. Treating the
+                // two alike was fine until the PeeK unit, whose body is
+                // exactly such a slab: keying on the colour punched its middle
+                // out and left a frame with the room showing through it.
+                const BACKGROUND: u8 = 0;
+                let rgba = match ink {
+                    0 => b.to_rgba(&palette, None),
+                    36 => b.to_rgba(&palette, Some(BACKGROUND)),
+                    _ => b.to_rgba_matte(&palette, BACKGROUND),
+                };
                 CachedArt {
-                    rgba: b.to_rgba(&palette, transparent),
+                    rgba,
                     width: b.width as u32,
                     height: b.height as u32,
                     reg_x: b.reg_x,
@@ -1592,8 +1610,9 @@ impl Game {
             Art {
                 cast: u32,
                 at: Option<(i32, i32)>,
-                /// Whether the member's background colour is painted.
-                matte: bool,
+                /// Director's ink, which decides how the background is
+                /// treated: 0 paints it, 36 keys it out, 8 mattes it.
+                ink: i32,
             },
             Movie,
             /// A film a script put on its own channel, drawn in that
@@ -1605,11 +1624,7 @@ impl Game {
         for (ch, cast, center, ink) in self.visible() {
             stage.push((
                 SCORE_BASE + ch as u16,
-                Layer::Art {
-                    cast,
-                    at: center,
-                    matte: ink != 0,
-                },
+                Layer::Art { cast, at: center, ink },
             ));
         }
         if self.player.is_some() {
@@ -1627,7 +1642,7 @@ impl Game {
                 Layer::Art {
                     cast: puppet.cast,
                     at: puppet.loc,
-                    matte: puppet.ink != 0,
+                    ink: puppet.ink,
                 },
             ));
         }
@@ -1664,8 +1679,8 @@ impl Game {
 
         for (channel, layer) in stage {
             match layer {
-                Layer::Art { cast, at, matte } => {
-                    let Some(art) = self.art(&domain, cast, matte) else {
+                Layer::Art { cast, at, ink } => {
+                    let Some(art) = self.art(&domain, cast, ink) else {
                         continue;
                     };
                     // `#coords` gives where the sprite's registration point
@@ -2081,7 +2096,7 @@ impl Game {
     /// Whether a cast member in the current room's chapter decodes to art.
     pub fn has_art(&mut self, cast: u32) -> bool {
         let domain = self.node().domain.clone();
-        self.art(&domain, cast, false).is_some()
+        self.art(&domain, cast, 0).is_some()
     }
 
     /// Draws the game's own cursor for `verb` at `(x, y)`.
@@ -2108,10 +2123,10 @@ impl Game {
         let domain = self.node().domain.clone();
         // Both halves, and both have to be there: a cursor drawn without its
         // mask is a black square.
-        let Some(art) = self.art(&domain, image, false).cloned() else {
+        let Some(art) = self.art(&domain, image, 0).cloned() else {
             return false;
         };
-        let Some(shape) = self.art(&domain, mask, false).cloned() else {
+        let Some(shape) = self.art(&domain, mask, 0).cloned() else {
             return false;
         };
 
@@ -2199,7 +2214,7 @@ impl Game {
                 .filter(|(name, _)| name.eq_ignore_ascii_case(&item))
                 .and_then(|(_, i)| self.inventory.icon_at(&item, *i));
             let cast = swapped.unwrap_or(if hot { icons.hot } else { icons.cool });
-            let Some(art) = self.art(&domain, cast, false) else { continue };
+            let Some(art) = self.art(&domain, cast, 0) else { continue };
             let (w, h) = (art.width, art.height);
             blit(frame, width, height, &art.rgba, w, h, x, y);
         }
@@ -2442,7 +2457,10 @@ impl Game {
             .collect();
         // Highest channel first: later channels draw over earlier ones.
         for (channel, cast, loc) in placed.into_iter().rev() {
-            let Some(art) = self.art(&domain, cast, true) else { continue };
+            // The bar's icons are a glowing outline on a black field, and
+            // the room shows through the middle of the outline -- so they are
+            // keyed on the background colour rather than matted.
+            let Some(art) = self.art(&domain, cast, 36) else { continue };
             let (w, h) = (art.width as i32, art.height as i32);
             let (rx, ry) = (art.reg_x as i32, art.reg_y as i32);
             let (ox, oy) = match loc {

@@ -128,6 +128,64 @@ impl Bitmap {
         }
         out
     }
+
+    /// The same, with Director's `#matte` ink rather than a colour key.
+    ///
+    /// Matte does not make every pixel of the background colour transparent;
+    /// it makes the background *outside the shape* transparent. Director
+    /// derives a mask from the member's outline, so a hole in the middle of
+    /// the art that happens to be the background colour stays painted.
+    ///
+    /// The difference is the whole PeeK unit. Its body is a slab of the same
+    /// colour as the field around it, so keying on the colour punched the
+    /// middle out and left a frame with the room showing through it.
+    pub fn to_rgba_matte(&self, palette: &crate::Palette, background: u8) -> Vec<u8> {
+        let (w, h) = (self.width as usize, self.height as usize);
+        let mut outside = vec![false; self.pixels.len()];
+        // Flood from every edge pixel that is the background colour; anything
+        // the flood cannot reach is inside the shape.
+        let mut stack: Vec<usize> = Vec::new();
+        let push = |stack: &mut Vec<usize>, outside: &mut Vec<bool>, i: usize| {
+            if i < outside.len() && !outside[i] && self.pixels[i] == background {
+                outside[i] = true;
+                stack.push(i);
+            }
+        };
+        for x in 0..w {
+            push(&mut stack, &mut outside, x);
+            if h > 0 {
+                push(&mut stack, &mut outside, (h - 1) * w + x);
+            }
+        }
+        for y in 0..h {
+            push(&mut stack, &mut outside, y * w);
+            if w > 0 {
+                push(&mut stack, &mut outside, y * w + w - 1);
+            }
+        }
+        while let Some(i) = stack.pop() {
+            let (x, y) = (i % w, i / w);
+            if x > 0 {
+                push(&mut stack, &mut outside, i - 1);
+            }
+            if x + 1 < w {
+                push(&mut stack, &mut outside, i + 1);
+            }
+            if y > 0 {
+                push(&mut stack, &mut outside, i - w);
+            }
+            if y + 1 < h {
+                push(&mut stack, &mut outside, i + w);
+            }
+        }
+
+        let mut out = Vec::with_capacity(self.pixels.len() * 4);
+        for (i, &p) in self.pixels.iter().enumerate() {
+            let [r, g, b] = palette.color(p);
+            out.extend_from_slice(&[r, g, b, if outside[i] { 0 } else { 255 }]);
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -136,6 +194,36 @@ mod tests {
 
     // PackBits: a byte below 0x80 introduces n+1 literals, one at or above
     // introduces 0x101-n copies of the byte that follows.
+
+    #[test]
+    fn matte_keys_out_the_field_but_not_a_hole_in_the_middle() {
+        // Director's `#matte` derives its mask from the member's outline, so
+        // the background outside the shape goes and the background *inside*
+        // it stays. Keying on the colour instead punches out both, which is
+        // what left the PeeK unit as a frame with the room showing through.
+        //
+        //   0 0 0 0 0
+        //   0 1 1 1 0
+        //   0 1 0 1 0      <- the 0 in the middle is inside the shape
+        //   0 1 1 1 0
+        //   0 0 0 0 0
+        let pixels = vec![
+            0, 0, 0, 0, 0,
+            0, 1, 1, 1, 0,
+            0, 1, 0, 1, 0,
+            0, 1, 1, 1, 0,
+            0, 0, 0, 0, 0,
+        ];
+        let bmp = Bitmap { width: 5, height: 5, pixels, reg_x: 0, reg_y: 0, palette_ref: 0 };
+        let palette = crate::Palette::default();
+        let rgba = bmp.to_rgba_matte(&palette, 0);
+        let alpha = |x: usize, y: usize| rgba[(y * 5 + x) * 4 + 3];
+
+        assert_eq!(alpha(0, 0), 0, "the corner is outside the shape");
+        assert_eq!(alpha(2, 0), 0, "and so is the edge");
+        assert_eq!(alpha(1, 1), 255, "the shape itself is painted");
+        assert_eq!(alpha(2, 2), 255, "and so is the hole inside it");
+    }
 
     #[test]
     fn literal_runs_copy_verbatim() {

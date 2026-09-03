@@ -7479,3 +7479,59 @@ which is what a door is -- once each before giving up. That is how the walk
 gets out of the dark house without a single hand-written step.
 
 254 tests, nine recordings, and `full.walk` reaches Brice's chapter.
+
+## 157. Matte is not a colour key
+
+helba photographed the PeeK unit opened over the BAR panel: the top bar and
+the bottom bar were there, and the middle of the unit was gone, with the room
+showing through where the body should be.
+
+The unit's body is `set the ink of sprite peekBody = 8`, which is Director's
+`#matte`. This engine had one idea of what an ink can mean -- "do not paint
+the background colour" -- and applied it to everything that was not ink 0.
+That is ink 36, `#bgTransparent`, and it is the right reading for the fifteen
+sprites that use it: a phone lifted to the ear, a bottle turned over, a
+newspaper being read, each drawn on a white field.
+
+Matte is a different thing. It keys out the background *outside the shape*,
+from a mask derived from the member's outline; background-coloured pixels
+inside the shape stay painted. The PeeK's body is a slab of exactly that
+colour, so keying on the colour punched its middle out and left a frame.
+
+`to_rgba_matte` floods from the edges and keeps what the flood cannot reach.
+Room plates stay ink 0 and opaque, the fifteen stay keyed, and the inventory's
+icons are keyed too -- they are a glowing outline and the room is meant to
+show through the middle of it.
+
+### The tools should hide, and they were not hiding
+
+helba, in the same breath: in Margaret's chapter, aren't the tools supposed to
+be gone? Yes, and the freezer says so. `states <- value( the text of cast
+'stateData' )` *replaces* the state list; it does not write over it. A chapter
+starts with its own declarations and nothing else, which means the player
+walks in carrying nothing -- Roxy's tools are Roxy's, and they went into the
+freezer with her house.
+
+Entry 156 seeded the chapter on top of the old state instead of replacing it,
+so the PeeK unit, the videotape and the headgear sat in the inventory bar in a
+bedroom in 1943. Now the bag is empty going in and full again coming home.
+
+### Two that were not bugs
+
+The six camera haunts come out in `#cameraFeedbackRemaining`'s list order in
+`full.walk` -- KdKnob, crazyDR, ghostKnife, ghostlyKey, crazyLR, bloodBath --
+because the walk paces the porch, and the porch is out of every room a camera
+is watching, so `spawnGhostlyEvent` always takes the first one still on the
+list. Wandering the house instead, each haunt is skipped while you are
+standing where it happens, and the order comes out differently. The hint book
+says as much: "Each game of AMBER is different, with haunts occuring in
+different orders." What makes them feel mechanical is the other half of the
+clock -- `#hauntDelay` starts at 60 moves and comes down by four each time, so
+they arrive faster and faster.
+
+And the ghost on the stairs is drawn right: `strghost.mov` is 128 by 232 at
+(357, 176), and it lands on the staircase with its plume blending into the
+landing light. The hard-edged dark shape at the top left of that frame is the
+room's own art.
+
+254 tests, nine recordings.
