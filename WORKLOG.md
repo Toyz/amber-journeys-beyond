@@ -7759,3 +7759,59 @@ fails, and `full.walk` is 718 steps through 238 rooms across all three
 domains. Both still come out of the same `play(r)`.
 
 254 tests, ten recordings.
+
+## 163. Edwin's chapter, and the handler that drives it
+
+The third chapter is behind the boathouse door -- the crowbar from the garage
+pries it, and the portal wants the Amber vision on and `#Edwin` still in
+`#ghostsRemaining`, the same shape as the gazebo's.
+
+Inside it is bigger than the other two. Its schema declares a wind and a
+weathervane, a boat with a sail and an anchor at three heights, a car that
+runs on a network of thirteen named tracks, a chipmunk called Chippy who
+wants pulling out of something, and a teddy that has to end up in the car:
+
+```text
+#Wind: [#None, #s, #e, #W, #n]   #weatherVane: [#n]
+#boatPosition: [#backward, #forward]   #hookHeight: [#high, #medium, #low]
+#carLocation: [#inStorage]
+#currentTrack: [#main, #A, #B, #c, #AL, #AM, #AR, #BL, #BM, #BR, #CL, #CM, #CR]
+#chippyLocation: [#waiting, #inCar, #home]
+#teddyLocation: [#waiting, #onAnchor, #inCar, #home]
+```
+
+Nearly all of its handlers are ported. The one that is not is `driveTheCar`,
+which is the chapter: two thousand bytes of bytecode that picks a film for the
+stretch of track being driven, plays it while running a list of timed markers
+against the film's own clock -- most of them a volume envelope for the track
+loop, some of them Lingo lines to `do` -- and then puts the car down somewhere
+else.
+
+The port chose the film and stopped there. So every drive played its stretch
+of track and left the car exactly where it started.
+
+### The half of it that is a table
+
+The end of the handler is not clever at all:
+
+```text
+if getPos( [#BL, #BR],          whichTrack ) then goTo #teN_fwd
+if getPos( [#CL, #CM_missRamp], whichTrack ) then goTo #teS_fwd
+if getPos( [#AR, #CR],          whichTrack ) then goTo #teE_fwd
+if getPos( [#AM, #AL],          whichTrack ) then goTo #teW_fwd
+```
+
+Four tunnel mouths and a table saying which stretch comes out at which. And
+one stretch that does something else: driving the middle of the C track with
+the teddy hanging on the anchor is the rescue -- `teddyGetsIn`, the film,
+`teddyGetsOut`, and then `goTo #car_domainExit` and
+`enterNewDomain( #Roxy, 'Edwin_reentry' )`. That is how the chapter ends, and
+it is the only way out of it.
+
+That table is ported now, so the car goes where it is driven and the chapter
+has an ending again. What is still missing is the marker machinery in the
+middle -- the timed lines that put Chippy in the car and take the teddy off
+the anchor as the film runs past them. That is the next piece, and it is the
+last large one in the game.
+
+254 tests, ten recordings.

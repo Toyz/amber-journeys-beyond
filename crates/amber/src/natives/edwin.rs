@@ -272,6 +272,48 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 name: "trackLoop".into(),
                 fade: false,
             });
+
+            // And then the car is somewhere else. Each stretch of track ends
+            // at one of the four tunnel mouths --
+            //
+            // ```text
+            // if getPos( [#BL, #BR],           whichTrack ) then goTo #teN_fwd
+            // if getPos( [#CL, #CM_missRamp],  whichTrack ) then goTo #teS_fwd
+            // if getPos( [#AR, #CR],           whichTrack ) then goTo #teE_fwd
+            // if getPos( [#AM, #AL],           whichTrack ) then goTo #teW_fwd
+            // ```
+            //
+            // -- except the one that ends the chapter. Driving the middle of
+            // the C track with the teddy hanging on the anchor is the rescue:
+            // the film plays, `teddyGetsOut` puts him in the car, and it
+            // drives out through `#car_domainExit` and home.
+            //
+            // None of this was here. The port chose the film and stopped, so
+            // every drive played its stretch of track and left the car where
+            // it started, and the chapter could not be finished or even moved
+            // around in.
+            const MOUTHS: [(&str, &[&str]); 4] = [
+                ("teN_fwd", &["BL", "BR"]),
+                ("teS_fwd", &["CL", "CM_missRamp"]),
+                ("teE_fwd", &["AR", "CR"]),
+                ("teW_fwd", &["AM", "AL"]),
+            ];
+            if film.eq_ignore_ascii_case("CM_teddyRescue") {
+                state.set("teddyLocation", Value::Symbol("inCar".into()));
+                out.effects.push(Effect::PlaySound {
+                    name: "carDoorOpen".into(),
+                    loudness: None,
+                });
+                out.destination = Some("car_domainExit".into());
+                out.transition = Some("fadeIn".into());
+                out.new_domain = Some("ROXY".into());
+            } else if let Some((mouth, _)) = MOUTHS
+                .iter()
+                .find(|(_, tracks)| tracks.iter().any(|t| t.eq_ignore_ascii_case(film)))
+            {
+                out.destination = Some((*mouth).to_string());
+                out.transition = Some("fadeIn".into());
+            }
             out.redraw = true;
         }
 
