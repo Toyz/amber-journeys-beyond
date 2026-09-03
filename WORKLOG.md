@@ -8452,3 +8452,66 @@ because a deadlock is a queue that will not move. It would not have caught a
 film drawn twice, and no recording ever will.
 
 261 tests, eleven recordings.
+
+## 173. One sprite, one film
+
+helba, with the picture marked up: the arrow points at a thin blue band at
+the top of the windscreen -- "the right video drawing wrong" -- and the block
+under it is "a still frame from another video misplaced". Two films on screen,
+one over the other.
+
+The `stage` command from entry 172 answered it in one line:
+
+```text
+room sprite ch1 cast 1067 ink 0 at Some((320, 240))
+film carBack.mov 320x240 drawn 320x240 at Some((322, 204))
+overlay film on ch44 320x240 drawn Some((320, 240)) at None
+```
+
+A film on channel 44, and the room's film also on channel 44 -- because
+`MOVIE_CHANNEL` is 44, and I had written that constant without noticing what
+it meant.
+
+It is not a made-up number. Every handler that swaps a film writes `the
+castNum of sprite 44`, and `pushQT` scrubs `the movieTime of sprite 44`. The
+room's `#video` channel and the channel a script puts a film on are **the same
+sprite**. Writing one replaces the other; they cannot both be on screen. This
+engine drew both, and the compositor sorts by channel with a stable sort, so
+the overlay -- pushed second -- landed on top. The film underneath showed as a
+band round the edge of the one covering it, which is exactly what the arrow is
+pointing at.
+
+Edwin's car is where all of this meets. `setCarLocation` puts the junction
+film on 44 when the car reaches a hub -- three thirds of one film, left,
+straight and right, which is what `chooseTrack` scrubs a third of -- and
+`driveTheCar` pushes the stretch of track over the room's video channel. Both
+were live at once.
+
+Three changes, all the same rule:
+
+  - the compositor does not draw the room's film while a script owns the video
+    channel;
+  - `play_movie` and `start_room_video` release an overlay on that channel,
+    because writing the channel is what replaces it;
+  - an overlay on that channel with no position of its own takes the room's
+    `#video` coords rather than the middle of the stage. A channel's location
+    is a score property and `#showIF` decides which film is on it, not where
+    it is -- so the junction film belongs at (322, 204), in the windscreen,
+    and not centred on the plate.
+
+The last of those is entry 171's positional fix again, arriving from the other
+side: there for the room's own player, here for a film a script put on the
+channel. Both now go through one `video_channel_centre`, which prefers the
+sprite whose guard holds and falls back to the first video sprite when none
+does -- the usual case while a script is playing a film of its own.
+
+The report says which is which now, so the next one of these is a keypress
+rather than a photograph:
+
+```text
+film carBack.mov 320x240 drawn 320x240 at Some((322, 204))
+  -- not drawn: a script has the video channel
+overlay film on ch44 320x240 drawn Some((320, 240)) at Some((322, 204))
+```
+
+262 tests, eleven recordings.

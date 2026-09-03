@@ -147,7 +147,7 @@ fn main() -> ExitCode {
             _ => return usage(),
         },
         "cast" => match args.get(2) {
-            Some(m) => cmd_cast(&dir.join(m)),
+            Some(m) => cmd_cast(&dir.join(m), args.get(3).map(String::as_str)),
             None => return usage(),
         },
         "export" => match (args.get(2), args.get(3).and_then(|n| n.parse().ok()), args.get(4)) {
@@ -486,7 +486,7 @@ fn cmd_room(dir: &Path, domain: &str, index: usize) -> Res {
     Ok(())
 }
 
-fn cmd_cast(path: &Path) -> Res {
+fn cmd_cast(path: &Path, filter: Option<&str>) -> Res {
     let movie = Movie::open(path)?;
     println!(
         "{}: {}x{} stage, {} cast slots, {} palettes",
@@ -505,6 +505,34 @@ fn cmd_cast(path: &Path) -> Res {
     }
     for (k, v) in &kinds {
         println!("  {k:<14} {v:>5}");
+    }
+    // With a filter, the members themselves: number, name and the rect the
+    // member declares. That rect is what a film is *drawn* at, and it is not
+    // always the size the film is stored at -- which is the difference between
+    // a film in its place and one spilling off the stage.
+    if let Some(want) = filter {
+        let want = want.to_ascii_lowercase();
+        for (i, m) in movie.members().iter().enumerate() {
+            if m.resource == 0 {
+                continue;
+            }
+            let name = m.name.clone().unwrap_or_default();
+            let kind = format!("{:?}", m.kind);
+            if !name.to_ascii_lowercase().contains(&want)
+                && !kind.to_ascii_lowercase().contains(&want)
+                && want != "all"
+            {
+                continue;
+            }
+            println!(
+                "  {:>5}  {:<14} {:>4}x{:<4} {}",
+                i + 1,
+                kind,
+                m.width,
+                m.height,
+                name
+            );
+        }
     }
     Ok(())
 }

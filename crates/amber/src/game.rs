@@ -137,6 +137,18 @@ pub struct Game {
 /// which leaves 1..12 to the frame's own furniture.
 const SCORE_BASE: u16 = 12;
 
+/// The score channel the room's `#video` sprite occupies.
+///
+/// Not a made-up number: `pushQT` and every handler that swaps a film write
+/// `the castNum of sprite 44`, so a film a script puts on a channel and the
+/// film the room declares on `#video` are the *same sprite*. Drawing both --
+/// which this engine did -- puts two films on screen at once, one over the
+/// other, and the one underneath shows as a sliver round the edge of the one
+/// on top. Edwin's car is where it shows: `setCarLocation` loads the junction
+/// film onto 44 and `driveTheCar` pushes the stretch of track over the room's
+/// video channel, and both were drawn.
+const MOVIE_CHANNEL: u8 = 44;
+
 impl Game {
     /// The chapter the game opens in. Roxy's is the present-day frame story
     /// that the other three are reached from.
@@ -814,6 +826,11 @@ impl Game {
     /// the room already places on its video channel: the montages play by
     /// swapping which movie that is and asking for it again.
     pub fn play_movie(&mut self, name: Option<&str>) {
+        // `pushVideo` writes the video channel, so whatever a script had put
+        // on that channel is replaced -- they are one sprite. Without this the
+        // junction film Edwin's car parks at a hub went on covering the
+        // stretch of track being driven.
+        self.release_overlay(MOVIE_CHANNEL);
         match name {
             Some(n) => {
                 let n = n.trim_start_matches('#').to_string();
@@ -847,17 +864,7 @@ impl Game {
                 // once the drive starts the montage is 0: the guard stops
                 // holding, the coords went with it, and the track films drew
                 // centred on the stage instead of in the windscreen.
-                let state = self.state.clone();
-                let video: Vec<_> = self.world.nodes[self.room]
-                    .sprites
-                    .iter()
-                    .filter(|s| matches!(s.channel, Channel::Video))
-                    .collect();
-                self.playing_at = video
-                    .iter()
-                    .find(|s| state.test(&s.condition))
-                    .or_else(|| video.first())
-                    .and_then(|s| s.center);
+                self.playing_at = self.video_channel_centre();
             }
             // `pushVideo` with nothing named plays whatever the room has on
             // its video channel. It is almost always preceded by a `setState`
@@ -878,6 +885,7 @@ impl Game {
 
     /// Loads and starts the current room's movie, if it has one.
     pub fn start_room_video(&mut self) {
+        self.release_overlay(MOVIE_CHANNEL);
         self.player = None;
         let Some(name) = self.video() else {
             self.playing = None;
@@ -1392,22 +1400,40 @@ impl Game {
                 format!("room sprite ch{ch} cast {cast} ink {ink} at {center:?}"),
             ));
         }
+        let channel_centre = self.video_channel_centre();
+        let overlay_owns_video = self
+            .overlay
+            .as_ref()
+            .is_some_and(|o| o.channel == MOVIE_CHANNEL);
         if let Some(p) = &self.player {
             let (w, h) = p.frame_size();
             let (dw, dh) = self.playing_size.unwrap_or((w, h));
             rows.push((
-                44,
+                MOVIE_CHANNEL as u16,
                 format!(
-                    "film {} {w}x{h} drawn {dw}x{dh} at {:?}{}",
+                    "film {} {w}x{h} drawn {dw}x{dh} at {:?}{}{}",
                     self.playing.clone().unwrap_or_else(|| "(none)".into()),
                     self.playing_at,
-                    if p.finished { " (ended)" } else { "" }
+                    if p.finished { " (ended)" } else { "" },
+                    if overlay_owns_video {
+                        "  -- not drawn: a script has the video channel"
+                    } else {
+                        ""
+                    }
                 ),
             ));
         }
         if let Some(o) = &self.overlay {
             let (w, h) = o.player.frame_size();
-            let at = self.puppets.get(&o.channel).and_then(|p| p.loc);
+            let at = self
+                .puppets
+                .get(&o.channel)
+                .and_then(|p| p.loc)
+                .or(if o.channel == MOVIE_CHANNEL {
+                    self.playing_at.or(channel_centre)
+                } else {
+                    None
+                });
             rows.push((
                 o.channel as u16,
                 format!(
@@ -1644,6 +1670,27 @@ impl Game {
     /// little screen the recordings play in. Setting the number and leaving it
     /// to the bitmap decoder drew nothing at all, because a film has no
     /// bitmap -- so the unit opened, said what it had, and showed a blank.
+    /// Where the room puts its `#video` channel.
+    ///
+    /// In Director a channel's position is a score property: the `#showIF`
+    /// decides which film is on the channel, not where the channel is. So the
+    /// sprite whose guard holds is preferred and the first video sprite stands
+    /// in when none of them holds -- which is the usual case while a script is
+    /// playing a film of its own over the room's.
+    fn video_channel_centre(&self) -> Option<(i32, i32)> {
+        let state = &self.state;
+        let video: Vec<_> = self.world.nodes[self.room]
+            .sprites
+            .iter()
+            .filter(|s| matches!(s.channel, Channel::Video))
+            .collect();
+        video
+            .iter()
+            .find(|s| state.test(&s.condition))
+            .or_else(|| video.first())
+            .and_then(|s| s.center)
+    }
+
     fn point_channel(&mut self, channel: u8, cast: u32) {
         let domain = self.node().domain.clone();
         let film = self
@@ -1780,7 +1827,6 @@ impl Game {
         // the puppets -- happens to be right until a script claims a channel
         // below the movie, and then the puppet lands on top of a film it
         // belongs behind.
-        const MOVIE_CHANNEL: u16 = 44;
 
         enum Layer {
             /// A cast member from the room or from a puppet channel.
@@ -1804,8 +1850,15 @@ impl Game {
                 Layer::Art { cast, at: center, ink },
             ));
         }
-        if self.player.is_some() {
-            stage.push((MOVIE_CHANNEL, Layer::Movie));
+        // One sprite, one film. When a script has put a film on the video
+        // channel it has replaced whatever the room had there, so only the
+        // overlay is drawn.
+        let overlay_owns_video = self
+            .overlay
+            .as_ref()
+            .is_some_and(|o| o.channel == MOVIE_CHANNEL);
+        if self.player.is_some() && !overlay_owns_video {
+            stage.push((MOVIE_CHANNEL as u16, Layer::Movie));
         }
         if let Some(o) = &self.overlay {
             stage.push((o.channel as u16, Layer::Overlay));
@@ -1853,6 +1906,9 @@ impl Game {
         // AMBER device's slot and then, on the last frame or two, jumped to
         // the middle of the stage when no sprite's guard held any longer.
         let video_centre = self.playing_at;
+        // And where the video channel sits when no film of the room's is open,
+        // which is what a film a script put there has to fall back on.
+        let channel_centre = self.video_channel_centre();
 
         for (channel, layer) in stage {
             match layer {
@@ -1890,10 +1946,22 @@ impl Game {
                     // A film member's registration point is its centre, which
                     // is what `set the loc of sprite 44 = point(317, 132)`
                     // means: the middle of the PeeK unit's little screen.
+                    // Where the channel is. A script that swaps the film on
+                    // a channel does not move it, so a channel with no loc of
+                    // its own keeps the place the room gave it -- and for the
+                    // video channel that is the room's `#video` coords, not
+                    // the middle of the stage. The car's junction film drew
+                    // centred on the windscreen's plate instead of in the
+                    // windscreen because of this.
                     let centre = self
                         .puppets
                         .get(&o.channel)
                         .and_then(|p| p.loc)
+                        .or(if o.channel == MOVIE_CHANNEL {
+                            video_centre.or(channel_centre)
+                        } else {
+                            None
+                        })
                         .unwrap_or((width as i32 / 2, height as i32 / 2));
                     trace!(
                         crate::trace::Topic::Sprite,
@@ -3133,6 +3201,44 @@ mod tests {
                 "{effect:?} was reported but not queued"
             );
         }
+    }
+
+    /// A channel's position is a score property, and the room's `#showIF`
+    /// says which film is on the video channel rather than where it is. So a
+    /// film a script pushes over the room's keeps the room's coords even
+    /// though no guard holds any more.
+    #[test]
+    fn the_video_channel_keeps_its_place_when_no_guard_holds() {
+        use crate::world::{Channel, Cond, Node, Sprite};
+
+        let mut game = Game::for_test();
+        game.world.nodes.push(Node {
+            sprites: vec![Sprite {
+                cast_name: Some("carBack.mov".into()),
+                cast_number: 0,
+                cast_lookup: None,
+                channel: Channel::Video,
+                condition: Cond::Equals {
+                    key: "showMontage".into(),
+                    value: lingo::Value::Int(3),
+                },
+                center: Some((322, 204)),
+                ink: 0,
+                volume: None,
+            }],
+            ..Node::default()
+        });
+        game.room = game.world.nodes.len() - 1;
+
+        // The guard holds: the room's own film, in its place.
+        game.state.set_all("showMontage", vec![lingo::Value::Int(3)]);
+        assert_eq!(game.video_channel_centre(), Some((322, 204)));
+
+        // The car sets off and the montage goes to 0. The guard stops holding
+        // and the channel does not move; before this the track films drew
+        // centred on the stage instead of in the windscreen.
+        game.state.set_all("showMontage", vec![lingo::Value::Int(0)]);
+        assert_eq!(game.video_channel_centre(), Some((322, 204)));
     }
 
     #[test]
