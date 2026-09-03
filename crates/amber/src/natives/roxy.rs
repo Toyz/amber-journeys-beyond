@@ -677,8 +677,12 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             // drawn wherever a sprite with no location goes -- the middle of
             // the stage, which happens to be close enough to the middle of
             // the unit that the mistake did not show.
+            // No ink: `usePeekUnit` sets the castNum and the location on the
+            // readout and on each of the three lights and nothing else, so
+            // they are drawn whole. Only the body and the aerial carry an ink
+            // -- 8 and 36 -- and they are the two that have to let the room
+            // through around their edges.
             out.effects.push(Effect::PuppetSprite { channel: TEXT, on: true });
-            out.effects.push(Effect::SpriteInk { channel: TEXT, ink: 8 });
             out.effects.push(Effect::SpriteLoc {
                 channel: TEXT,
                 x: TEXT_AT.0,
@@ -688,7 +692,6 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
 
             for (channel, table, online) in lights {
                 out.effects.push(Effect::PuppetSprite { channel, on: true });
-                out.effects.push(Effect::SpriteInk { channel, ink: 8 });
                 out.effects.push(Effect::SpriteCastFromTable {
                     channel,
                     table: table.into(),

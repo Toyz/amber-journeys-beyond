@@ -129,6 +129,38 @@ impl Bitmap {
         out
     }
 
+    /// The index the member uses for the field around its art.
+    ///
+    /// Director keys on a sprite's background colour rather than on a fixed
+    /// index, and the game's members do not agree on one: a room's plates lay
+    /// their field in index 0 and the inventory's icons lay theirs in 255. So
+    /// it is read off the border, which is what the field is.
+    ///
+    /// Getting this wrong is invisible on a plate, which is drawn whole, and
+    /// obvious on an icon: the bar's glowing outlines came up in opaque black
+    /// boxes that covered the room behind them.
+    pub fn background(&self) -> u8 {
+        let (w, h) = (self.width as usize, self.height as usize);
+        if w == 0 || h == 0 {
+            return 0;
+        }
+        let mut counts = [0usize; 256];
+        for x in 0..w {
+            counts[self.pixels[x] as usize] += 1;
+            counts[self.pixels[(h - 1) * w + x] as usize] += 1;
+        }
+        for y in 0..h {
+            counts[self.pixels[y * w] as usize] += 1;
+            counts[self.pixels[y * w + w - 1] as usize] += 1;
+        }
+        counts
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, n)| **n)
+            .map(|(i, _)| i as u8)
+            .unwrap_or(0)
+    }
+
     /// The same, with Director's `#matte` ink rather than a colour key.
     ///
     /// Matte does not make every pixel of the background colour transparent;

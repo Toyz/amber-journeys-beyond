@@ -720,11 +720,11 @@ impl Game {
                 // two alike was fine until the PeeK unit, whose body is
                 // exactly such a slab: keying on the colour punched its middle
                 // out and left a frame with the room showing through it.
-                const BACKGROUND: u8 = 0;
+                let background = b.background();
                 let rgba = match ink {
                     0 => b.to_rgba(&palette, None),
-                    36 => b.to_rgba(&palette, Some(BACKGROUND)),
-                    _ => b.to_rgba_matte(&palette, BACKGROUND),
+                    36 => b.to_rgba(&palette, Some(background)),
+                    _ => b.to_rgba_matte(&palette, background),
                 };
                 CachedArt {
                     rgba,
@@ -2214,7 +2214,10 @@ impl Game {
                 .filter(|(name, _)| name.eq_ignore_ascii_case(&item))
                 .and_then(|(_, i)| self.inventory.icon_at(&item, *i));
             let cast = swapped.unwrap_or(if hot { icons.hot } else { icons.cool });
-            let Some(art) = self.art(&domain, cast, 0) else { continue };
+            // Keyed on the field the icon lays around itself, which is index
+            // 255 rather than the 0 a room's plates use. Painted whole, the
+            // bar was three black boxes sitting over the bottom of the room.
+            let Some(art) = self.art(&domain, cast, 36) else { continue };
             let (w, h) = (art.width, art.height);
             blit(frame, width, height, &art.rgba, w, h, x, y);
         }
@@ -2457,9 +2460,9 @@ impl Game {
             .collect();
         // Highest channel first: later channels draw over earlier ones.
         for (channel, cast, loc) in placed.into_iter().rev() {
-            // The bar's icons are a glowing outline on a black field, and
-            // the room shows through the middle of the outline -- so they are
-            // keyed on the background colour rather than matted.
+            // Keyed, because a click lands on the art and not on the field
+            // around it: the telegram's tiles are ragged and the gaps between
+            // them belong to whatever is underneath.
             let Some(art) = self.art(&domain, cast, 36) else { continue };
             let (w, h) = (art.width as i32, art.height as i32);
             let (rx, ry) = (art.reg_x as i32, art.reg_y as i32);

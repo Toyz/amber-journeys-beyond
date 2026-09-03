@@ -7535,3 +7535,45 @@ landing light. The hard-edged dark shape at the top left of that frame is the
 room's own art.
 
 254 tests, nine recordings.
+
+## 158. The background is not always index zero
+
+helba: the PeeK is not the only thing drawing over what is behind it. The
+inventory bar was three opaque black boxes sitting over the bottom of the
+room, with the glowing outlines inside them.
+
+Two mistakes, one on top of the other.
+
+The first is that I had put the fix in the wrong function. `sprite_at` --
+which is the click test over script-driven channels -- and `draw_inventory`
+sit near each other and look alike, and the ink went into the one that decides
+where a click lands rather than the one that draws. Both want the key, for
+different reasons: a click belongs to the art and not to the field around it,
+and the bar's icons are outlines the room is meant to show through.
+
+The second is the interesting one. Director keys on a sprite's background
+*colour*, not on a fixed palette index, and the game's members do not agree on
+which index that is:
+
+```text
+cast 976  PeeK.down    244x387   field index 0
+cast 951  PeeK color    67x67    field index 255
+```
+
+Room plates lay their field in 0 and the inventory's icons lay theirs in 255,
+so keying on 0 did nothing at all to an icon. `Bitmap::background` reads it off
+the border instead, which is what a field is, and both the key and the matte
+mask use it.
+
+This was invisible on everything drawn whole and obvious the moment anything
+was not.
+
+### And an ink I invented
+
+While checking, the readout and the three status lights on the PeeK turned out
+to have no ink at all: `usePeekUnit` sets a castNum and a location on each and
+nothing else. I had given them ink 8 on the assumption that everything on the
+unit needed to let the room through. Only the body and the aerial carry an ink
+-- 8 and 36 -- because they are the two with an outline.
+
+254 tests, nine recordings.
