@@ -83,3 +83,11 @@ pointer 7
 # Mandy. `goodbyeMandy`, and back to Roxy's house through the gazebo.
 wait 120
 click 532 241
+# 
+# The way back lands on `Ggaz_Reentry`, whose only plate is a blurred,
+# colour-shifted picture of the gazebo -- `G_REENTRY_LOADPICT`, drawn
+# against a palette of its own called `reentry.WIN`. It is what the
+# game shows while it comes back through, and its one hotspot covers
+# the whole frame: click anywhere and the montage carries on.
+wait 180
+down

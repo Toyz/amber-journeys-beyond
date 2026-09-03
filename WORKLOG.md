@@ -7686,3 +7686,36 @@ Coming home with an empty freezer now uses the same re-entry room the thawing
 path does, so `brice.walk` ends where his chapter ends: in the gazebo.
 
 254 tests, ten recordings.
+
+## 161. Not a bug: the picture the game comes back through
+
+helba sent a screenshot of `Ggaz_Reentry` -- a smeared, colour-shifted mess --
+and asked what happened. Nothing did.
+
+The plate is `G_REENTRY_LOADPICT`, and it decodes cleanly: dumping its indices
+straight out as greyscale gives a perfectly coherent, if soft-focus, view up
+into the gazebo roof. Its palette is real too, a member of its own called
+`reentry.WIN`, and 1536 bytes of it, white at 0 and black at 255 like every
+other palette in the game. The colours are what the authors chose. It is the
+picture the game shows while it is coming back through the portal, and it is
+meant to look wrong.
+
+What was wrong was that the recording *stopped* on it. The room has exactly
+one live hotspot and it covers the whole frame:
+
+```text
+[#down, rect(18, 58, 622, 363),
+ ["setState( oStoryteller, #showMontage, 2 )", "updateDisplay( oPuppeteer )",
+  "setState( oStoryteller, #showMontage, 0 )", "goTo( #Ggaz_viewE, #forward )"]]
+```
+
+-- so a click carries the montage on and puts the player in the gazebo. Both
+recordings take that step now and end looking at the gazebo instead of at the
+loading plate.
+
+Worth writing down for the discipline as much as the fact: the way to tell a
+bad decode from odd art is to throw the palette away and look at the indices.
+A wrong palette keeps the structure and loses the colour; a wrong decode loses
+both.
+
+254 tests, ten recordings.
