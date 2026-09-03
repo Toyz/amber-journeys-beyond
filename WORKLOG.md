@@ -7815,3 +7815,51 @@ the anchor as the film runs past them. That is the next piece, and it is the
 last large one in the game.
 
 254 tests, ten recordings.
+
+## 164. The heart box, and a deadlock I shipped twice
+
+helba: why does Brice's heart box never finish and move on. It opens -- their
+log shows the montage films selected -- and then the game stops.
+
+Entry 158 changed what a `wait #videoStop` asks. It used to require an empty
+effect queue, which deadlocked whenever anything was queued behind it; I
+changed it to require that no film is still waiting to be *started*. That
+fixed the case in front of me and broke a different one, because it is asking
+about the wrong films.
+
+A wait armed out of the effect queue has already had everything before it
+handed over. The film it is waiting for is running, and everything left in the
+queue is *after* the wait -- so looking there finds the films belonging to
+later waits. The heart box queues three of them:
+
+```text
+FadeToMontage 1, PlayVideo, WaitForVideo, StopVideo,
+FadeToMontage 2, PlayVideo, WaitForVideo, StopVideo,
+FadeToMontage 3, PlayVideo, WaitForVideo, StopVideo, ...
+```
+
+The first wait saw the second and third films sitting in the queue and never
+cleared.
+
+A wait the *script* arms is the other case, and the one entry 141 was about:
+`pump` stops at it with the rest of that action's effects still queued, and
+the `pushVideo` on the line above may be among them. So the two need telling
+apart, and `wait_satisfied` is told which it is holding.
+
+### Why neither time was caught
+
+`settle` -- how the terminal runs a queue -- steps over film waits entirely.
+So every recording replays without ever asking whether a queue of films
+terminates, and both deadlocks reached helba's screen with ten passing
+recordings behind them.
+
+There is a test now that queues the heart box's shape and drains it the way
+the window does, asserting it reaches the end. Against the old logic it fails
+with "the queue stalled with 10 effect(s) left", which is precisely what helba
+was looking at.
+
+That is the third time the terminal's blindness to a wait has shipped a
+window-only fault, and the second time the answer has been a test rather than
+another rule about how to be careful.
+
+255 tests, ten recordings.

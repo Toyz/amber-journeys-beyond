@@ -976,7 +976,7 @@ impl Game {
                 }
             }
             let wait = self.effect_wait.as_ref().expect("just checked");
-            if !self.wait_satisfied(wait) {
+            if !self.wait_satisfied(wait, true) {
                 return Vec::new();
             }
             self.effect_wait = None;
@@ -2421,7 +2421,7 @@ impl Game {
         let mut combined = Outcome::default();
 
         if let Some(wait) = &self.waiting {
-            if !self.wait_satisfied(wait) {
+            if !self.wait_satisfied(wait, false) {
                 return combined;
             }
             self.waiting = None;
@@ -2448,7 +2448,7 @@ impl Game {
         combined
     }
 
-    fn wait_satisfied(&self, wait: &Wait) -> bool {
+    fn wait_satisfied(&self, wait: &Wait, armed_from_queue: bool) -> bool {
         match wait {
             Wait::Until(t) => Instant::now() >= *t,
             // A room with no movie has nothing to wait for; treating that as
@@ -2457,6 +2457,7 @@ impl Game {
             Wait::Video => film_wait_satisfied(
                 &self.pending,
                 self.player.as_ref().map(|p| p.finished),
+                armed_from_queue,
             ),
             // The same question about the other film. A channel with nothing
             // on it has nothing to wait for.
@@ -2709,11 +2710,31 @@ fn merge(into: &mut Outcome, from: Outcome) {
 /// armed: anything queued after the wait meant the queue could never empty
 /// and the wait could never clear. Turning `peekAlert` on found it, since
 /// fitting the oscillator plays a film and then tells the PeeK about it.
-fn film_wait_satisfied(pending: &[Effect], player_finished: Option<bool>) -> bool {
-    let starting = pending
+fn film_wait_satisfied(
+    pending: &[Effect],
+    player_finished: Option<bool>,
+    armed_from_queue: bool,
+) -> bool {
+    if !player_finished.unwrap_or(true) {
+        return false;
+    }
+    // A wait armed out of the effect queue has already had everything before
+    // it handed over, so the film it is waiting for is running and whatever is
+    // left in the queue is *after* the wait. Looking for a film in there is
+    // looking at the wrong ones: the heart box queues three films with a wait
+    // between each, so the first wait saw the second and third films pending
+    // and never cleared. That deadlock only showed in the window, because
+    // `settle` steps over film waits and the terminal never reached it.
+    //
+    // A wait the script arms is different. `pump` stops at it with the rest of
+    // that action's effects still queued, and the `pushVideo` on the line
+    // above may be among them.
+    if armed_from_queue {
+        return true;
+    }
+    !pending
         .iter()
-        .any(|e| matches!(e, Effect::PlayVideo(_) | Effect::PlayVideoSegment { .. }));
-    !starting && player_finished.unwrap_or(true)
+        .any(|e| matches!(e, Effect::PlayVideo(_) | Effect::PlayVideoSegment { .. }))
 }
 
 /// One sprite channel under script control.
@@ -2859,6 +2880,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_queue_of_films_drains_to_the_end() {
+        // The shape the heart box queues: three films, each with a wait and a
+        // stop after it. Draining it the way the window does has to reach the
+        // end. `settle` steps over film waits, so the terminal replays every
+        // recording without ever asking whether such a queue terminates --
+        // which is how a deadlock here shipped twice.
+        let mut game = Game::for_test();
+        for step in 1..=3 {
+            game.pending.push(Effect::FadeToMontage(step));
+            game.pending.push(Effect::PlayVideo(None));
+            game.pending.push(Effect::WaitForVideo);
+            game.pending.push(Effect::StopVideo);
+        }
+        game.pending.push(Effect::SetState {
+            key: "heartBox".into(),
+            value: lingo::Value::Symbol("open".into()),
+        });
+
+        // No decoder here, so every film is finished the moment it starts,
+        // which is exactly the question being asked: does the queue advance.
+        for _ in 0..64 {
+            if game.pending.is_empty() && game.effect_wait.is_none() {
+                break;
+            }
+            game.drain_ready();
+        }
+        assert!(
+            game.pending.is_empty() && game.effect_wait.is_none(),
+            "the queue stalled with {} effect(s) left",
+            game.pending.len()
+        );
+    }
+
+    #[test]
     fn a_film_wait_clears_even_with_work_queued_behind_it() {
         use super::film_wait_satisfied;
 
@@ -2871,17 +2926,25 @@ mod tests {
         //
         // What the wait is for is the film having been started, so that is
         // what it asks about.
+        // Armed by the script, with the `pushVideo` above it still queued.
         assert!(
-            film_wait_satisfied(&[Effect::WaitTicks(5)], Some(true)),
-            "a queue with no film in it does not hold a film wait"
+            !film_wait_satisfied(&[Effect::PlayVideo(None), Effect::WaitTicks(5)], Some(true), false),
+            "a film still waiting to be started holds a script's wait"
         );
         assert!(
-            !film_wait_satisfied(&[Effect::PlayVideo(None), Effect::WaitTicks(5)], Some(true)),
-            "a film still waiting to be started does hold it"
+            film_wait_satisfied(&[Effect::WaitTicks(5)], Some(true), false),
+            "and nothing left to start does not"
+        );
+        // Armed out of the queue: everything before it has been handed over,
+        // so a film further down the queue belongs to a *later* wait. The
+        // heart box queues three of them and the first wait never cleared.
+        assert!(
+            film_wait_satisfied(&[Effect::PlayVideo(None)], Some(true), true),
+            "a later film in the queue does not hold this wait"
         );
         assert!(
-            !film_wait_satisfied(&[], Some(false)),
-            "and a film still running holds it"
+            !film_wait_satisfied(&[], Some(false), true),
+            "and a film still running holds it either way"
         );
     }
 
