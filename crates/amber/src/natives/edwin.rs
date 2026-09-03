@@ -773,6 +773,62 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.redraw = true;
         }
 
+        // on chippyHopsIn
+        //   wait 30 : startSound #carDoorOpen
+        //   setState( oStoryteller, #chippyLocation, #inCar )
+        //   wait 30
+        //   passengerSprite = 45
+        //   puppetSprite passengerSprite, 1
+        //   set the castNum of sprite passengerSprite = 1183   -- chpenter.mov
+        //   set the loc     of sprite passengerSprite = point( 454, 365 )
+        //   ... run the film out ...
+        //   puppetSprite passengerSprite, 0 : updateDisplay
+        //   startSound #carDoorClose
+        //
+        // Squeezing the duck on the car's wing calls the chipmunk over, and
+        // this is him getting in: a 172 by 80 film of him climbing through the
+        // window, parked at the passenger side. The room only asks for it --
+        // `if getState( #chippyLocation ) = #waiting then chippyHopsIn` -- so
+        // with the handler missing the duck honked and nothing happened, and
+        // he never rode along. Two of the car's films are the ones with him in
+        // it, and one of those two is the only way the chapter ends.
+        "chippyhopsin" => {
+            const PASSENGER: u8 = 45;
+            const CHPENTER: u32 = 1183;
+
+            out.effects.push(Effect::WaitTicks(30));
+            out.effects.push(Effect::PlaySound {
+                name: "carDoorOpen".into(),
+                loudness: None,
+            });
+            state.set("chippyLocation", Value::Symbol("inCar".into()));
+            out.effects.push(Effect::WaitTicks(30));
+
+            out.effects.push(Effect::PuppetSprite {
+                channel: PASSENGER,
+                on: true,
+            });
+            out.effects.push(Effect::SpriteCast {
+                channel: PASSENGER,
+                cast: CHPENTER,
+            });
+            out.effects.push(Effect::SpriteLoc {
+                channel: PASSENGER,
+                x: 454,
+                y: 365,
+            });
+            out.effects.push(Effect::WaitForOverlay);
+            out.effects.push(Effect::PuppetSprite {
+                channel: PASSENGER,
+                on: false,
+            });
+            out.effects.push(Effect::PlaySound {
+                name: "carDoorClose".into(),
+                loudness: None,
+            });
+            out.redraw = true;
+        }
+
         "enablegust" => state.set("gustEnabled", Value::Int(1)),
 
         // on disableGust

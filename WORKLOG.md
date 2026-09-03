@@ -7954,3 +7954,64 @@ is the dark one, while Brice's is the gazebo and Edwin's the boathouse -- each
 of them the place the portal was, and hers was upstairs in the dark.
 
 255 tests, ten recordings.
+
+## 167. Into Edwin's chapter
+
+The third portal is the boathouse, and the route to it is all there: the
+crowbar hangs on a post on the bottom level of the garage, behind a door that
+has to be pushed open; using it on the boathouse doors sets
+`#boatHouseIsLocked` to 0, a click swings them, and then the portal wants what
+the gazebo's wanted -- the Amber vision on and `#Edwin` still in
+`#ghostsRemaining`. Walked end to end it lands at `ice_b_entry`.
+
+Inside, the chapter turns out to be further along than I thought. Nearly every
+handler is ported, and what stood out as missing was one small one.
+
+### The passenger
+
+```text
+on chippyHopsIn
+  wait 30 : startSound #carDoorOpen
+  setState( oStoryteller, #chippyLocation, #inCar )
+  wait 30
+  passengerSprite = 45
+  set the castNum of sprite passengerSprite = 1183   -- chpenter.mov, 172x80
+  set the loc     of sprite passengerSprite = point( 454, 365 )
+  ... run it out ...
+  startSound #carDoorClose
+```
+
+A film of the chipmunk climbing in through the passenger window, parked at the
+passenger side. It is asked for from one place and asked for conditionally:
+
+```text
+"goTo( #car_inside, #fadeIn )",
+"if getState( oStoryteller, #chippyLocation ) = #waiting then chippyHopsIn"
+```
+
+-- so he gets in when *you* do, not when the duck on the wing is squeezed,
+which is what calls the car over. With the handler missing he simply never
+rode along, and two of the car's films are the ones with him in it.
+
+Ported, and it needed nothing new: a film on a script-driven channel is what
+entry 151 built for the PeeK unit.
+
+### What the chapter wants
+
+Reading the handlers rather than playing it: the crank in the boathouse lowers
+the hook two turns from `#high` to `#low`, and with it down the hook pulls
+Chippy out of the ice. The duck calls the car; getting in brings him along.
+`setSail` swings the boat between `#backward` and `#forward` depending on
+which way the wind is blowing, and on the swing forward it hangs the teddy on
+the anchor:
+
+```text
+if getState( #teddyLocation ) = #waiting then
+  setState( oStoryteller, #teddyLocation, #onAnchor )
+```
+
+which is the state `driveTheCar` looks for when it picks `CM_teddyRescue` --
+the film that ends the chapter. So the spine is: free the chipmunk, collect
+him, turn the wind, sail the boat, drive the middle of the C track.
+
+255 tests, ten recordings.
