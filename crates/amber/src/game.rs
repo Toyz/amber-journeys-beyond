@@ -102,6 +102,11 @@ pub struct Game {
     icons_from: String,
     /// Chapters whose starting state has already been written.
     seeded: std::collections::BTreeSet<String>,
+    /// The house's flags while the player is inside a chapter, which is
+    /// `#StateOnIce` -- put away on the way in and taken out on the way home.
+    on_ice: Option<State>,
+    /// Where a chapter puts the player when it hands them back.
+    reentry: Option<String>,
     /// Per chapter, the cast members its handlers name rather than number.
     presentation: HashMap<String, Presentation>,
     /// The radio or clock programme currently running, if any.
@@ -184,6 +189,8 @@ impl Game {
             inventory: Inventory::from_texts(&[]),
             icons_from: String::new(),
             seeded: std::collections::BTreeSet::new(),
+            on_ice: None,
+            reentry: None,
             presentation: HashMap::new(),
             program: None,
             pcm_cache: HashMap::new(),
@@ -309,7 +316,64 @@ impl Game {
             Some((schema.start_location()?.to_string(), ()))
         });
 
-        self.seed_chapter(domain);
+        // `enterNewDomain` does not just change rooms; it swaps the whole
+        // state list, and the outer one goes in the freezer:
+        //
+        // ```text
+        // if destination = "ROXY" then
+        //   if count( states ) > 0 then
+        //     lastOuterDomain = the domain being left
+        //     savedRoxy = getProp( states, #StateOnIce )
+        //     states <- savedRoxy
+        //     quietly( me, #lastDomainVisited, lastOuterDomain )
+        //     if lastOuterDomain = "MARGARET" then
+        //       setProp( states, #currentLocation, [#DarkUp_40sReentry] )
+        //     ... and a re-entry room for each of the other two ...
+        // else
+        //   storedState = states
+        //   states <- value( the text of cast 'stateData' )   -- fresh
+        //   addProp( states, #StateOnIce, storedState )
+        // ```
+        //
+        // So a chapter always starts from its own declarations, and the house
+        // is put back exactly as it was left. This engine had one flat state
+        // and no freezer, which is what entry 154 ran into from the other
+        // side: seeding on the way home wrote the declarations over the game.
+        // Seeding once patched that symptom; this is the shape.
+        let leaving = self.state.get("currentDomain");
+        let leaving = leaving.as_str().unwrap_or_default().to_string();
+        let coming_home = domain.eq_ignore_ascii_case(Self::FIRST_CHAPTER);
+        match (coming_home, self.on_ice.take()) {
+            (true, Some(thawed)) => {
+                trace!(crate::trace::Topic::State, "thawing {domain} from the freezer");
+                self.state = thawed;
+                self.state
+                    .set_all("lastDomainVisited", vec![lingo::Value::String(leaving.clone())]);
+                // Each chapter has its own way back into the house.
+                let reentry = match leaving.to_ascii_uppercase().as_str() {
+                    "MARGARET" => Some("DarkUp_40sReentry"),
+                    "BRICE" => Some("Ggaz_Reentry"),
+                    "EDWIN" => Some("Gbhs_Reentry1"),
+                    _ => None,
+                };
+                if let Some(room) = reentry {
+                    self.state
+                        .set_all("currentLocation", vec![lingo::Value::Symbol(room.into())]);
+                    // And that is where the player arrives, rather than the
+                    // room index the call carries: `enterNewDomain( #ROXY,
+                    // 12 )` names the hall by her living room, and the house
+                    // puts you back through the dark upstairs instead.
+                    self.reentry = Some(room.to_string());
+                }
+            }
+            (false, _) if !leaving.is_empty() && !leaving.eq_ignore_ascii_case(domain) => {
+                trace!(crate::trace::Topic::State, "freezing {leaving} to enter {domain}");
+                self.on_ice = Some(self.state.clone());
+                self.seeded.remove(domain);
+                self.seed_chapter(domain);
+            }
+            _ => self.seed_chapter(domain),
+        }
 
         // The declared start, but only if it can actually show something.
         //
@@ -2429,6 +2493,16 @@ impl Game {
                     // whatever the chapter's schema calls its start, which is
                     // where a *new game* would begin and not where the story
                     // has just put them.
+                    // The chapter's own way back into the house wins over
+                    // the index the call carries.
+                    if let Some(name) = self.reentry.take() {
+                        if let Some(room) = self.world.resolve(&name, Some(&d)) {
+                            trace!(crate::trace::Topic::Room, "re-entering at {name}");
+                            self.move_to(room);
+                            self.start_room_video();
+                            return;
+                        }
+                    }
                     if let Some(index) = outcome.new_domain_room {
                         let start = self.world.domains.get(&d).map(|(s, _)| *s);
                         if let Some(room) = start.map(|s| s + index.max(0) as usize) {

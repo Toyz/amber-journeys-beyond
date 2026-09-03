@@ -447,3 +447,73 @@ click 285 182
 # montage, and the last of them is `enterNewDomain( #ROXY, 12 )`.
 click 319 241
 click 319 241
+# 
+# Her chapter puts the player back in the hall by her living room, and the
+# next portal is out at the gazebo -- which is behind a clump of weeds.
+# The weedkiller is in the right-hand cabinet under the dining room
+# sideboard.
+click 445 204
+click 298 208
+click 502 214
+click 564 209
+click 315 224
+click 310 208
+click 317 207
+click 321 208
+click 20 210
+click 321 208
+click 318 209
+click 322 210
+click 564 209
+click 564 209
+click 321 207
+click 315 210
+click 296 210
+click 562 209
+click 319 209
+click 178 217
+click 74 210
+click 320 209
+click 158 220
+click 157 268
+click 314 341
+click 499 206
+click 345 200
+click 345 180
+click 320 200
+# Out through the kitchen's rear door, which has to be opened first.
+click 19 210
+click 0 209
+click 347 210
+click 464 207
+click 334 210
+click 337 209
+click 640 209
+click 482 241
+pointer
+# Round the back of the garage, and kill the weeds.
+click 306 209
+click 225 198
+click 564 209
+click 564 209
+click 313 213
+click 340 213
+click 564 209
+click 317 209
+click 313 221
+inv 250 410
+click 320 250
+# 
+# The portal in the gazebo roof is only there with the Amber vision on,
+# and coming home from a chapter it is off -- Roxy's own portal turns it
+# off on the way in. The chain that turns it back on starts at a state
+# only the telephone sets, and answering the telephone trims itself out of
+# the haunt pool, so it rings once in the whole game. This is the third
+# thing the walk does by hand; WORKLOG 155 has the working.
+set AMBERVISION on
+# Up to the gazebo, and look up.
+click 275 203
+click 318 262
+click 319 153
+# The second portal, and Brice's chapter.
+examine

@@ -7421,3 +7421,61 @@ two chapters and a game with four. Until it exists, `full.walk` ends at the
 foot of the gazebo with the portal shut.
 
 254 tests, nine recordings.
+
+## 156. The freezer
+
+Entry 155 said what was missing and this is it. `enterNewDomain` swaps the
+whole state list, and the house goes in the freezer while the player is away:
+
+```text
+if destination = "ROXY" then
+  savedRoxy = getProp( states, #StateOnIce )
+  states <- savedRoxy
+  quietly( me, #lastDomainVisited, lastOuterDomain )
+  if lastOuterDomain = "MARGARET" then setProp( states, #currentLocation, [#DarkUp_40sReentry] )
+  if lastOuterDomain = "BRICE"    then setProp( states, #currentLocation, [#Ggaz_Reentry] )
+  if lastOuterDomain = "EDWIN"    then setProp( states, #currentLocation, [#Gbhs_Reentry1] )
+else
+  storedState = states
+  states <- value( the text of cast 'stateData' )
+  addProp( states, #StateOnIce, storedState )
+```
+
+A chapter always starts from its own declarations, and the house is put back
+exactly as it was left -- and the player is not put back where the call says.
+`enterNewDomain( oStoryteller, string(#ROXY), 12 )` names the hall by her
+living room; the game ignores that and puts them in the dark upstairs, in a
+room called `DarkUp_40sReentry` that exists for no other purpose. Each chapter
+has its own, and they are all in the dark half of the house. You come back
+wrong and have to walk out.
+
+So `full.walk` now comes home through the dark landing, down the stairs, out
+of the front door -- which has to be opened -- and back in through the porch,
+before it can get to the dining room for the weedkiller. It reads like the
+game and it is a good deal longer than the route it replaced.
+
+Entry 154's "seed a chapter once" is gone; this replaces it and is what it was
+approximating.
+
+### And the third thing done by hand
+
+The vision is still off on the way home, because it is off when the house goes
+in the freezer -- Roxy's own portal turns it off in the statement before
+`enterNewDomain`. Everything in entry 155 stands: the chain that turns it back
+on starts at a state only the telephone sets, and the telephone rings once.
+
+`full.walk` sets `#AMBERVISION` by hand, marked where it happens, and joins
+`moveClock` and the scan readout on the list of things the shipped data has no
+reachable click for. Three now, and all three are one step in an otherwise
+complete chain, which is starting to look less like three coincidences and
+more like one missing mechanism I have not found yet.
+
+### The router learned about doors
+
+Coming home into the dark house broke the route-finder, which plans over the
+static room graph and had no idea the front door was shut. It now notices when
+it is going round in a circle and tries the affordances that lead nowhere --
+which is what a door is -- once each before giving up. That is how the walk
+gets out of the dark house without a single hand-written step.
+
+254 tests, nine recordings, and `full.walk` reaches Brice's chapter.
