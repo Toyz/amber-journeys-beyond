@@ -229,6 +229,12 @@ impl VideoPlayer {
         self.looping = looping;
     }
 
+    /// Whether this film runs for ever. A `wait #videoStop` on one of these
+    /// can never clear, which the strict replay reports as the deadlock it is.
+    pub fn loops(&self) -> bool {
+        self.looping
+    }
+
     /// Plays only the part of the movie between two times, given in ticks.
     ///
     /// Margaret's music boxes are five performances in one film: the script

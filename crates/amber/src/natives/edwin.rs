@@ -295,11 +295,47 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 track
             };
 
+            // `trackData` names the film for each stretch, and the name is
+            // not the track's own: `#CM_teddyRescue` is `CMUend.mov` and
+            // `#BM_withChippy` is `bmchpout.mov`. Pushing the track symbol as
+            // if it were a movie opened nothing at all, so the drive ran
+            // silently over whatever the room had last put on the channel --
+            // which is what made the windscreen show a film of the wrong size,
+            // and what left `chooseTrack`'s segments with nothing to seek.
+            //
+            // ```text
+            // #trackData: [ #main: [#trackMovie: the number of cast "carback.mov", ...],
+            //               #A:    [#trackMovie: the number of cast "a.mov",       ...], ... ]
+            // ```
+            const TRACK_MOVIES: [(&str, &str); 17] = [
+                ("main", "carback.mov"),
+                ("A", "a.mov"),
+                ("B", "b.mov"),
+                ("C", "c.mov"),
+                ("AL", "al.mov"),
+                ("AM", "am.mov"),
+                ("AR", "ar.mov"),
+                ("BL", "bl.mov"),
+                ("BM_withChippy", "bmchpout.mov"),
+                ("BM_noChippy", "bmcpswms.mov"),
+                ("BR", "br.mov"),
+                ("CL", "cl.mov"),
+                ("CM_missRamp", "cmd.mov"),
+                ("CM_anchorDown", "CMUancdn.mov"),
+                ("CM_emptyAnchor", "CMUancup.mov"),
+                ("CM_teddyRescue", "CMUend.mov"),
+                ("CR", "cr.mov"),
+            ];
+            let movie = TRACK_MOVIES
+                .iter()
+                .find(|(t, _)| t.eq_ignore_ascii_case(film))
+                .map(|(_, m)| (*m).to_string());
+
             out.effects.push(Effect::StartLoop {
                 name: "trackLoop".into(),
                 volume: Some(120),
             });
-            out.effects.push(Effect::PlayVideo(Some(film.to_string())));
+            out.effects.push(Effect::PlayVideo(movie));
             out.effects.push(Effect::WaitForVideo);
             out.effects.push(Effect::StopLoop {
                 name: "trackLoop".into(),
@@ -1889,16 +1925,18 @@ mod tests {
             })
         };
 
+        // The films are named by `trackData`, which does not name them after
+        // the track: pushing the track symbol as a movie opened nothing.
         // Nothing done yet.
-        assert_eq!(film(false, "backward", "waiting").as_deref(), Some("CM_emptyAnchor"));
+        assert_eq!(film(false, "backward", "waiting").as_deref(), Some("CMUancup.mov"));
         // Chippy aboard and the car misses the ramp.
-        assert_eq!(film(true, "backward", "waiting").as_deref(), Some("CM_missRamp"));
+        assert_eq!(film(true, "backward", "waiting").as_deref(), Some("cmd.mov"));
         // The boat brought forward drops the anchor.
-        assert_eq!(film(false, "forward", "waiting").as_deref(), Some("CM_anchorDown"));
+        assert_eq!(film(false, "forward", "waiting").as_deref(), Some("CMUancdn.mov"));
         // And with Teddy on it, the rescue -- the later test wins, which is
         // what matters, because bringing the boat forward is what puts him
         // there in the first place and both are true at once.
-        assert_eq!(film(false, "forward", "onAnchor").as_deref(), Some("CM_teddyRescue"));
+        assert_eq!(film(false, "forward", "onAnchor").as_deref(), Some("CMUend.mov"));
     }
 
     #[test]
@@ -1909,10 +1947,11 @@ mod tests {
         s.set_all("waffleTracks", vec![Value::Symbol("a".into())]);
         let mut out = Outcome::default();
         assert!(call("drivethecar", &[], &mut s, &mut out));
+        // The film is `trackData`'s, not the track's own name.
         assert!(out
             .effects
             .iter()
-            .any(|e| matches!(e, Effect::PlayVideo(Some(n)) if n == "AL")));
+            .any(|e| matches!(e, Effect::PlayVideo(Some(n)) if n == "al.mov")));
         // And the record of where the car has been starts again.
         assert_eq!(s.get("waffleTracks"), Value::Symbol("None".into()));
     }

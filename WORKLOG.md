@@ -8294,3 +8294,121 @@ entry 150 was the first -- and both times the answer was the same, which is to
 put the invariant in a test instead of trusting the front end to reveal it.
 
 261 tests, eleven recordings.
+
+## 171. The car's films, and a terminal that can see a deadlock
+
+helba, with a photograph of the windscreen and a log: "looks like a clipping
+bug with the video and also got stuck".
+
+Both were the same line of the port.
+
+### A film named after the wrong thing
+
+`driveTheCar` chooses which stretch of track to show and my port pushed the
+track's own symbol as the movie:
+
+```rust
+out.effects.push(Effect::PlayVideo(Some(film.to_string())));   // "CM_teddyRescue"
+```
+
+There is no movie called `CM_teddyRescue`. The names are in `trackData`, and
+the disc ships the table twice -- once resolved to cast numbers and once, in
+the source copy, written out:
+
+```text
+#trackData:[ #main: [#trackMovie: the number of cast "carback.mov", ...],
+             #CM_teddyRescue: [#trackMovie: the number of cast "CMUend.mov", ...],
+             #BM_withChippy:  [#trackMovie: the number of cast "bmchpout.mov", ...], ... ]
+```
+
+Seventeen of them, and only three share the track's name. So every drive
+opened nothing at all, and what stayed on the windscreen was whichever film
+had last been opened, held at its last frame and drawn at its own size in the
+rect the room had set for a different one. That is the picture helba sent.
+
+The table is now in the port beside the tunnel mouths, and a drive names a
+real film.
+
+### And where it sits
+
+The other half of the picture. `car_inside` declares its film like this:
+
+```text
+#castName: "carBack.mov", #channel: #video, #coords: point(322, 204),
+#showIF: [#equals: [#showMontage, 3]]
+```
+
+`start_room_video` takes the coords from the sprite whose guard holds, which
+is right for choosing *which* film. It is not right for position: in Director
+a channel's location is a score property and the `#showIF` decides what is on
+the channel, not where the channel is. The moment the car sets off the montage
+goes to 0, the guard stops holding, and the coords went with it -- so the
+track films drew centred on the stage instead of in the windscreen. `play_movie`
+now takes the room's video coords with the guard preferred and without it as a
+fallback.
+
+### What `pushQT` actually does
+
+Worth writing down, because I had it wrong in a way that would have bitten
+again:
+
+```text
+on pushQT startTime, stopTime, ticksPerFrame
+  totalTime = stopTime - startTime
+  set the movieTime of sprite 44 = startTime
+  startTimer
+  repeat while the timer <= totalTime
+    set the movieTime of sprite 44 = startTime + the timer
+    updateStage
+  end repeat
+  set the movieTime of sprite 44 = stopTime
+```
+
+It is a scrub against the clock, not a playback. It runs for exactly
+`stopTime - startTime` ticks whatever the film's length, and the `wait
+#videoStop` after it clears at once because nothing ever set a movie rate.
+The three thirds of a junction film -- 0-223, 225-448, 450-675 at a hub, and
+0-178, 180-358, 360-540 on a spur -- are ticks, and they match the films
+exactly: `STRT_CBA.MOV` is 225 frames at 20fps, which is 675 ticks, and
+`B_BLBMBR.MOV` is 180 frames, which is 540.
+
+### A terminal that can hang
+
+None of this showed in a recording, and that is the third time. `walk`'s
+`settle` steps over every wait, so a `wait #videoStop` on a film that never
+finishes is invisible there and fatal in the window. Entry 150 was the first,
+158 the second, 170 the third.
+
+So `walk` has grown a `--strict` flag. It replays with the window's own gate:
+the queue is drained rather than settled, and the next step waits for the game
+to go quiet the way the window waits -- unless what is being waited on is a
+click, which only the next step can supply. A recording that hangs in the
+window now hangs here, and says where:
+
+```text
+!! the game never went quiet after `click 322 242`: 0 effect(s) pending,
+   wait "a film", script 11 line(s), holding "a film"
+```
+
+Two things had to be lent to it, and both are only the clock:
+
+  - a tick wait is brought forward to now, because the terminal cannot spend
+    thirty sixtieths of a second;
+  - a film is ended by hand, *after* the queue has had its turn -- arming a
+    film wait is what takes the loop off a film, so ending it first read every
+    looping room film as a deadlock. Margaret's doorway mirror turns for as
+    long as the player stands in front of it and is not stuck at all.
+
+Nothing else is stepped over. A click wait stands, a queue that will not drain
+stands, and a film that genuinely never ends stands.
+
+Building it found one more bug in the building of it. `drain_ready` hands its
+effects back for the caller to act on -- the window's `apply_effect` is what
+plays them -- so reporting them without applying them gave a front end that
+watched its own queue go past: every state write in a sequence was announced
+and none of them happened. The same mistake as entry 170 seen from the other
+side, and the fix is that both front ends now share one `describe`.
+
+All eleven recordings go quiet under `--strict`, `full.walk` included.
+
+261 tests, eleven recordings.

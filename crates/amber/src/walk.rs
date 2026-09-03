@@ -18,6 +18,15 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
     // Blank lines and comments are skipped, so a recording can be annotated
     // and trimmed down to the shortest route that still fails.
     let mut script_steps = script_steps.to_vec();
+    // `--strict` replays the way the window does: the queue is drained rather
+    // than settled, and the next step waits for the game to go quiet by the
+    // window's own rule instead of stepping over every wait. A recording that
+    // hangs only in the window hangs here too, and says where.
+    //
+    // The terminal's blindness to that has now cost three entries -- 150, 158
+    // and 170 -- so it is worth a flag rather than another apology.
+    let strict = script_steps.iter().any(|a| a == "--strict");
+    script_steps.retain(|a| a != "--strict");
     if let Some(i) = script_steps.iter().position(|a| a == "--replay") {
         let path = script_steps
             .get(i + 1)
@@ -80,10 +89,22 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
             println!("> {cmd}");
         }
 
-        match command(&mut game, cmd, true) {
+        match command(&mut game, cmd, !strict) {
             Step::Done => {}
             Step::Missed => missed += 1,
             Step::Broken => broken += 1,
+        }
+        if strict && !quieten(&mut game) {
+            println!(
+                "\n!! the game never went quiet after `{cmd}`: \
+                 {} effect(s) pending, wait {:?}, script {} line(s), holding {:?}",
+                game.pending_len(),
+                game.armed_wait(),
+                game.script_len(),
+                game.held_wait(),
+            );
+            broken += 1;
+            break;
         }
     }
     if !interactive && (broken > 0 || missed > 0) {
@@ -309,6 +330,38 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
             Step::Broken
         }
     }
+}
+
+/// Waits for the game to go quiet the way the window's replay gate does.
+///
+/// The window takes its next step when the effect queue is empty and no script
+/// is part way through, unless what is being waited for is a click -- which
+/// only the next step can supply. Nothing here steps over a wait, so a film
+/// that never finishes or a queue that never drains stops the replay instead
+/// of being walked past.
+///
+/// Returns false if it is still busy after a generous number of turns, which
+/// is a deadlock rather than a slow film: there is no real clock here, so a
+/// film is finished the moment it is asked.
+fn quieten(game: &mut Game) -> bool {
+    for _ in 0..4096 {
+        if game.waiting_for_click() {
+            return true;
+        }
+        if !game.effects_busy() && !game.script_running() {
+            return true;
+        }
+        game.fast_forward_ticks();
+        for line in game.drain_ready_report() {
+            println!("    {line}");
+        }
+        game.pump();
+        // A film really does end in the window; there is no clock here, so it
+        // is ended by hand -- but only after the queue has had its turn, since
+        // arming a film wait is what takes the loop off the film.
+        game.end_film();
+    }
+    false
 }
 
 /// Runs out the effect queue, reporting what it carried.

@@ -835,6 +835,29 @@ impl Game {
                     .and_then(|c| c.movie.member_by_name(&n))
                     .map(|m| (m.width as u32, m.height as u32))
                     .filter(|(w, h)| *w > 0 && *h > 0);
+                // And where it sits. A pushed film goes on the room's video
+                // channel, and in Director a channel's *position* is a score
+                // property that does not care whether the sprite's `#showIF`
+                // holds -- the guard decides which film is on it, not where it
+                // is. So the room's declared coords are taken with the guard
+                // preferred and without it as a fallback.
+                //
+                // The car is where this shows. `car_inside` declares
+                // `carBack.mov` at (322, 204) behind `[#showMontage, 3]`, and
+                // once the drive starts the montage is 0: the guard stops
+                // holding, the coords went with it, and the track films drew
+                // centred on the stage instead of in the windscreen.
+                let state = self.state.clone();
+                let video: Vec<_> = self.world.nodes[self.room]
+                    .sprites
+                    .iter()
+                    .filter(|s| matches!(s.channel, Channel::Video))
+                    .collect();
+                self.playing_at = video
+                    .iter()
+                    .find(|s| state.test(&s.condition))
+                    .or_else(|| video.first())
+                    .and_then(|s| s.center);
             }
             // `pushVideo` with nothing named plays whatever the room has on
             // its video channel. It is almost always preceded by a `setState`
@@ -1019,6 +1042,7 @@ impl Game {
     /// that is state is applied.
     pub fn settle(&mut self) -> Vec<String> {
         let mut report = Vec::new();
+        let room_film = self.video();
         // Nothing can proceed while the queue is holding for a click, and
         // clearing it here would take the click out of the player's hands --
         // which is the whole of what entry 150 was about.
@@ -1056,42 +1080,11 @@ impl Game {
                     return report;
                 }
                 let effect = self.pending.remove(0);
-                match &effect {
-                    // Sound is reported rather than played: the walkthrough
-                    // has no device, and what a route triggers is exactly what
-                    // is worth seeing when a route sounds wrong.
-                    Effect::PlaySound { name, loudness } => report.push(match loudness {
-                        Some(l) => format!("play {name} ({l})"),
-                        None => format!("play {name}"),
-                    }),
-                    Effect::StartLoop { name, volume } => {
-                        report.push(format!("loop {name} at {}", volume.unwrap_or(255)))
-                    }
-                    Effect::StopLoop { name, .. } => report.push(format!("stop {name}")),
-                    // Which film a room plays depends on state, so a sequence
-                    // that steps a flag between two `pushVideo`s plays two
-                    // different films -- and that is the whole of what these
-                    // sequences are for. Resolved here, not decoded.
-                    Effect::PlayVideo(which) => {
-                        let named = which.clone().or_else(|| self.video());
-                        report.push(match named {
-                            Some(n) => format!("film {n}"),
-                            None => "film (none)".to_string(),
-                        });
-                    }
-                    Effect::PlayVideoSegment { from, to } => {
-                        report.push(format!("film {from}..{to}"))
-                    }
-                    Effect::StopVideo => report.push("film stops".into()),
-                    Effect::WaitForVideo => report.push("wait for the film".into()),
-                    Effect::WaitForOverlay => report.push("wait for the unit".into()),
-                    Effect::WaitForSound(n) => report.push(format!("wait for {n}")),
-                    Effect::WaitTicks(t) if *t > 0 => report.push(format!("wait {t}")),
-                    Effect::SetState { key, value } | Effect::ReplaceState { key, value } => {
-                        report.push(format!("{key} = {value:?}"))
-                    }
-                    Effect::FadeToMontage(n) => report.push(format!("montage {n}")),
-                    _ => {}
+                // One formatter for both front ends, so the timeline the
+                // walkthrough prints and the timeline `--strict` prints cannot
+                // say different things about the same queue.
+                if let Some(line) = describe(&effect, room_film.as_deref()) {
+                    report.push(line);
                 }
                 self.apply_puppet(&effect);
             }
@@ -1382,6 +1375,87 @@ impl Game {
     /// Whether the action list has run out, as distinct from its effects.
     pub fn script_idle(&self) -> bool {
         self.script.is_empty() && self.waiting.is_none()
+    }
+
+    /// What the queue and the running script look like, for the strict
+    /// replay's report when a recording stops making progress.
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// The wait the queue itself is holding on, named.
+    pub fn armed_wait(&self) -> String {
+        name_wait(self.effect_wait.as_ref())
+    }
+
+    /// How many lines of the current hotspot script are still to run.
+    pub fn script_len(&self) -> usize {
+        self.script.len()
+    }
+
+    /// The wait a part-run script is holding on, between two of its actions.
+    pub fn held_wait(&self) -> String {
+        name_wait(self.waiting.as_ref())
+    }
+
+    /// Runs the current film out, for a front end with no clock of its own.
+    ///
+    /// A film that loops is left alone: most of them are scenery -- the mirror
+    /// in Margaret's doorway turns for as long as the player stands there --
+    /// and one that something is waiting on has its loop taken off by
+    /// `drain_ready` on the pass after the wait is armed. So this says nothing
+    /// about deadlock; a queue that will not move is caught by the caller
+    /// running out of turns, which is the only honest test.
+    pub fn end_film(&mut self) {
+        if let Some(p) = &mut self.player {
+            if !p.loops() {
+                p.finished = true;
+            }
+        }
+        if let Some(o) = &mut self.overlay {
+            if !o.player.loops() {
+                o.player.finished = true;
+            }
+        }
+    }
+
+    /// Brings a tick wait forward to now.
+    ///
+    /// The strict replay has no clock: a `wait 30` is thirty sixtieths of a
+    /// second the window really spends and this front end cannot. Only the
+    /// clock is skipped -- a film wait, a sound wait and a click wait are all
+    /// left exactly as they are, because those are the ones that deadlock.
+    pub fn fast_forward_ticks(&mut self) {
+        let now = Instant::now();
+        for wait in [&mut self.effect_wait, &mut self.waiting] {
+            if let Some(Wait::Until(t)) = wait {
+                *t = now;
+            }
+        }
+    }
+
+    /// Drains whatever is due now and says what it carried.
+    ///
+    /// `settle` steps over waits; this does not. It is the window's drain with
+    /// the walkthrough's report on top, so a strict replay can show the same
+    /// timeline the terminal prints without also stepping over the thing that
+    /// is stuck.
+    pub fn drain_ready_report(&mut self) -> Vec<String> {
+        let effects = self.drain_ready();
+        let room_film = self.video();
+        let mut report = Vec::new();
+        for effect in &effects {
+            if let Some(line) = describe(effect, room_film.as_deref()) {
+                report.push(line);
+            }
+            // `drain_ready` hands the effects back for the caller to act on --
+            // the window's `apply_effect` is what plays them. Reporting them
+            // without applying them was a front end that watched its own queue
+            // go past: every state write in a sequence was reported and none
+            // of them happened.
+            self.apply_puppet(effect);
+        }
+        report
     }
 
     pub fn effects_busy(&self) -> bool {
@@ -2722,6 +2796,49 @@ fn wait_for(effect: &Effect) -> Option<Wait> {
             Some(Wait::Until(Instant::now() + Duration::from_millis(250)))
         }
         _ => None,
+    }
+}
+
+/// One line of the walkthrough's report for an effect, if it is worth one.
+///
+/// `room_film` is what the room would play of its own accord, which is what an
+/// unnamed `pushVideo` resolves to.
+fn describe(effect: &Effect, room_film: Option<&str>) -> Option<String> {
+    Some(match effect {
+        Effect::PlaySound { name, loudness } => match loudness {
+            Some(l) => format!("play {name} ({l})"),
+            None => format!("play {name}"),
+        },
+        Effect::StartLoop { name, volume } => {
+            format!("loop {name} at {}", volume.unwrap_or(255))
+        }
+        Effect::StopLoop { name, .. } => format!("stop {name}"),
+        Effect::PlayVideo(which) => match which.as_deref().or(room_film) {
+            Some(n) => format!("film {n}"),
+            None => "film (none)".to_string(),
+        },
+        Effect::PlayVideoSegment { from, to } => format!("film {from}..{to}"),
+        Effect::StopVideo => "film stops".into(),
+        Effect::WaitForVideo => "wait for the film".into(),
+        Effect::WaitForOverlay => "wait for the unit".into(),
+        Effect::WaitForSound(n) => format!("wait for {n}"),
+        Effect::WaitTicks(t) if *t > 0 => format!("wait {t}"),
+        Effect::SetState { key, value } | Effect::ReplaceState { key, value } => {
+            format!("{key} = {value:?}")
+        }
+        Effect::FadeToMontage(n) => format!("montage {n}"),
+        _ => return None,
+    })
+}
+
+/// Names a wait for the strict replay's report.
+fn name_wait(wait: Option<&Wait>) -> String {
+    match wait {
+        None => "none".into(),
+        Some(Wait::Until(_)) => "a tick count".into(),
+        Some(Wait::Video) => "a film".into(),
+        Some(Wait::Overlay) => "a film on a channel".into(),
+        Some(Wait::Click) => "a click".into(),
     }
 }
 
