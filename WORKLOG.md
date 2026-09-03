@@ -7914,3 +7914,43 @@ the player back, the flag still named the chapter they had left. It is written
 on every chapter change now, which is what it is for.
 
 255 tests, ten recordings.
+
+## 166. The power is not reset; the house is
+
+helba: after Margaret's chapter, going inside and out resets the power.
+
+It does not. Tracing every write to `#houseLightsAreOn` across the whole
+playthrough gives four, all of them before her chapter:
+
+```text
+[0] state DarkUp_OfficeEswitch  set houselightsareon = Int(1)   -- the breaker
+[0] state OfficeEmergencySwitch set houselightsareon = Int(1)
+[0] state StudyAmberCU          set houselightsareon = Int(0)   -- "to momentarily
+[0] state StudyAmberCU          set houselightsareon = Int(1)      suppress AVISION"
+```
+
+and it stays at 1 for the rest of the game. Nothing in the return path touches
+it: `enterNewDomain` writes `#houseLightsAreOn: [0, 1]` only on the branch for
+a domain with nothing stored, which is a chapter being entered for the first
+time, never the house being handed back.
+
+What actually happens is that the house you are handed back into is the dark
+one. Roxy's house exists twice in the data -- `DarkUp_*` and `DarkDn_*` beside
+the lit rooms, which is how the opening works before the breaker is pulled --
+and coming home from Margaret's chapter puts the player in `DarkUp_40sReentry`,
+art `DK_40s_REENTRY`, a dark copy of the room the portal was in. Every exit
+out of the dark half leads to more of the dark half; nothing there is guarded
+on the lights at all. The way out of it is the front door, and coming back in
+through the porch is what puts the player in the lit house again.
+
+So from the player's chair it reads exactly as helba described -- the power is
+off until you go out and come back -- and no flag has changed. The chapter
+hands you back into the version of the house you left at the beginning of the
+game, and you have to walk out of it.
+
+Recorded rather than fixed, because as far as I can tell it is what the game
+does: the re-entry rooms are named only from `enterNewDomain` and Margaret's
+is the dark one, while Brice's is the gazebo and Edwin's the boathouse -- each
+of them the place the portal was, and hers was upstairs in the dark.
+
+255 tests, ten recordings.
