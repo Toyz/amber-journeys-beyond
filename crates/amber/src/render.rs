@@ -309,6 +309,13 @@ pub fn play_with(
             }
         }
 
+        // The cues a drive carries, against the film's own clock. They are
+        // not queued effects: a queue is sequential and would have to wait for
+        // the film it is meant to play over.
+        for effect in game.due_cues() {
+            apply_effect(&mut game, audio.as_ref(), effect, &mut dirty, &mut playing_soundtrack);
+        }
+
         // A playing movie supplies its own redraws; a static room only needs
         // one after a click.
         if let Some(player) = &mut game.player {

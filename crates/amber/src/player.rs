@@ -235,6 +235,15 @@ impl VideoPlayer {
         self.looping
     }
 
+    /// How far into the film it is, in ticks.
+    ///
+    /// Director addresses a film's own clock in sixtieths of a second -- `the
+    /// movieTime of sprite 44` -- and so does `#trackData`, whose cues are
+    /// keyed by it.
+    pub fn movie_time(&self) -> u32 {
+        (self.started.elapsed().as_secs_f64() * 60.0) as u32
+    }
+
     /// Holds the film on its first frame without playing it.
     ///
     /// Director shows a digital video sprite's current frame as soon as the

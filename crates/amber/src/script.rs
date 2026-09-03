@@ -48,6 +48,9 @@ pub enum Effect {
     /// peekAnim` -- rather than a `wait #videoStop`, because the film it is
     /// waiting for is not the room's.
     WaitForOverlay,
+    /// Arm the cue list for a stretch of track, which runs against the film
+    /// the effect after this one starts.
+    ArmCues { track: String },
     /// Start the film on a channel.
     ///
     /// Pointing a channel at a film shows a frame; it does not play it. The

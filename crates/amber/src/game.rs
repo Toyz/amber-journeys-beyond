@@ -43,6 +43,9 @@ struct Chapter {
     schema: Option<Schema>,
     /// Lookup tables for sprites whose cast is chosen by a state flag.
     tables: CastTables,
+    /// `#trackData`: the cues that run against a film's own clock. Edwin's
+    /// car is the only thing in the game that has any.
+    tracks: crate::markers::Tracks,
 }
 
 pub struct Game {
@@ -58,6 +61,9 @@ pub struct Game {
     pub pending: Vec<Effect>,
     /// What the effect queue is holding for, if anything.
     effect_wait: Option<Wait>,
+    /// Cues still to come in the film that is playing, latest first so the
+    /// next one is the last element and can be popped.
+    cues: Vec<(u32, crate::markers::Cue)>,
     /// True while the opening film is playing, because that one film -- and
     /// only that one -- can be cut short by a click.
     intro_running: bool,
@@ -185,6 +191,7 @@ impl Game {
             playing_at: None,
             cursor_hidden: false,
             effect_wait: None,
+            cues: Vec::new(),
             intro_running: false,
             sounds_suspended: false,
             ghost_call_until: None,
@@ -712,6 +719,7 @@ impl Game {
             let texts = movie.texts();
             let schema = Schema::from_texts(&texts);
             let tables = CastTables::from_texts(&texts);
+            let tracks = crate::markers::Tracks::from_texts(&texts);
             self.chapters.insert(
                 domain.to_string(),
                 Chapter {
@@ -720,6 +728,7 @@ impl Game {
                     art: HashMap::new(),
                     schema,
                     tables,
+                    tracks,
                 },
             );
         }
@@ -1658,6 +1667,10 @@ impl Game {
                 let p = self.puppets.entry(*channel).or_default();
                 p.loc = Some((*x, *y));
             }
+            Effect::ArmCues { track } => {
+                let track = track.clone();
+                self.arm_cues(&track);
+            }
             Effect::PlayOverlay { channel } => {
                 if let Some(o) = &mut self.overlay {
                     if o.channel == *channel {
@@ -1721,6 +1734,70 @@ impl Game {
             trace!(crate::trace::Topic::Room, "closing the chapter at {room}");
             self.apply(&out);
         }
+    }
+
+    /// Arms the cue list for a stretch of track.
+    ///
+    /// Read off `#trackData` at the moment the film starts, because which list
+    /// applies depends on whether the chipmunk is aboard.
+    pub fn arm_cues(&mut self, track: &str) {
+        let domain = self.node().domain.clone();
+        let with_chippy = self.state.get("chippyLocation").is_symbol("inCar");
+        let mut cues = self
+            .chapter(&domain)
+            .map(|c| c.tracks.cues(track, with_chippy))
+            .unwrap_or_default();
+        // Latest first, so the next one due is the last and can be popped.
+        cues.reverse();
+        trace!(
+            crate::trace::Topic::Script,
+            "{} cue(s) armed for {track}{}",
+            cues.len(),
+            if with_chippy { " with Chippy" } else { "" }
+        );
+        self.cues = cues;
+    }
+
+    /// Whatever the film has reached, as effects to apply.
+    ///
+    /// Called every frame while a film is running. Without it a drive is the
+    /// film and a flat engine note: the swells, Chippy's yelling and Edwin's
+    /// one remark are all in here.
+    pub fn due_cues(&mut self) -> Vec<Effect> {
+        if self.cues.is_empty() {
+            return Vec::new();
+        }
+        let Some(now) = self.player.as_ref().map(|p| p.movie_time()) else {
+            self.cues.clear();
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        while self.cues.last().is_some_and(|(at, _)| *at <= now) {
+            let Some((at, cue)) = self.cues.pop() else { break };
+            trace!(crate::trace::Topic::Script, "cue at {at}: {cue:?}");
+            match cue {
+                crate::markers::Cue::Sound(name) => out.push(Effect::PlaySound {
+                    name,
+                    loudness: None,
+                }),
+                crate::markers::Cue::Level(level) => out.push(Effect::StartLoop {
+                    name: "trackLoop".into(),
+                    volume: Some(level),
+                }),
+                // The passenger's head, which is a multiframe on the channel
+                // beside the film rather than a film of its own.
+                crate::markers::Cue::Head(frame) => {
+                    if let Some(cast) = self.cast_lookup("chipHead", &lingo::Value::Int(frame)) {
+                        out.push(Effect::SpriteCast { channel: 45, cast });
+                    }
+                }
+                crate::markers::Cue::Run(line) => {
+                    let outcome = crate::script::run(&[line], &mut self.state);
+                    out.extend(outcome.effects);
+                }
+            }
+        }
+        out
     }
 
     /// Where the room puts its `#video` channel.
@@ -3028,6 +3105,7 @@ fn describe(effect: &Effect, room_film: Option<&str>) -> Option<String> {
             format!("{key} = {value:?}")
         }
         Effect::FadeToMontage(n) => format!("montage {n}"),
+        Effect::ArmCues { track } => format!("cues for {track}"),
         _ => return None,
     })
 }

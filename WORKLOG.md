@@ -8652,3 +8652,70 @@ The whole game, start to end, in one recording that replays clean in the
 terminal and under `--strict`.
 
 263 tests, eleven recordings.
+
+## 176. The soundtrack of a drive
+
+Three reports from helba playing: the car's first film still doubling, the
+beehive in Brice apparently stuck, and Edwin's chapter "buggy in places ...
+feels like we're missing steps".
+
+### The double, again
+
+`play_movie` has had a guard since the weathervane (entry 154): a handler that
+pushes a film has almost always just asked for a redraw, and the redraw has
+already started the room's film, so pushing it again plays it twice. That
+guard was only on the unnamed case.
+
+Naming the car's films in entry 171 walked straight into the named one.
+`driveTheCar` pushes `carback.mov` and the room plays `carBack.mov` while the
+montage is 3 -- the same film, so the redraw starts it and the push restarts
+it. The guard now covers both.
+
+### The beehive
+
+Not stuck. `p4b_h3.mov` is five hundred and forty frames at fifteen a second:
+`listenToBees` is thirty-six seconds of film with the cursor off, and the
+window refuses clicks while a sequence is running, which is what the original
+does too. Worth knowing rather than fixing.
+
+### What was missing
+
+`#trackData` gives each stretch of track a film and two lists of cues against
+that film's own clock -- one for driving alone, one with the chipmunk aboard:
+
+```text
+#B: [#trackMovie: 1197,
+     #alone:  [200: 178, 385: 195, ..., 525: #edwinLaugh, ...],
+     #chippy: [0: 3, 76: 2, ..., 380: #yell1, ..., 1226: 172, ...]]
+```
+
+The key is a movie time in ticks, and the value says what happens there:
+
+  - a symbol is a sound -- `#edwinLaugh`, `#yell1` through `#yell8`,
+    `#getTheBear`, `#tooHeavy`, `#gonnaBeSick`;
+  - a number above five is the engine's volume, so the track loop swells and
+    falls with the gradient the car is on -- the B track has forty of them;
+  - a number from one to five is a pose for the passenger's head;
+  - a list of strings is Lingo to run, which the table does exactly once, for
+    `assertSound #aCleverCar`.
+
+Sixty-four cues on the B track with Chippy aboard. None of them were ported,
+so a drive was a film with a flat engine note behind it, which is precisely
+"feels like we're missing steps".
+
+They are not queued effects and could not be: a queue is sequential and would
+have to wait for the film it is meant to play *over*. So `#trackData` is read
+off the chapter's own text chunk -- it shares one with `#sndDurations` and
+`#waffleClips` -- into a cue list armed when the film starts, and the frame
+loop asks `due_cues` what the film has reached.
+
+The lists are written roughly in order and not exactly: `#A` has 587 twice and
+510 after 511. They are sorted, so a cue is not skipped because the one before
+it was written later.
+
+One limit worth stating: the terminal cannot fire these. It reports films
+rather than opening them, so there is no clock to fire against. It reports the
+arming instead -- `cues for B` -- and that a recording cannot check them is
+the same blindness entry 172 was about.
+
+264 tests, eleven recordings.

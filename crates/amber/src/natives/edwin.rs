@@ -336,6 +336,12 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 name: "trackLoop".into(),
                 volume: Some(120),
             });
+            // The cues for this stretch, armed before the film starts so the
+            // first of them -- which on several tracks is at tick 0 -- is not
+            // already past by the time anything looks.
+            out.effects.push(Effect::ArmCues {
+                track: film.to_string(),
+            });
             out.effects.push(Effect::PlayVideo(movie));
             out.effects.push(Effect::WaitForVideo);
             out.effects.push(Effect::StopLoop {

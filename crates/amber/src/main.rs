@@ -13,6 +13,7 @@ mod cursor;
 mod game;
 mod inventory;
 mod locations;
+mod markers;
 mod media;
 mod natives;
 mod player;
