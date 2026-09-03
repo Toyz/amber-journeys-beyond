@@ -100,6 +100,8 @@ pub struct Game {
     pub inventory: Inventory,
     /// The chapter whose cast numbers the icon table is written in.
     icons_from: String,
+    /// Chapters whose starting state has already been written.
+    seeded: std::collections::BTreeSet<String>,
     /// Per chapter, the cast members its handlers name rather than number.
     presentation: HashMap<String, Presentation>,
     /// The radio or clock programme currently running, if any.
@@ -181,6 +183,7 @@ impl Game {
             sounds: SoundBank::new(root),
             inventory: Inventory::from_texts(&[]),
             icons_from: String::new(),
+            seeded: std::collections::BTreeSet::new(),
             presentation: HashMap::new(),
             program: None,
             pcm_cache: HashMap::new(),
@@ -414,9 +417,26 @@ impl Game {
     /// sprite means its art resolves to nothing and the room comes up bare.
     pub fn seed_chapter(&mut self, domain: &str) {
         self.chapter(domain);
-        if let Some(chapter) = self.chapters.get(domain) {
-            if let Some(schema) = &chapter.schema {
-                schema.seed(&mut self.state);
+        // Once each. A schema is the chapter's *starting* state, and coming
+        // back to a chapter already visited is not starting it again: the
+        // original stashes what a domain's flags were and puts them back --
+        // "Just stashed Roxy's state-data into #stateOnIce" -- rather than
+        // writing the declarations over them.
+        //
+        // Re-seeding was quietly catastrophic in a way nothing tested for.
+        // Margaret's chapter ends with `enterNewDomain( #ROXY, 12 )`, which
+        // came back through here and reset every flag ROXY declares, so the
+        // player arrived home having never pulled the breaker, never built
+        // the BAR, and -- the one that showed -- no longer holding the
+        // headgear. `#playerHasHeadgear` went back to 0, the Amber vision
+        // could not be turned on again, and the portal into the second
+        // chapter is only there with the vision on. The game ended, silently,
+        // at the end of its first chapter.
+        if self.seeded.insert(domain.to_string()) {
+            if let Some(chapter) = self.chapters.get(domain) {
+                if let Some(schema) = &chapter.schema {
+                    schema.seed(&mut self.state);
+                }
             }
         }
         // Handlers of the same name differ between chapters -- the door

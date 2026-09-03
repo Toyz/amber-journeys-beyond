@@ -7309,3 +7309,52 @@ told it where to go, so the pages landed where a sprite with no location goes
 that the mistake did not show, which is the worst kind.
 
 253 tests, nine recordings.
+
+## 154. The game ended at the end of its first chapter
+
+helba asked for the walk to carry on past Margaret's chapter into the next
+one. The route is straightforward -- the weedkiller from the dining room
+cabinet, the kitchen's rear door, the weeds behind the garage, the gazebo, and
+the portal in its roof -- and it did not work, because the gazebo's portal is
+only there with the Amber vision on and the vision could not be turned back
+on. Nor could anything else be done, as it turned out:
+
+```text
+playerHasHeadgear = [0, #carrying, #inUse, #endGame, #usedUp]
+```
+
+Zero. Coming home from her chapter, the player was no longer holding the
+headgear they had walked in wearing.
+
+`enterNewDomain( oStoryteller, string(#ROXY), 12 )` comes back through
+`enter_chapter`, which seeds the chapter -- and a schema is a chapter's
+*starting* state. So returning to Roxy's house wrote her opening declarations
+over everything that had happened in it. The breaker was unpulled, the BAR was
+off, the oscillator was back in its box, and the headgear was gone. Nothing
+tested for it because nothing had ever come back from a chapter before: the
+walk ended the moment it arrived.
+
+The original is explicit about not doing this -- `enterNewDomain` stashes a
+domain's flags and puts them back, and says so in its own log line, "Just
+stashed Roxy's state-data into #stateOnIce". Here a chapter is seeded once and
+re-entering one leaves its flags alone.
+
+That single line is the difference between a game with one chapter and a game
+with four.
+
+### The route to Brice
+
+With it fixed, the walk carries on: the weedkiller out of the right-hand
+cabinet under the dining room sideboard, the kitchen's rear door pushed open,
+the weeds behind the garage killed, up to the gazebo, and the portal in its
+roof. `Ggaz_domainEntry`'s one hotspot is a montage ending in
+`enterNewDomain( oStoryteller, string(#Brice), 15 )`, and it lands at
+`Iris_BenchE` in the iris garden.
+
+His chapter is a chapter's worth of work of its own -- a conservatory, a shed
+with three nails in the door, bees, a heart-shaped box, two mirrors, a trap
+door, a grate, a three-wheel combination lock and a control panel -- and it
+ends in the basement closet, in a handler called `goodbyeMandy`. That is the
+next block.
+
+254 tests, nine recordings.

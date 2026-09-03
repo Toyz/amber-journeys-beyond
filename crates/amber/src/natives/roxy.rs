@@ -3604,11 +3604,15 @@ mod phone_tests {
             })
             .collect();
         // The screen starts blank -- `set the castNum of camSprite =
-        // PkVideoNormal[#PkNone]` once the unit is up -- and then plays the
-        // recording between its two fades.
+        // PkVideoNormal[#PkNone]` once the unit is up -- then the readout's
+        // blank page and the three status lights are placed, and then the
+        // recording plays between its two fades.
         assert_eq!(
             frames,
-            ["PkNone", "PkFadeIn", "PkKitchenGhost", "PkFadeOut"]
+            [
+                "PkNone", "None", "3", "2", "2",
+                "PkFadeIn", "PkKitchenGhost", "PkFadeOut"
+            ]
         );
 
         assert!(out.effects.iter().any(|e| matches!(
