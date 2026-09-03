@@ -518,11 +518,134 @@ click 319 153
 # The second portal, and Brice's chapter.
 examine
 # 
-# The way down is under the gazebo: a trapdoor, and a padlock on the
-# grate beneath it. The button by the gazebo steps lifts the trapdoor.
+# His chapter is a garden with four things in it: an iris bed with a
+# heart-shaped box buried in it, a conservatory, a shed he watched her
+# from, and a gazebo with a basement under it. Only the gazebo is on
+# the way out, but the rest is the chapter.
+# 
+# The box first. Three nails hold it shut, each of them out, halfway
+# or in, and pushing one drags its neighbour round the other way --
+# `pushNail` sends the nail after it back a step when this one goes
+# deeper, and forward a step when it pops. All three out opens it.
+# Walking away puts them back, so it has to be done in one visit.
+# Five pushes: the left nail, the left nail, the bottom, the left,
+# and the right.
+click 534 239
+click 534 239
+click 316 293
+click 324 284
+click 318 225
+pointer 2
+pointer 2
+pointer
+pointer 2
+pointer 3
+wait 300
+# 
+# The conservatory, which is where he grew what he gave her.
+click 20 240
+click 20 240
+click 320 172
+click 534 239
+click 534 239
 click 311 242
 click 106 239
 click 314 238
+click 534 239
+click 314 241
+click 329 230
+click 324 240
+click 620 239
+click 323 241
+click 500 274
+click 318 240
+click 106 239
+click 305 240
+click 325 240
+click 324 242
+click 322 239
+click 534 239
+click 73 263
+click 320 244
+wait 120
+# 
+# The shed. Two planters stand in it with mirrors on them and there
+# is a peephole in the wall, and between them they are how he watched
+# her window. The north-east mirror turns to west and the south-west
+# one to north; with the right-hand hole that is the one arrangement
+# that shows the window rather than a mirror or the back of a plank.
+click 534 239
+click 534 239
+click 314 242
+click 317 239
+click 106 239
+click 325 241
+click 311 240
+click 327 242
+click 346 239
+click 324 240
+click 534 239
+click 324 240
+click 486 272
+click 534 239
+click 496 249
+click 326 241
+click 317 240
+click 195 243
+click 534 239
+click 306 239
+click 106 239
+click 330 247
+click 251 263
+rotateleft
+click 20 240
+click 534 239
+click 534 239
+click 360 274
+rotateleft
+click 20 240
+click 560 266
+click 534 239
+click 347 249
+click 534 239
+click 302 247
+click 534 239
+forward
+click 321 243
+click 311 227
+click 323 330
+click 311 285
+examine
+wait 240
+# 
+# The hives at the bottom of the garden, which he talks to.
+click 320 240
+click 20 240
+click 326 177
+click 534 239
+click 534 239
+click 318 214
+click 313 240
+forward
+click 106 239
+click 362 252
+click 479 258
+click 319 240
+click 295 241
+click 320 240
+click 534 239
+click 325 239
+click 106 239
+click 95 341
+wait 240
+# 
+# The way down is under the gazebo: a trapdoor, and a padlock on the
+# grate beneath it. The button by the gazebo steps lifts the trapdoor.
+browse
+click 319 239
+click 317 243
+click 316 241
+click 534 239
 click 313 250
 click 339 240
 click 175 292

@@ -7719,3 +7719,43 @@ A wrong palette keeps the structure and loses the colour; a wrong decode loses
 both.
 
 254 tests, ten recordings.
+
+## 162. All of Brice's chapter, not just the way out
+
+Entry 159 played his chapter down its spine -- trapdoor, padlock, rope, panel,
+closet -- which is the shortest line through it and misses most of what is
+there. helba asked for the whole thing.
+
+**The heart box**, buried in the iris bed. Three nails, each `#out`,
+`#halfway` or `#in`, and `pushNail` moves two of them at once: the one pressed
+goes a step deeper, or pops all the way out from `#in`, and the next one round
+goes the other way -- back a step when this one went deeper, forward a step
+when it popped. All three out opens the box, and `resetHeartBox` puts them
+back to halfway the moment the player walks away, so it has to be done in one
+visit.
+
+Solved by walking the eighteen states rather than by pushing nails until
+something happened: from all-halfway it is five pushes, left, left, bottom,
+left, right.
+
+**The shed**, which is what the chapter is really about. Two planters stand in
+it with mirrors on them and there is a peephole in the wall, and the three
+together are how he watched her window:
+
+```text
+NE = #west, SW = #east   -> B_SH_PEEPR_XCU_MIRROR   (his own mirror)
+NE = #west, SW = #north  -> B_SH_PEEPR_XCU_WINDOW   (her window)
+NE = #north              -> B_SH_PEEPR_XCU_WOOD     (a plank)
+```
+
+One arrangement of three shows the window, and the right-hand hole is the one
+that is open. The recording sets both mirrors and looks through it.
+
+Also the conservatory, where he grew what he gave her, and the hives at the
+bottom of the garden that he talks to.
+
+`brice.walk` is 211 steps through 102 of his 235 rooms with nothing in it that
+fails, and `full.walk` is 718 steps through 238 rooms across all three
+domains. Both still come out of the same `play(r)`.
+
+254 tests, ten recordings.
