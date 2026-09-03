@@ -1286,6 +1286,12 @@ impl Game {
                     self.puppets.entry(*channel).or_default();
                 } else {
                     self.puppets.remove(channel);
+                    // Releasing a channel has to stop whatever it was
+                    // playing. The PeeK unit ends on `PkBlank.mov` in its
+                    // screen, so letting the film outlive the channel left
+                    // the unit's screen hanging in the middle of the room
+                    // after the unit itself had gone.
+                    self.release_overlay(*channel);
                 }
             }
             Effect::SpriteCast { channel, cast } => self.point_channel(*channel, *cast),
@@ -1394,9 +1400,17 @@ impl Game {
         ))
     }
 
+    /// Stops a film on a channel, if that is what is on it.
+    fn release_overlay(&mut self, channel: u8) {
+        if self.overlay.as_ref().is_some_and(|o| o.channel == channel) {
+            self.overlay = None;
+        }
+    }
+
     /// Releases every claimed channel, which a room change does.
     pub fn clear_puppets(&mut self) {
         self.puppets.clear();
+        self.overlay = None;
     }
 
     /// Clears the channels the room did not place, as `updateDisplay` does.
@@ -1425,6 +1439,12 @@ impl Game {
             .unwrap_or(SCORE_BASE);
         self.puppets
             .retain(|ch, _| u16::from(*ch) <= last_placed || u16::from(*ch) > LAST_SWEPT);
+        if let Some(o) = &self.overlay {
+            let ch = u16::from(o.channel);
+            if ch > last_placed && ch <= LAST_SWEPT {
+                self.overlay = None;
+            }
+        }
     }
 
     /// Draws the current room into a 640x480 BGRA framebuffer.

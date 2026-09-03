@@ -7205,4 +7205,13 @@ two inks at once -- 8 on the body and 36 on the aerial, which are Director's
 matte and background-transparent and mean the same thing here. Without them the
 unit arrives as a white rectangle with a PeeK inside it, covering the room.
 
+### The screen it left behind
+
+And immediately: the unit came down and its screen stayed, a grey hatched
+rectangle hanging in the middle of the room. `PkNone` is `PkBlank.mov`, so
+what the channel was holding was a film, and `puppetSprite 44, 0` removed the
+channel without stopping it. Releasing a channel now stops whatever it was
+playing, and so do a room change and `updateDisplay`'s sweep -- the three
+places a channel can be taken away.
+
 253 tests, nine recordings.
