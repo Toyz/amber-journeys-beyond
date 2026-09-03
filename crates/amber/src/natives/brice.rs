@@ -496,6 +496,9 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //   setState(oStoryteller, #controlPanel, #closed)
         //   updateDisplay
         //   goTo #basement_doorGadgets, #backOff
+        //   setState(oStoryteller, #closetDoorIsOpen, #ajar)
+        //   set the queuedSound of oPuppeteer = #solidDoorOpen
+        //   updateDisplay : killVideo
         //
         // Each press toggles a button in or out of the set. The panel opens
         // only when all four of the first list are down and neither of the
@@ -539,6 +542,18 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 state.set("controlPanel", Value::Symbol("closed".into()));
                 out.destination = Some("basement_doorGadgets".into());
                 out.transition = Some("backOff".into());
+                // What the panel is for. The closet is what the whole chapter
+                // is walking towards, and its door coming ajar is the last
+                // line of this handler -- which I had left off, so the panel
+                // opened, the player was carried back to the door, and the
+                // door was still shut. `testClosetLock` needs `#ajar` and the
+                // weathervane flying, and only this writes the first.
+                state.set("closetDoorIsOpen", Value::Symbol("ajar".into()));
+                out.effects.push(Effect::PlaySound {
+                    name: "solidDoorOpen".into(),
+                    loudness: None,
+                });
+                out.effects.push(Effect::StopVideo);
             }
         }
 

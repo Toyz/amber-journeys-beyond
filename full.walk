@@ -517,3 +517,80 @@ click 318 262
 click 319 153
 # The second portal, and Brice's chapter.
 examine
+# 
+# The way down is under the gazebo: a trapdoor, and a padlock on the
+# grate beneath it. The button by the gazebo steps lifts the trapdoor.
+click 311 242
+click 106 239
+click 314 238
+click 313 250
+click 339 240
+click 175 292
+click 534 239
+click 142 277
+click 534 239
+click 331 257
+click 324 232
+pointer
+# 
+# The padlock has three wheels and they all start at six. The
+# combination is 3-2-1: `tryToOpenGrate` compares the three against
+# exactly that, and `adjustLockSettings` sounds the unlock the moment
+# the last one lands. The top row of buttons turns a wheel up and the
+# bottom row turns it down, so it is three down, four down, five down.
+click 20 240
+click 486 253
+click 106 239
+click 523 283
+click 106 239
+click 314 239
+click 322 303
+click 318 337
+click 320 323
+click 293 248
+click 293 248
+click 293 248
+click 324 248
+click 324 248
+click 324 248
+click 324 248
+click 353 249
+click 353 249
+click 353 249
+click 353 249
+click 353 249
+# Back to the grate, and pull it.
+browse
+pointer
+# 
+# Down into the basement. The rope by the ladder runs up to the
+# weathervane on the gazebo roof, and it takes three pulls: one to
+# hook the flag on, one that jams it, and one that frees it.
+click 320 243
+click 314 390
+click 299 325
+click 534 239
+click 316 249
+click 132 263
+click 252 240
+wait 120
+click 326 240
+wait 120
+click 388 239
+wait 120
+# 
+# The other half is the control panel on the basement door. Six
+# buttons, and `panelButton` wants four of them down and two left
+# alone: A1, A2, B2 and B3, not A3 or B1. Pressing a wrong one does
+# not reset anything, it only keeps the check from passing.
+click 323 304
+pointer 2
+pointer 3
+pointer 6
+pointer 7
+# 
+# Which is what the whole chapter walks towards. The closet opens only
+# with the flag flying and the door worked loose, and behind it is
+# Mandy. `goodbyeMandy`, and back to Roxy's house through the gazebo.
+wait 120
+click 532 241

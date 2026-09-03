@@ -7577,3 +7577,62 @@ unit needed to let the room through. Only the body and the aerial carry an ink
 -- 8 and 36 -- because they are the two with an outline.
 
 254 tests, nine recordings.
+
+## 159. Brice's chapter
+
+All of his handlers were already ported -- `verify` has said so for a while --
+so the chapter was a matter of finding out what it wants rather than building
+anything. What it wants, read out of the handlers rather than played for:
+
+**The trapdoor.** A button by the gazebo steps runs `toggleTrapDoor`.
+
+**The padlock on the grate beneath it.** Three wheels, all starting at six.
+`tryToOpenGrate` compares them against `list(3, 2, 1)` and nothing else, and
+`adjustLockSettings` sounds the unlock the moment the last one lands, so the
+combination is 3-2-1 and it is stated twice. The top row of buttons turns a
+wheel up and the bottom row down: three down, four down, five down.
+
+**The weathervane.** The rope in the basement takes three pulls, each guarded
+on where the last one left it: `#gazFlag` goes `#off` to `#on` to `#stuck` to
+`#flying`, and only the third is any use.
+
+**The control panel on the basement door.** Six buttons, and `panelButton`
+wants exactly
+
+```text
+repeat over [#A1, #A2, #B2, #B3]  -- all down
+  if not inState(#panelGuess, i) then exit
+repeat over [#A3, #B1]            -- neither down
+  if inState(#panelGuess, j) then exit
+```
+
+Pressing a wrong one does not reset anything; it only keeps the check from
+passing until it is pressed again.
+
+**And the closet**, which is what all of it walks towards: `testClosetLock`
+opens it with the flag flying and the door ajar, and behind it is Mandy.
+
+### The line I had left off
+
+The closet's door is set ajar in the last line of `panelButton`, after the
+`goTo` that carries the player back to the door -- and my port stopped at the
+`goTo`. So the panel could be solved, the player was moved, and the door was
+still shut. `#closetDoorIsOpen` is *read* in three places in the room data and
+written in none, which is why nothing had flagged it: the only writer is that
+line.
+
+That is the fourth time a handler's tail has been the thing that mattered.
+
+### Two recordings out of one file
+
+`brice.walk` is his chapter on its own, starting at the bench the portal lands
+on. `full.walk` plays the game to get there. Both come out of the same
+`play(r)`, because a chapter written down twice is a chapter that will disagree
+with itself.
+
+`full.walk` is 587 steps now: the opening film, Roxy's house, the six haunts,
+the telephone, the headgear, the portal into Margaret's chapter, her wireless
+and her telegram, home through the dark house, out to the gazebo, Brice's
+chapter, and home again. No step in it fails.
+
+254 tests, ten recordings.
