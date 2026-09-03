@@ -19,3 +19,6 @@
 /tools/__pycache__
 
 /playthrough
+
+# Replay logs from `--log`, which are large and per-run.
+*.walk.log

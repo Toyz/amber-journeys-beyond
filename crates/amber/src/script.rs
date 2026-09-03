@@ -168,6 +168,12 @@ pub struct Outcome {
     pub credits: bool,
     /// Timeline of audio, video and pacing effects, in script order.
     pub effects: Vec<Effect>,
+    /// Plain state writes this list made as it was read, in order.
+    ///
+    /// They have already happened; this is a note of what they were, so a
+    /// caller with a queue still draining can make them happen again in the
+    /// right place. `Game::pump` is the only caller that does.
+    pub writes: Vec<(String, Value)>,
     /// Re-run this action while the button stays down.
     ///
     /// Director's dials spin for as long as `stillDown` reports the mouse
@@ -609,6 +615,7 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
             if args.len() >= 2 {
                 let key = args[args.len() - 2].as_str().unwrap_or_default().to_string();
                 let value = args[args.len() - 1].clone();
+                let v = value.clone();
                 if !key.is_empty() {
                     let custom = state.get_all(&key).len() == 1;
                     let setter = format!("set{}", key.trim_start_matches('#')).to_ascii_lowercase();
@@ -625,6 +632,14 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                             );
                         }
                         state.set(&key, value);
+                        // The write happens now, because a condition later in
+                        // the same list has to read the new value. It is also
+                        // recorded, because now is not always when it should
+                        // land: effects queue and drain later, so a write that
+                        // follows one in the list would otherwise take effect
+                        // before it. Whoever is holding the queue decides --
+                        // see `Game::pump`.
+                        out.writes.push((key, v));
                     }
                 }
             }
@@ -1031,5 +1046,32 @@ mod assert_sound_tests {
         s.set_all("AMBERVISION", vec![Value::Symbol("off".into())]);
         run(&[line.to_string()], &mut s);
         assert!(s.get("AMBERVISION").is_symbol("off"), "guard passed when it should hold");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A state write that comes after a fade in the same list has to land
+    /// after it too. The weathervane's trellis descent is the case: it fades
+    /// through three montages and then takes the montage down, and with the
+    /// write happening as the list is read it took it down first and left the
+    /// chapter on montage 1, where nothing worth clicking is live.
+    #[test]
+    fn a_write_after_a_fade_lands_after_it() {
+        let mut state = State::new();
+        state.set_all(
+            "showMontage",
+            vec![Value::Int(1), Value::Int(0), Value::Int(2)],
+        );
+        let out = run(
+            &[
+                "fadeToMontage 3".into(),
+                "setState( oStoryteller, #showMontage, 0 )".into(),
+            ],
+            &mut state,
+        );
+        assert_eq!(out.writes, vec![("showMontage".into(), Value::Int(0))]);
     }
 }

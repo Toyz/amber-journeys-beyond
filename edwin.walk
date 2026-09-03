@@ -1,0 +1,182 @@
+# Edwin's chapter: the hoist in the boathouse, the weathervane and the
+# whirligig, the boat's sail, and the car under the ice.
+#
+#   amber walk extract --replay edwin.walk
+#   amber play extract --replay edwin.walk --mute
+# Edwin's chapter on its own. `full.walk` plays the game to get here;
+# this starts inside the boathouse door the portal lands behind.
+EDWIN
+# 
+# Edwin's chapter is a frozen lake with a boathouse on the shore, and
+# three things stuck in it: a chipmunk in the ice, a teddy bear on the
+# bottom, and a car in a garage under the lake. Getting the bear back
+# is the chapter, and it takes all three.
+# 
+# The boathouse first. A horse's head hangs on one wall and a salt
+# lick sits under it; both are his, and both are worth a look.
+click 318 243
+click 286 272
+click 115 245
+click 260 243
+click 320 246
+click 526 245
+click 510 243
+click 115 245
+click 330 242
+click 328 257
+click 294 282
+click 510 243
+examine
+wait 120
+browse
+click 325 239
+wait 180
+browse
+# 
+# Out on the ice, a chipmunk is frozen in up to the shoulders and
+# talking about it. He works through a list of things to say, and the
+# list turns over one place each time: the front one is spoken and the
+# back one comes round to the front. Leaning in to look is the first
+# turn, so two more make three, and after three `#pullMyFinger` is
+# lying second -- which is the one arrangement `pullOnChippy` will
+# take the joke on.
+click 510 243
+click 317 284
+click 319 241
+click 115 245
+click 320 245
+click 219 283
+click 340 378
+click 324 312
+wait 180
+pointer 2
+wait 180
+pointer 2
+wait 180
+# Now pull.
+pointer
+wait 240
+# And again, which gets a grunt: the joke came off the list on the way
+# past, so the test stops matching.
+pointer
+wait 120
+# The close-up is only here while he is stuck. Once he is out the same
+# click carries straight past him to the hole he came from.
+# 
+# The crank in the corner works the hoist. It has three positions and
+# turns one at a time, so getting the hook from up to down is two
+# turns of the handle.
+click 101 243
+click 101 243
+click 115 245
+click 260 243
+click 320 246
+click 526 245
+click 510 243
+click 115 245
+click 330 242
+click 328 257
+click 294 282
+click 340 382
+rotateright
+rotateright
+# 
+# With it down the hook reaches the chipmunk frozen into the floor.
+# Pull, and he comes out.
+click 510 243
+click 510 243
+click 186 186
+pointer
+# Walking out of the room puts the montage away again.
+right
+# 
+# The weathervane on the roof, reached up the trellis. It turns a
+# quarter at a time, and one turn anticlockwise from north puts it
+# west, which is the way the boat has to be pushed.
+click 317 284
+click 319 241
+click 115 245
+click 320 245
+click 219 283
+click 115 245
+click 384 237
+click 178 196
+click 327 244
+pointer
+# Climbing down is a montage of its own -- three cross-fades and then
+# the montage comes off again, in that order, which is the whole of
+# what entry 169 is about.
+down
+# 
+# The whirligig out on the ice is what raises the wind, and it takes
+# the direction from the vane at the moment it is started -- so it is
+# started second, not first.
+click 83 245
+click 350 272
+click 525 245
+click 466 245
+click 472 245
+click 116 244
+pointer
+# 
+# The boat is frozen in near the far corner. Raise the sail and the
+# west wind swings it forward, and the swing hangs the teddy on the
+# anchor -- which is what the car will be looking for.
+click 447 266
+click 320 245
+click 320 246
+click 116 245
+click 417 247
+click 236 247
+click 336 282
+pointer
+# 
+# That leaves the car. The hole the chipmunk came out of goes all the
+# way down; the dive is four cross-fades and the wind gives way to
+# water.
+click 318 243
+click 103 242
+click 466 245
+click 525 245
+click 319 244
+click 525 245
+click 340 378
+click 297 322
+forward
+# 
+# A rubber duck sits on the wing of the garage. Squeeze it and the car
+# comes out to meet you.
+pointer
+# Getting in brings the chipmunk with you -- `chippyHopsIn` is asked
+# for by the door, not by the duck.
+forward
+# 
+# The tracks are a hub with three trunk lines off it, and each of
+# those has three spurs. Set off down the main line first.
+pointer
+# 
+# The middle line, and then the middle spur off it, is a ramp the car
+# does not make. It is worth taking once: it is the one stretch with
+# the chipmunk in the film, and he has something to say about the
+# driving afterwards.
+forward
+forward
+forward
+forward
+# Back where it started, on montage 3 -- which is the state the
+# windscreen hotspot is guarded on, so the only thing left is to set
+# off again.
+pointer
+# 
+# The left-hand line this time, and the middle spur off that, which
+# is the one that passes under the anchor.
+left
+forward
+forward
+# 
+# And that is the chapter. With the boat forward and the teddy hanging
+# on the anchor the film is `CM_teddyRescue`: the car catches him, the
+# door opens, and it drives out through the exit and home.
+forward
+# His flags go back in the freezer on the way out, so there is nothing
+# left to read for the teddy; the room is the proof.

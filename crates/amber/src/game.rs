@@ -2445,7 +2445,24 @@ impl Game {
 
         while !self.script.is_empty() {
             let action = self.script.remove(0);
-            let outcome = script::run(std::slice::from_ref(&action), &mut self.state);
+            let mut outcome = script::run(std::slice::from_ref(&action), &mut self.state);
+            // A `setState` writes as the action is read, which is right when
+            // nothing is outstanding and wrong the moment something is: the
+            // effects queued by the actions above have not been applied yet,
+            // and this write would beat them to it. The weathervane is the
+            // case that showed it. Its trellis hotspot fades through montages
+            // 3, 2 and 1 and then puts the montage away, and with the write
+            // arriving first the chapter came to rest on montage 1 -- where
+            // the boat's sail, and everything else guarded on the montage
+            // being down, is not there to be clicked. So when the queue is
+            // still holding, the write is made again in its own place.
+            if !self.pending.is_empty() || self.effect_wait.is_some() {
+                let repeats = outcome
+                    .writes
+                    .drain(..)
+                    .map(|(key, value)| Effect::SetState { key, value });
+                outcome.effects.extend(repeats);
+            }
             let hold = outcome.effects.iter().find_map(wait_for);
             // Each action's own outcome is applied, not the running total.
             // Applying the accumulation instead re-queued every effect the
@@ -2729,6 +2746,7 @@ fn merge(into: &mut Outcome, from: Outcome) {
     into.redraw |= from.redraw;
     into.credits |= from.credits;
     into.effects.extend(from.effects);
+    into.writes.extend(from.writes);
     into.unhandled.extend(from.unhandled);
 }
 
@@ -2917,6 +2935,47 @@ fn blit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_state_write_lands_after_the_effects_queued_above_it() {
+        // The weathervane's trellis, in miniature: fade through three montages
+        // and then take the montage down. The writes happen as the list is
+        // read and the fades happen as the queue drains, so without the queued
+        // copy the flag ends on the last fade rather than on 0 -- and every
+        // hotspot in Edwin's chapter guarded on the montage being down stays
+        // dead, which is how the chapter came to be unfinishable.
+        let mut game = Game::for_test();
+        game.state
+            .set_all("showMontage", vec![lingo::Value::Int(1), lingo::Value::Int(0)]);
+        game.script = vec![
+            "fadeToMontage 3".into(),
+            "fadeToMontage 2".into(),
+            "fadeToMontage 1".into(),
+            "setState( oStoryteller, #showMontage, 0 )".into(),
+        ];
+        game.pump();
+        // The write is the last thing in the queue, behind all three fades.
+        assert!(
+            matches!(
+                game.pending.as_slice(),
+                [
+                    Effect::FadeToMontage(3),
+                    Effect::FadeToMontage(2),
+                    Effect::FadeToMontage(1),
+                    Effect::SetState { key, value: lingo::Value::Int(0) },
+                ] if key == "showMontage"
+            ),
+            "{:?}",
+            game.pending
+        );
+        for _ in 0..64 {
+            if game.pending.is_empty() && game.effect_wait.is_none() {
+                break;
+            }
+            game.drain_ready();
+        }
+        assert_eq!(game.state.get("showMontage"), lingo::Value::Int(0));
+    }
 
     #[test]
     fn a_queue_of_films_drains_to_the_end() {

@@ -8066,3 +8066,174 @@ the chipmunk with the hook, start the wind, turn the vane west, sail the boat,
 collect the chipmunk with the car, and drive the middle of the C track.
 
 255 tests, ten recordings.
+
+## 169. The tail of the handler, and the order of the queue
+
+Edwin's chapter now runs end to end, and `edwin.walk` records it. Getting
+there cost two bugs, and they are the same bug twice: something that happens
+last was not happening.
+
+### The wind leaves the world read-only
+
+`startWhirligig` was ported down to its last five lines, and the last of those
+is
+
+```text
+setState( oStoryteller, #showMontage, 0 )
+```
+
+`#showMontage` is not a decoration. It is a small number saying which of the
+storyteller's montage images is over the room, and half the chapter's hotspots
+are guarded on it being 0 -- the boat's sail, the crank, the duck, the car's
+windscreen. So the whirligig raised the wind, left the flag on 1, and from
+that moment on the player could walk about the ice and do nothing else. The
+chapter was unfinishable, and it looked like a level design problem rather
+than a missing line.
+
+That is now the fifth handler whose *tail* was the thing that mattered:
+`panelButton`'s door, `goodbyeMandy`'s return, `deleteInventory`'s slot,
+`setDoorIsOpen`'s film, and this. The pattern is clear enough to say plainly:
+when a handler ends in a state write, that write is usually the point of the
+handler, and the film above it is the decoration.
+
+### The write that arrived before the film
+
+With that fixed the chapter still stopped, one room further along. The
+weathervane's trellis hotspot reads:
+
+```text
+setState( oStoryteller, #showMontage, 4 )
+goTo( #ice_a_trellis_wUP, #fadeIn )
+fadeToMontage 3
+fadeToMontage 2
+fadeToMontage 1
+setState( oStoryteller, #showMontage, 0 )
+goTo( #ice_a_trellis_w, #backOff )
+```
+
+Climb down and the montage should end on 0. It ended on 1.
+
+The reason is a seam in this engine that had not been leaned on before.
+`setState` writes the flag *as the action list is read*. `fadeToMontage` does
+not: it queues an effect, and the effect writes the flag when the queue
+drains. So the four writes in that list happened in the order 4, 0, 3, 2, 1 --
+the script's own last line beat the three effects it was written to follow.
+
+The fix is not to stop writing at read time. A condition later in the same
+list has to see the new value, and plenty of lists depend on that. So the
+write still happens immediately, and the outcome now also carries a note of
+what it wrote:
+
+```rust
+/// Plain state writes this list made as it was read, in order.
+///
+/// They have already happened; this is a note of what they were, so a
+/// caller with a queue still draining can make them happen again in the
+/// right place. `Game::pump` is the only caller that does.
+pub writes: Vec<(String, Value)>,
+```
+
+and `pump`, which is the one place that can see the queue, replays them into
+it when there is something outstanding:
+
+```rust
+if !self.pending.is_empty() || self.effect_wait.is_some() {
+    let repeats = outcome
+        .writes
+        .drain(..)
+        .map(|(key, value)| Effect::SetState { key, value });
+    outcome.effects.extend(repeats);
+}
+```
+
+The second write is idempotent -- `State::set` moves a value to the head of
+its list, and doing that twice is doing it once -- so the cost is a duplicate
+entry in the walkthrough's report and nothing else. When the queue is empty
+the note is dropped and nothing changes, which is why the reports for most
+rooms look exactly as they did.
+
+Worth recording about the test I wrote for this first: it passed against the
+broken engine. It drained the queue and asserted the final value, and in a
+test harness with no room and no decoder the fades never got applied at all,
+so 0 was the answer either way. The test that actually catches it asserts the
+*queue*, not the outcome:
+
+```rust
+assert!(matches!(
+    game.pending.as_slice(),
+    [
+        Effect::FadeToMontage(3),
+        Effect::FadeToMontage(2),
+        Effect::FadeToMontage(1),
+        Effect::SetState { key, value: lingo::Value::Int(0) },
+    ] if key == "showMontage"
+));
+```
+
+I only found that out by breaking the fix on purpose and watching the test go
+on passing, which is a habit worth keeping.
+
+### Where a drive ends
+
+`driveTheCar` picks the film for the stretch of track you are on, and the port
+stopped there. Everything after the film -- which is where the car *goes* --
+was missing:
+
+```text
+if whichTrack is one of [#A, #B, #c] then
+  carLocation = value( "#hub_" & string(whichTrack) )
+  currentTrack = #main : showMontage = 1 : return
+carLocation = #standingBy : currentTrack = #main
+if whichTrack is one of [#CM_anchorDown, #CM_emptyAnchor,
+                         #BM_withChippy, #BM_noChippy] then
+  killVideo : showMontage = 3 : return
+if whichTrack <> #main then setLoop #underWater
+... and then the four tunnel mouths ...
+```
+
+Three trunk lines each end at their own hub; four of the spurs are ramps the
+car does not make and drop it back where it started on montage 3, which is the
+state the windscreen hotspot is guarded on; the rest come out of a tunnel
+mouth back on the ice. So every drive played its film and left the car exactly
+where it was, and the track network could not be crossed.
+
+The end of the chapter is in the same handler and was guessed rather than
+read. `CM_teddyRescue` does not jump domains on the spot. It calls
+`teddyGetsIn`, drives out through `#car_domainExit`, plays that room's film,
+and only then
+
+```text
+startSound #toRoxy
+enterNewDomain( oStoryteller, string(#Roxy), 'Edwin_reentry' )
+```
+
+-- which is a room *name*, where Margaret's and Brice's both hand back an
+index. It lands at `Gbhs_Reentry1`, which is where the freezer from entry 158
+already expected him to come back to.
+
+### Chippy's list
+
+One more, small and worth it. `chippySpeaks` plays the plea at the head of the
+list and then rotates the list one place -- the back one comes round to the
+front. The port played the plea and left the list alone, and the consequence
+was that `pullOnChippy`, whose test is "is `#pullMyFinger` lying *second*",
+could never fire. Leaning in to look at him is the first turn, so two more
+clicks make three, and after three the joke is there to be taken. Once.
+
+### edwin.walk
+
+177 lines, and it plays the whole chapter rather than the spine: the horse and
+the salt lick in the boathouse, the finger joke and the grunt that follows it,
+the crank, the trellis montage, the whirligig, the sail, the dive, the duck,
+a wrong turn down the middle of the B line to see the one stretch of film with
+the chipmunk in it, and then the middle of C.
+
+`full.walk` is 940 lines and now runs from the boathouse at the start of the
+game to the end of Edwin's chapter, through Margaret's and Brice's on the way.
+The route in is the third portal: push the door on the bottom level of the
+garage, take the crowbar off its post, pry the boarded boathouse doors, swing
+them, and look. It needs `set AMBERVISION on` once more, for the reason entry
+155 gives -- that makes four hand-set lines in a 940-line walk, and all four
+are marked where they happen.
+
+260 tests, eleven recordings.

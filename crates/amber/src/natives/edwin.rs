@@ -169,6 +169,30 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::SpriteLoc { channel: 45, x: -1000, y: -1000 });
             out.effects.push(Effect::SpriteVisible { channel: 44, visible: true });
             out.redraw = true;
+
+            // The tail. The wind comes up under the film -- the loop is faded
+            // in behind it and left running at full -- and the last thing the
+            // handler does is take the montage down again. Every hotspot in
+            // the chapter that is worth clicking is guarded on `showMontage`
+            // being 0, so without this line the whirligig leaves the world
+            // read-only: you can walk, and nothing else.
+            out.effects.push(Effect::StartLoop {
+                name: "steadyWind".into(),
+                volume: Some(200),
+            });
+            out.effects.push(Effect::StartLoop {
+                name: "steadyWind".into(),
+                volume: Some(255),
+            });
+            out.effects.push(Effect::WaitTicks(30));
+            out.effects.push(Effect::PlaySound {
+                name: "inYourSails".into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::SetState {
+                key: "showMontage".into(),
+                value: Value::Int(0),
+            });
         }
 
         // on setSail
@@ -307,16 +331,87 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 ("teE_fwd", &["AR", "CR"]),
                 ("teW_fwd", &["AM", "AL"]),
             ];
+            // The rescue, and the end of the chapter. `teddyGetsIn` opens
+            // the door and puts him aboard; then the car drives out through
+            // `#car_domainExit`, plays that room's film, and hands back to
+            // Roxy's house at `Edwin_reentry`.
             if film.eq_ignore_ascii_case("CM_teddyRescue") {
                 state.set("teddyLocation", Value::Symbol("inCar".into()));
+                for beat in ["carDoorOpen", "carDoorOpen"] {
+                    out.effects.push(Effect::PlaySound {
+                        name: beat.into(),
+                        loudness: None,
+                    });
+                }
+                out.effects.push(Effect::GoToRoom {
+                    room: "car_domainExit".into(),
+                    transition: Some("fadeIn".into()),
+                });
                 out.effects.push(Effect::PlaySound {
-                    name: "carDoorOpen".into(),
+                    name: "carDoorClose".into(),
                     loudness: None,
                 });
-                out.destination = Some("car_domainExit".into());
-                out.transition = Some("fadeIn".into());
+                out.effects.push(Effect::WaitTicks(30));
+                out.effects.push(Effect::WaitForSound("carDoorClose".into()));
+                out.effects.push(Effect::SuspendSounds { fade: false });
+                out.effects.push(Effect::PlayVideo(None));
+                out.effects.push(Effect::WaitForVideo);
+                out.effects.push(Effect::SetState {
+                    key: "showMontage".into(),
+                    value: Value::Int(1),
+                });
+                out.effects.push(Effect::StopVideo);
+                out.effects.push(Effect::PlaySound {
+                    name: "toRoxy".into(),
+                    loudness: None,
+                });
                 out.new_domain = Some("ROXY".into());
-            } else if let Some((mouth, _)) = MOUTHS
+                out.new_domain_room = None;
+                out.redraw = true;
+                return true;
+            }
+
+            // Otherwise the car comes to rest, and where depends on what it
+            // drove. The three trunk lines end at their own hub and the car
+            // waits there for the next turn.
+            if let Some(hub) = ["A", "B", "c"]
+                .iter()
+                .find(|t| t.eq_ignore_ascii_case(film))
+                .map(|t| format!("hub_{t}"))
+            {
+                state.set_all("carLocation", vec![Value::Symbol(hub)]);
+                state.set_all("currentTrack", vec![Value::Symbol("main".into())]);
+                state.set("showMontage", Value::Int(1));
+                out.redraw = true;
+                return true;
+            }
+            state.set_all("carLocation", vec![Value::Symbol("standingBy".into())]);
+            state.set_all("currentTrack", vec![Value::Symbol("main".into())]);
+
+            // Four of the spurs go nowhere: the film runs out and the car is
+            // back where it started, on montage 3 -- which is the state the
+            // `pointer` hotspot in `car_inside` is guarded on, so the only
+            // thing left to do is set off again.
+            const DEAD_ENDS: [&str; 4] = [
+                "CM_anchorDown",
+                "CM_emptyAnchor",
+                "BM_withChippy",
+                "BM_noChippy",
+            ];
+            if DEAD_ENDS.iter().any(|t| t.eq_ignore_ascii_case(film)) {
+                out.effects.push(Effect::StopVideo);
+                state.set("showMontage", Value::Int(3));
+                out.redraw = true;
+                return true;
+            }
+
+            if !film.eq_ignore_ascii_case("main") {
+                out.effects.push(Effect::StartLoop {
+                    name: "underWater".into(),
+                    volume: None,
+                });
+            }
+            if let Some((mouth, _)) = MOUTHS
                 .iter()
                 .find(|(_, tracks)| tracks.iter().any(|t| t.eq_ignore_ascii_case(film)))
             {
@@ -570,6 +665,30 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 });
             }
             out.effects.push(Effect::WaitForVideo);
+
+            // And then the list turns over: the one at the back comes to the
+            // front, so the next click gets the next thing he has to say.
+            // It is the rotation that makes the finger joke reachable --
+            // `pullOnChippy` wants `#pullMyFinger` lying *second*, and three
+            // turns of this list is what puts it there.
+            if let Some(last) = state.get_all("chippyPleas").last().cloned() {
+                state.set("chippyPleas", last);
+            }
+            // Anything but the first plea comes with the finger wiggle, which
+            // is a second film on the same channel, lower down the frame.
+            if !next.is_symbol("helpMe") {
+                out.effects.push(Effect::PuppetSprite {
+                    channel: 44,
+                    on: true,
+                });
+                out.effects.push(Effect::SpriteLoc {
+                    channel: 44,
+                    x: 305,
+                    y: 336,
+                });
+                out.effects.push(Effect::PlayVideo(Some("fingerWiggle".into())));
+                out.effects.push(Effect::WaitForVideo);
+            }
             out.redraw = true;
         }
 
@@ -1638,6 +1757,116 @@ mod tests {
         // Coming forward with Teddy waiting is what puts him on the anchor.
         assert_eq!(sail("backward", "W").1, "onAnchor");
         assert_eq!(sail("forward", "E").1, "waiting");
+    }
+
+    /// Where the car comes to rest, which is the half of `driveTheCar` that
+    /// was not ported at all. Without it every drive played its stretch of
+    /// film and left the car exactly where it started, so the tracks could not
+    /// be crossed and the chapter could not be finished.
+    /// The list of things Chippy has to say turns over one place per click,
+    /// and that rotation is what makes the finger joke reachable: it only
+    /// lands when `#pullMyFinger` is lying second, which is three turns in.
+    /// The whirligig's last line, which is the one that matters: it takes the
+    /// montage down again. Every hotspot in the chapter worth clicking is
+    /// guarded on `#showMontage` being 0, so without it the wind comes up and
+    /// the world goes read-only.
+    #[test]
+    fn the_whirligig_puts_the_montage_away_after_itself() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all("Wind", vec![Value::Symbol("None".into())]);
+        s.set_all("weatherVane", vec![Value::Symbol("W".into())]);
+        s.set_all("showMontage", vec![Value::Int(1), Value::Int(0)]);
+        let mut out = Outcome::default();
+        assert!(call("startwhirligig", &[], &mut s, &mut out));
+
+        assert_eq!(s.get("Wind"), Value::Symbol("W".into()));
+        let put_away = out.effects.iter().rposition(|e| {
+            matches!(e, Effect::SetState { key, value } if key == "showMontage" && *value == Value::Int(0))
+        });
+        let film = out.effects.iter().position(|e| matches!(e, Effect::PlayVideo(_)));
+        assert!(
+            put_away > film && film.is_some(),
+            "the montage has to come down after the film: {:?}",
+            out.effects
+        );
+    }
+
+    #[test]
+    fn his_pleas_come_round_to_the_joke() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all(
+            "chippyPleas",
+            ["helpMe", "PULL_ME_OUT", "pullMyFinger", "pullMeOut"]
+                .map(|p| Value::Symbol(p.into()))
+                .to_vec(),
+        );
+        let joke_ready = |s: &State| {
+            s.get_all("chippyPleas")
+                .iter()
+                .position(|p| p.is_symbol("pullMyFinger"))
+                == Some(1)
+        };
+
+        for turn in 1..=3 {
+            assert!(!joke_ready(&s), "ready after {} turns", turn - 1);
+            let mut out = Outcome::default();
+            assert!(call("chippyspeaks", &[], &mut s, &mut out));
+        }
+        assert!(joke_ready(&s), "{:?}", s.get_all("chippyPleas"));
+
+        // And pulling then takes it off the list, so it only happens once.
+        let mut out = Outcome::default();
+        assert!(call("pullonchippy", &[], &mut s, &mut out));
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::PlaySound { name, .. } if name == "puppetFart"
+        )));
+        assert!(!s.get_all("chippyPleas").iter().any(|p| p.is_symbol("pullMyFinger")));
+    }
+
+    #[test]
+    fn a_drive_ends_somewhere() {
+        let drive = |track: &str, teddy: &str| {
+            let mut s = State::new();
+            s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+            s.set_all("currentTrack", vec![Value::Symbol(track.into())]);
+            s.set_all("chippyLocation", vec![Value::Symbol("inCar".into())]);
+            s.set_all("boatPosition", vec![Value::Symbol("forward".into())]);
+            s.set_all("teddyLocation", vec![Value::Symbol(teddy.into())]);
+            s.set_all("carLocation", vec![Value::Symbol("enRoute".into())]);
+            let mut out = Outcome::default();
+            assert!(call("drivethecar", &[], &mut s, &mut out));
+            (s, out)
+        };
+
+        // A trunk line parks the car at its own hub, ready to be pointed down
+        // one of the three spurs off it.
+        let (s, _) = drive("c", "waiting");
+        assert_eq!(s.get("carLocation"), Value::Symbol("hub_c".into()));
+        assert_eq!(s.get("currentTrack"), Value::Symbol("main".into()));
+        assert_eq!(s.get("showMontage"), Value::Int(1));
+
+        // A middle spur is a ramp the car does not make: it comes back to
+        // where it set off, on the montage the windscreen is guarded on.
+        let (s, _) = drive("BM", "waiting");
+        assert_eq!(s.get("carLocation"), Value::Symbol("standingBy".into()));
+        assert_eq!(s.get("showMontage"), Value::Int(3));
+
+        // A side spur comes out of a tunnel mouth back on the ice.
+        let (_, out) = drive("BL", "waiting");
+        assert_eq!(out.destination.as_deref(), Some("teN_fwd"));
+
+        // And the middle of C with Teddy on the anchor is the end of the
+        // chapter: he goes in the car and it drives out and home.
+        let (s, out) = drive("CM", "onAnchor");
+        assert_eq!(s.get("teddyLocation"), Value::Symbol("inCar".into()));
+        assert_eq!(out.new_domain.as_deref(), Some("ROXY"));
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::GoToRoom { room, .. } if room == "car_domainExit"
+        )));
     }
 
     #[test]
