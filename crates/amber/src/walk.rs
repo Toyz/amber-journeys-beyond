@@ -59,7 +59,7 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         println!("          a room name, `state [filter]`, `blocked`,");
         println!("          `give <item>`, `use <item>`, `set <flag> <value>`,");
         println!("          `click x y`, `inv x y`,");
-        println!("          `wait <ticks>`, `look`, `skip`, `quit`");
+        println!("          `wait <ticks>`, `look`, `stage`, `skip`, `quit`");
     }
 
     let stdin = std::io::stdin();
@@ -171,6 +171,14 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
     // also cuts short whatever film is playing, which can let a queued move
     // run. Anything that reads the room between steps has to be able to do it
     // without changing where the player is standing.
+    // What is actually on screen, bottom to top. A fault that is only visible
+    // used to need a photograph to diagnose.
+    if cmd == "stage" {
+        for line in game.stage_report() {
+            println!("  {line}");
+        }
+        return Step::Done;
+    }
     if cmd == "look" || cmd.is_empty() {
         show(game);
         return Step::Done;

@@ -8412,3 +8412,43 @@ side, and the fix is that both front ends now share one `describe`.
 All eleven recordings go quiet under `--strict`, `full.walk` included.
 
 261 tests, eleven recordings.
+
+## 172. Something to point at the screen with
+
+helba, with a second photograph of the windscreen: "looks like double video
+still playing".
+
+I could not tell from the picture, and I could not tell from the terminal
+either, which is the point of this entry. `walk` reports films rather than
+opening them -- deliberately, since there is nothing to show them on -- so
+`stage`, `--strict` and every recording are all blind to what is actually
+painted. Three entries in a row have now been diagnosed from a photograph.
+
+So: `Game::stage_report`, which is the compositor's own layer list in the
+order it paints, as text.
+
+```text
+room sprite ch1 cast 1067 ink 0 at Some((320, 240))
+film b.mov 320x240 drawn 320x240 at Some((322, 204))
+overlay film on ch45 172x80 drawn Some((172, 80)) at Some((454, 365))
+puppet ch44 cast 1031 ink 0 at Some((336, 184))
+```
+
+It is on `stage` in the terminal, and on the **S** key in the window, where
+it goes to the log. A fault that is only visible can now be asked about at the
+moment it looks wrong, rather than reconstructed from pixels afterwards.
+
+Four things could put a second film on the stage, and the report separates
+them at a glance: the room's own film, a film a script pushed over it, a film
+running on a puppet channel, and a puppet left behind by a sequence that has
+finished. In the car all four are in play -- `initWhirligig` puts films on
+channels 44 and 45, `chippyHopsIn` puts one on 45, and `driveTheCar` pushes
+one over the room's -- and which of them is still alive after a drive is
+exactly the question I could not answer.
+
+Worth being honest about the limit while I am here: `--strict` models the
+queue and the waits, not the picture. It caught the deadlock in entry 171
+because a deadlock is a queue that will not move. It would not have caught a
+film drawn twice, and no recording ever will.
+
+261 tests, eleven recordings.

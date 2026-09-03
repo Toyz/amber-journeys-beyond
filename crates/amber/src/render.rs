@@ -377,6 +377,17 @@ pub fn play_with(
         if window.is_key_pressed(Key::Tab, minifb::KeyRepeat::No) {
             show_hotspots = !show_hotspots;
         }
+        // S prints what is on the stage, bottom to top, into the log. A fault
+        // that is only visible -- a film at the wrong size, a film drawn twice
+        // because something is running one on a channel as well -- has had to
+        // be diagnosed from a photograph until now. This is the compositor
+        // saying what it is about to paint, at the moment it looks wrong.
+        if window.is_key_pressed(Key::S, minifb::KeyRepeat::No) {
+            println!("-- stage, bottom to top --");
+            for line in game.stage_report() {
+                println!("   {line}");
+            }
+        }
 
         // The window may be resized, but the stage is always 640x480 and the
         // scale mode letterboxes it, so mouse coordinates need mapping back.

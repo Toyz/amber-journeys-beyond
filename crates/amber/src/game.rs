@@ -1377,6 +1377,66 @@ impl Game {
         self.script.is_empty() && self.waiting.is_none()
     }
 
+    /// Everything that would be drawn, bottom to top, as text.
+    ///
+    /// The terminal cannot see the stage, and a fault that is only visible --
+    /// a film at the wrong size, a puppet left over from a sequence that has
+    /// finished -- has until now had to be diagnosed from a photograph. This
+    /// is the compositor's own layer list, in the order it paints.
+    pub fn stage_report(&mut self) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rows: Vec<(u16, String)> = Vec::new();
+        for (ch, cast, center, ink) in self.visible() {
+            rows.push((
+                12 + ch as u16,
+                format!("room sprite ch{ch} cast {cast} ink {ink} at {center:?}"),
+            ));
+        }
+        if let Some(p) = &self.player {
+            let (w, h) = p.frame_size();
+            let (dw, dh) = self.playing_size.unwrap_or((w, h));
+            rows.push((
+                44,
+                format!(
+                    "film {} {w}x{h} drawn {dw}x{dh} at {:?}{}",
+                    self.playing.clone().unwrap_or_else(|| "(none)".into()),
+                    self.playing_at,
+                    if p.finished { " (ended)" } else { "" }
+                ),
+            ));
+        }
+        if let Some(o) = &self.overlay {
+            let (w, h) = o.player.frame_size();
+            let at = self.puppets.get(&o.channel).and_then(|p| p.loc);
+            rows.push((
+                o.channel as u16,
+                format!(
+                    "overlay film on ch{} {w}x{h} drawn {:?} at {at:?}{}",
+                    o.channel,
+                    o.size,
+                    if o.player.finished { " (ended)" } else { "" }
+                ),
+            ));
+        }
+        for (ch, puppet) in self.puppets.iter() {
+            if puppet.cast == 0 || puppet.hidden {
+                continue;
+            }
+            rows.push((
+                *ch as u16,
+                format!(
+                    "puppet ch{ch} cast {} ink {} at {:?}",
+                    puppet.cast, puppet.ink, puppet.loc
+                ),
+            ));
+        }
+        rows.sort_by_key(|(ch, _)| *ch);
+        for (_, line) in rows {
+            out.push(line);
+        }
+        out
+    }
+
     /// What the queue and the running script look like, for the strict
     /// replay's report when a recording stops making progress.
     pub fn pending_len(&self) -> usize {
