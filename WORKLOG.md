@@ -7636,3 +7636,53 @@ and her telegram, home through the dark house, out to the gazebo, Brice's
 chapter, and home again. No step in it fails.
 
 254 tests, ten recordings.
+
+## 160. A film played twice, and a chapter that ended at the beginning
+
+Both of helba's, watching Brice's chapter.
+
+**The weathervane's film ran through twice on every pull.** The rope's hotspot
+reads
+
+```text
+setState( oStoryteller, #showMontage, 1 )
+updateDisplay( oPuppeteer )
+setLoop #win_pulleyLoop, 100
+pushVideo
+wait #videoStop
+```
+
+The `setState` and the `updateDisplay` are what choose *which* film is on the
+video channel, and the redraw starts it -- so by the time `pushVideo` runs the
+film is already playing, and `pushVideo` with nothing named started it again.
+It now only starts the room's film when that is not already the film that is
+running, which is what `pushVideo` means when the thing it would push is
+already pushed.
+
+**And then the chapter ended on the opening titles.** `goodbyeMandy` finishes
+with
+
+```text
+enterNewDomain( oStoryteller, string(#Roxy), 'Brice_reentry' )
+```
+
+-- a room *name* as the third argument where Margaret's chapter passes a
+number, and not a name that resolves either: the room is `Ggaz_Reentry`, and
+the game does not use the argument at all. It works out where to put the
+player from which domain they are leaving, which entry 156 already ported.
+
+But that only ran when there was something in the freezer, and a recording
+that starts inside a chapter -- `brice.walk` does, so the chapter can be
+watched on its own -- has nothing in it. So the return fell through to the
+chapter's declared start, which for Roxy's house is the opening film. helba's
+log says it plainly:
+
+```text
+[   4015] audio  basement_doorGadgets   play solidDoorOpen
+[   4171] audio  Gbhs_playIntro         play (unnamed) 4396096 frames
+```
+
+Coming home with an empty freezer now uses the same re-entry room the thawing
+path does, so `brice.walk` ends where his chapter ends: in the gazebo.
+
+254 tests, ten recordings.

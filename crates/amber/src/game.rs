@@ -381,6 +381,20 @@ impl Game {
                 self.seeded.remove(domain);
                 self.seed_chapter(domain);
             }
+            (true, None) => {
+                // Home, with nothing in the freezer: a recording that starts
+                // inside a chapter rather than walking to it. There is still a
+                // way back in -- each chapter has its own -- and using it
+                // beats landing on the opening film, which is where the
+                // chapter's declared start sends you.
+                self.seed_chapter(domain);
+                self.reentry = match leaving.to_ascii_uppercase().as_str() {
+                    "MARGARET" => Some("DarkUp_40sReentry".into()),
+                    "BRICE" => Some("Ggaz_Reentry".into()),
+                    "EDWIN" => Some("Gbhs_Reentry1".into()),
+                    _ => None,
+                };
+            }
             _ => self.seed_chapter(domain),
         }
 
@@ -814,7 +828,20 @@ impl Game {
                     .map(|m| (m.width as u32, m.height as u32))
                     .filter(|(w, h)| *w > 0 && *h > 0);
             }
-            None => self.start_room_video(),
+            // `pushVideo` with nothing named plays whatever the room has on
+            // its video channel. It is almost always preceded by a `setState`
+            // and an `updateDisplay` that choose *which* film that is -- and
+            // the redraw has already started it by the time this runs, so
+            // starting it again played it twice. The weathervane is where it
+            // shows: three pulls on the rope, and each one ran its film
+            // through and then ran it through again.
+            None => {
+                let already = self.video() == self.playing;
+                let running = self.player.as_ref().is_some_and(|p| !p.finished);
+                if !already || !running {
+                    self.start_room_video();
+                }
+            }
         }
     }
 
