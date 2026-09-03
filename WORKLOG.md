@@ -8574,3 +8574,81 @@ and drops it, then `driveTheCar` does the same -- which is what the handlers
 do. A loop already running is left alone; these were not running.
 
 263 tests, eleven recordings.
+
+## 175. The finish line
+
+helba: "we escaped edwins with no bugs onward to the finishline?"
+
+There was more of the game left than I thought, and one handler standing
+between here and the end of it.
+
+### The handler that closes a chapter
+
+`initInventory` rebuilds the inventory bar, and then, at the bottom, does
+something else entirely:
+
+```text
+if getState( #currentLocation ) = #DarkUp_40sReentry then
+  fadeOutTransit
+  trimState( #ghostsRemaining, #Margaret ) : ghostCalls #None
+  trimState( #hauntsRemaining, #ghostBrushingHair )
+  trimState( #hauntsRemaining, #stairsGhost )
+  setLoop #houseHum, 96
+  setState( #showMontage, 1 ) : setTransition #slowMontage : updateDisplay
+  setState( #PeekDisplay, #psionicFragment ) : peekAlert
+```
+
+-- and the same for `#Ggaz_Reentry` and `#Gbhs_Reentry1`. Coming home is not
+just arriving in a room. The ghost comes off `#ghostsRemaining`, the haunts
+that were *that ghost's* come off the pool so they stop being drawn, and the
+PeeK unit reports a psionic fragment, which is the game telling the player one
+of the three is done.
+
+None of it was ported. Three chapters played and `#ghostsRemaining` still held
+all three, the retired ghosts' haunts were still in the rotation, and the PeeK
+never said a word about any of it.
+
+The original hangs it off the inventory refresh, which runs constantly. Here
+it runs once, when a chapter's own way home puts the player in its re-entry
+room, which is the moment it means.
+
+### The last click
+
+`GarageRoxyXTCU`. Roxy's body in the garage loft, where she has been since the
+opening film, and the last hotspot in the game:
+
+```text
+[#itemInUse, rect(67, 74, 503, 353),
+ ["cursorOff", "deleteInventory( #headgear )",
+  "setState( #showXfile, 1 )", ... "setState( #playerHasHeadgear, #usedUp )",
+  "setState( #showMontage, 1 )", "goTo(#GarageEscape, #backOff)",
+  "suspendSounds", "pushVideo", "wait #videoStop", "killVideo",
+  "setState( #showMontage, 0 )", "updateDisplay(oPuppeteer, #fastVideo)",
+  "pushVideo", "wait #videoStop",
+  "showCreditScreen( oPuppeteer, #endGame )"],
+ [#equals: [#itemInUse, #Headgear]]]
+```
+
+Put the headgear on her. The X-file shows, the headgear is used up,
+`endAnim.mov` plays, then `Endsize`, and then the credits.
+
+`showCreditScreen` was ported as `out.credits = true` and nothing read the
+flag. `credits.mov` is in the cast at 2285, 220 by 220, and placed in no room
+-- because this is what places it. It plays now.
+
+One small reporting fix fell out of watching the ending: `settle` resolved
+"which film would the room play" once at the top and used it for every
+`pushVideo` in the queue. The ending steps `#showMontage` between its two, so
+they are two different films, and both were reported as `(none)`. Asked per
+effect they are `endsize` and the one before it.
+
+### full.walk
+
+970 lines, and it now runs from the opening film to the credits: Roxy's house,
+the BAR, the cameras, the telephone, the Amber vision, Margaret's chapter,
+Brice's, Edwin's, and then back to the garage with the headgear.
+
+The whole game, start to end, in one recording that replays clean in the
+terminal and under `--strict`.
+
+263 tests, eleven recordings.

@@ -817,6 +817,76 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         // show. Its three icons are the plain one and two glows, which is why
         // the inventory table lists three casts for this item and two for
         // every other.
+        // on initInventory
+        //   ... rebuilds the bar ...
+        //   if getState( #currentLocation ) = #DarkUp_40sReentry then
+        //     fadeOutTransit
+        //     trimState( #ghostsRemaining, #Margaret ) : ghostCalls #None
+        //     trimState( #hauntsRemaining, #ghostBrushingHair )
+        //     trimState( #hauntsRemaining, #stairsGhost )
+        //     setLoop #houseHum, 96
+        //     setState( #showMontage, 1 ) : setTransition #slowMontage
+        //     updateDisplay
+        //     setState( #PeekDisplay, #psionicFragment ) : peekAlert
+        //   ... and the same for #Ggaz_Reentry and #Gbhs_Reentry1 ...
+        //
+        // The handler that closes a chapter. Coming home is not just arriving
+        // in a room: the ghost is taken off `#ghostsRemaining`, the haunts
+        // that were that ghost's are taken off `#hauntsRemaining` so they stop
+        // being drawn, and the PeeK unit reports a psionic fragment -- which
+        // is the game telling the player one of the three is done.
+        //
+        // None of it was ported, and the cost was the whole ending. The
+        // headgear on Roxy in the garage is the last click in the game, and
+        // the chain that gets there is counted in ghosts. Three chapters
+        // played and `#ghostsRemaining` still held all three.
+        //
+        // The original hangs this off the inventory refresh, which runs
+        // constantly; here it runs once, when the chapter's own way home puts
+        // the player in the re-entry room, which is the moment it means.
+        "closechapter" => {
+            const HOMECOMINGS: [(&str, &str, &[&str]); 3] = [
+                (
+                    "DarkUp_40sReentry",
+                    "Margaret",
+                    &["ghostBrushingHair", "stairsGhost"],
+                ),
+                (
+                    "Ggaz_Reentry",
+                    "Brice",
+                    &["knifeShadow", "hungMan", "TVghost", "Gazebo1", "gazebo2", "gazebo3"],
+                ),
+                ("Gbhs_Reentry1", "Edwin", &["lakeGhost", "lakeGhost2"]),
+            ];
+            let Some(where_now) = args.first().and_then(|v| v.as_str().map(str::to_string)) else {
+                return true;
+            };
+            let Some((_, ghost, haunts)) = HOMECOMINGS
+                .iter()
+                .find(|(room, ..)| room.eq_ignore_ascii_case(where_now.trim_start_matches('#')))
+            else {
+                return true;
+            };
+
+            state.trim_item("ghostsRemaining", &Value::Symbol((*ghost).into()));
+            for haunt in *haunts {
+                state.trim_item("hauntsRemaining", &Value::Symbol((*haunt).into()));
+            }
+            // Margaret's is the one that also drops the house hum, because
+            // hers is the chapter that leaves the player upstairs in the dark.
+            if ghost.eq_ignore_ascii_case("Margaret") {
+                out.effects.push(Effect::StartLoop {
+                    name: "houseHum".into(),
+                    volume: Some(96),
+                });
+            }
+            state.set("showMontage", Value::Int(1));
+            out.effects.push(Effect::SetTransition { kind: "slowMontage".into() });
+            state.set("PeekDisplay", Value::Symbol("psionicFragment".into()));
+            call("peekalert", &[], state, out);
+            out.redraw = true;
+        }
+
         "peekalert" => {
             // `enablePeekAlert` and `disablePeekAlert` are one line each and
             // only the camcorder log turns it off, so an unset flag means on.

@@ -1050,7 +1050,6 @@ impl Game {
     /// that is state is applied.
     pub fn settle(&mut self) -> Vec<String> {
         let mut report = Vec::new();
-        let room_film = self.video();
         // Nothing can proceed while the queue is holding for a click, and
         // clearing it here would take the click out of the player's hands --
         // which is the whole of what entry 150 was about.
@@ -1090,7 +1089,12 @@ impl Game {
                 let effect = self.pending.remove(0);
                 // One formatter for both front ends, so the timeline the
                 // walkthrough prints and the timeline `--strict` prints cannot
-                // say different things about the same queue.
+                // say different things about the same queue. The room's own
+                // film is asked for per effect rather than once: a sequence
+                // that steps a flag between two `pushVideo`s plays two
+                // different films, and reading it up front named the first one
+                // twice -- or, at the end of the game, neither.
+                let room_film = self.video();
                 if let Some(line) = describe(&effect, room_film.as_deref()) {
                     report.push(line);
                 }
@@ -1534,9 +1538,9 @@ impl Game {
     /// is stuck.
     pub fn drain_ready_report(&mut self) -> Vec<String> {
         let effects = self.drain_ready();
-        let room_film = self.video();
         let mut report = Vec::new();
         for effect in &effects {
+            let room_film = self.video();
             if let Some(line) = describe(effect, room_film.as_deref()) {
                 report.push(line);
             }
@@ -1685,6 +1689,21 @@ impl Game {
     /// little screen the recordings play in. Setting the number and leaving it
     /// to the bitmap decoder drew nothing at all, because a film has no
     /// bitmap -- so the unit opened, said what it had, and showed a blank.
+    /// Runs `initInventory`'s homecoming branch for the room just arrived in.
+    fn close_chapter(&mut self, room: &str) {
+        let mut out = Outcome::default();
+        let done = crate::natives::call(
+            "closechapter",
+            &[lingo::Value::Symbol(room.to_string())],
+            &mut self.state,
+            &mut out,
+        );
+        if done {
+            trace!(crate::trace::Topic::Room, "closing the chapter at {room}");
+            self.apply(&out);
+        }
+    }
+
     /// Where the room puts its `#video` channel.
     ///
     /// In Director a channel's position is a score property: the `#showIF`
@@ -2833,6 +2852,14 @@ impl Game {
                         if let Some(room) = self.world.resolve(&name, Some(&d)) {
                             trace!(crate::trace::Topic::Room, "re-entering at {name}");
                             self.move_to(room);
+                            // Arriving in the re-entry room is what closes the
+                            // chapter: the ghost comes off `#ghostsRemaining`,
+                            // its haunts come off `#hauntsRemaining`, and the
+                            // PeeK unit reports a psionic fragment. The
+                            // original hangs it off the inventory refresh,
+                            // which runs constantly; here it runs once, at the
+                            // moment it means.
+                            self.close_chapter(&name);
                             self.start_room_video();
                             return;
                         }
@@ -3242,7 +3269,6 @@ mod tests {
     /// every time the car reached a hub.
     #[test]
     fn a_film_on_a_channel_is_a_still_until_something_plays_it() {
-        let mut game = Game::for_test();
         // Nothing to point at in the test harness, so the rule is checked on
         // the player itself, which is what `point_channel` parks.
         let Some(mut player) = crate::player::VideoPlayer::open(std::path::Path::new(

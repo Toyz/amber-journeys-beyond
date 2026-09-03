@@ -590,7 +590,16 @@ fn exec(line: &str, state: &mut State, out: &mut Outcome) {
                 out.effects.push(Effect::SetTransition { kind });
             }
         }
-        "showcreditscreen" => out.credits = true,
+        // `showCreditScreen( oPuppeteer, #endGame )` is the last line of the
+        // last hotspot in the game: the headgear goes on Roxy in the garage,
+        // the escape plays, and then this. The flag is what the front ends
+        // read to know the game is over; the film is `credits.mov`, which is
+        // in the cast and placed in no room because this is what places it.
+        "showcreditscreen" => {
+            out.credits = true;
+            out.effects.push(Effect::PlayVideo(Some("credits.mov".into())));
+            out.effects.push(Effect::WaitForVideo);
+        }
 
         // -- state -----------------------------------------------------------
         // `setState` takes the object, the key and the value; the object is
