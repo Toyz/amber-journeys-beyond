@@ -593,9 +593,14 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             const ANTENNA: u8 = 46;
             const SCREEN: u8 = 44;
             const TEXT: u8 = 40;
+            const SCAN_LIGHT: u8 = 41;
+            const BAR_LIGHT: u8 = 42;
+            const AMBER_LIGHT: u8 = 43;
             const UNIT_AT: (i32, i32) = (320, 200);
             const ROLL_UP_AT: (i32, i32) = (317, 189);
             const SCREEN_AT: (i32, i32) = (317, 132);
+            const TEXT_AT: (i32, i32) = (317, 226);
+            const BUTTONS_AT: (i32, i32) = (247, 270);
 
             let display = state.get("PeekDisplay");
             let display = display.as_str().unwrap_or("None").trim_start_matches('#').to_string();
@@ -642,6 +647,61 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 table: "PkVideoNormal".into(),
                 key: "PkNone".into(),
             });
+
+            // The three status lights along the bottom of the unit, one per
+            // machine. All three are placed at the same point --
+            //
+            // ```text
+            // buttonCoords = point( 247, 270 ) + gOriginPoint
+            // set the loc of sprite pkScanIcon  = buttonCoords
+            // set the loc of sprite pkBarIcon   = buttonCoords
+            // set the loc of sprite pkAmberIcon = buttonCoords
+            // ```
+            //
+            // -- and land side by side anyway, because each one's registration
+            // point sits a different distance outside its own rectangle: the
+            // three casts are 32 by 29 with origins at 342, 389 and 437.
+            //
+            // Each light has three frames in a list read by position,
+            // `[channel, offline, online, active]`, and which one it shows is
+            // its machine's own flag.
+            let scan = state.get("PKscanStatus");
+            let scan_on = !(scan.is_symbol("Offline") || scan.is_symbol("CantAttach"));
+            let lights = [
+                (SCAN_LIGHT, "scanIcon", scan_on),
+                (BAR_LIGHT, "barIcon", state.get("BarOnline").as_int() == Some(1)),
+                (AMBER_LIGHT, "amberIcon", state.get("AMBERisOnline").as_int() == Some(1)),
+            ];
+            // The readout, which every branch below points at a page of
+            // `#peekText`. It was never claimed or placed, so the pages were
+            // drawn wherever a sprite with no location goes -- the middle of
+            // the stage, which happens to be close enough to the middle of
+            // the unit that the mistake did not show.
+            out.effects.push(Effect::PuppetSprite { channel: TEXT, on: true });
+            out.effects.push(Effect::SpriteInk { channel: TEXT, ink: 8 });
+            out.effects.push(Effect::SpriteLoc {
+                channel: TEXT,
+                x: TEXT_AT.0,
+                y: TEXT_AT.1,
+            });
+            out.effects.push(text_page(TEXT, "None"));
+
+            for (channel, table, online) in lights {
+                out.effects.push(Effect::PuppetSprite { channel, on: true });
+                out.effects.push(Effect::SpriteInk { channel, ink: 8 });
+                out.effects.push(Effect::SpriteCastFromTable {
+                    channel,
+                    table: table.into(),
+                    // `getAt( list, 3 )` when the machine is up, 2 when it is
+                    // not; the first entry is the channel, not a frame.
+                    key: if online { "3" } else { "2" }.into(),
+                });
+                out.effects.push(Effect::SpriteLoc {
+                    channel,
+                    x: BUTTONS_AT.0,
+                    y: BUTTONS_AT.1,
+                });
+            }
 
             // A camera haunt: the unit plays back what was caught, the bar
             // records that it caught something, and the haunt comes off the
@@ -725,7 +785,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
                 out.effects.push(Effect::WaitForClick);
             }
 
-            for channel in [TEXT, SCREEN, ANTENNA, BODY] {
+            for channel in [AMBER_LIGHT, BAR_LIGHT, SCAN_LIGHT, TEXT, SCREEN, ANTENNA, BODY] {
                 out.effects.push(Effect::PuppetSprite { channel, on: false });
             }
             // The unit stays in the hand. Nothing here puts it back, and that

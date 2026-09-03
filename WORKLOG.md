@@ -7266,3 +7266,46 @@ helba sent. A film now keeps the position it was opened at until it is
 replaced.
 
 254 tests, nine recordings.
+
+## 153. The unit's three lights
+
+helba asked whether the PeeK is meant to have buttons on it when it is open.
+Three of them, and they were missing along with everything else the unit is
+made of.
+
+```text
+buttonCoords = point( 247, 270 ) + gOriginPoint
+set the loc of sprite pkScanIcon  = buttonCoords
+set the loc of sprite pkBarIcon   = buttonCoords
+set the loc of sprite pkAmberIcon = buttonCoords
+```
+
+All three at the same point, which looks like a mistake until you look at the
+casts: they are 32 by 29 with registration points at (336, 212) and origins at
+342, 389 and 437, so each one's registration point sits a different distance
+outside its own rectangle and they land in a row. The engine already handled
+that -- it is the same arithmetic as any other sprite -- it simply had never
+been asked to draw them.
+
+Each light has three frames and reads its own machine's flag:
+
+```text
+#scanIcon:  [6, 979, 982, 985]     -- offline, online, active
+#barIcon:   [6, 980, 983, 986]
+#amberIcon: [6, 981, 984, 987]
+if getState( #BarOnline ) = 1 then getAt( barIcon, 3 ) else getAt( barIcon, 2 )
+```
+
+The lists are read by position rather than by symbol, and this engine's cast
+tables only stored the ones written as property lists -- so a table like this
+was not there to be looked up at all. It stores a plain list of numbers under
+its positions now, which is the same table addressed the way its readers
+address it.
+
+The readout got its place too. Every branch of `usePeekUnit` points the text
+channel at a page of `#peekText`, and nothing had ever claimed the channel or
+told it where to go, so the pages landed where a sprite with no location goes
+-- the middle of the stage. That is close enough to the middle of the unit
+that the mistake did not show, which is the worst kind.
+
+253 tests, nine recordings.

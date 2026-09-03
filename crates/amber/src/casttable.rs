@@ -68,14 +68,33 @@ impl CastTables {
                 continue;
             }
             for (name, value) in &entries {
-                let Value::Props(rows) = value else { continue };
-                if rows.is_empty() || !rows.iter().all(|(_, v)| v.as_int().is_some()) {
-                    continue;
-                }
-                let rows = rows
-                    .iter()
-                    .filter_map(|(k, v)| Some((k.to_ascii_lowercase(), v.as_int()? as u32)))
-                    .collect();
+                let rows: Vec<(String, u32)> = match value {
+                    Value::Props(rows) => {
+                        if rows.is_empty() || !rows.iter().all(|(_, v)| v.as_int().is_some()) {
+                            continue;
+                        }
+                        rows.iter()
+                            .filter_map(|(k, v)| {
+                                Some((k.to_ascii_lowercase(), v.as_int()? as u32))
+                            })
+                            .collect()
+                    }
+                    // Some of them are written as a plain list and read with
+                    // `getAt`, which is the same table addressed by position:
+                    // `#scanIcon: [6, 979, 982, 985]` is the scan light's
+                    // three states with the channel it belongs on in front.
+                    Value::List(items) => {
+                        if items.is_empty() || !items.iter().all(|v| v.as_int().is_some()) {
+                            continue;
+                        }
+                        items
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, v)| Some(((i + 1).to_string(), v.as_int()? as u32)))
+                            .collect()
+                    }
+                    _ => continue,
+                };
                 tables.insert(name.to_ascii_lowercase(), rows);
             }
         }
