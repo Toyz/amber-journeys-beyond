@@ -2936,6 +2936,28 @@ fn blit(
 mod tests {
     use super::*;
 
+    /// What `pump` hands back is a *report*, not a work list: every effect in
+    /// it has already been queued on the way past. A caller that also acts on
+    /// them acts on them twice -- which is what two of the window's paths were
+    /// doing, so a resumed sequence sounded each of its cues once early and
+    /// once in its place. The car's drive is where helba could hear it.
+    #[test]
+    fn pump_reports_the_effects_it_has_already_queued() {
+        let mut game = Game::for_test();
+        game.script = vec![
+            "startSound #carDoorOpen".into(),
+            "startSound #carDoorClose".into(),
+        ];
+        let outcome = game.pump();
+        assert!(!outcome.effects.is_empty());
+        for effect in &outcome.effects {
+            assert!(
+                game.pending.contains(effect),
+                "{effect:?} was reported but not queued"
+            );
+        }
+    }
+
     #[test]
     fn a_state_write_lands_after_the_effects_queued_above_it() {
         // The weathervane's trellis, in miniature: fade through three montages

@@ -276,33 +276,20 @@ pub fn play_with(
         // the switch sets its flag, the stage recomposes so the movie appears,
         // and only when the movie ends does the script clear the flag again.
         if game.script_running() {
+            // Only what the resumed actions ask of the *frame*. Their effects
+            // are not played here: `pump` has already queued every one of them
+            // on the way past, and `apply_effects` above is what plays a queue
+            // -- in order, and only once whatever wait stands in front of them
+            // has cleared. Playing them here as well sounded each of them
+            // twice, once early and once in its place, which is what made a
+            // long sequence like the car's drive stutter and echo.
             let outcome = game.pump();
-            if outcome.destination.is_some() || outcome.go_back || outcome.redraw {
+            if outcome.destination.is_some()
+                || outcome.go_back
+                || outcome.redraw
+                || !outcome.effects.is_empty()
+            {
                 dirty = true;
-            }
-            if !outcome.effects.is_empty() {
-                dirty = true;
-            }
-            for effect in outcome.effects {
-                let Some(a) = &audio else { continue };
-                match effect {
-                    Effect::PlaySound { name, loudness } => {
-                        let scale = match loudness.as_deref() {
-                            Some("low") => 90.0 / 255.0,
-                            Some("medium") => 180.0 / 255.0,
-                            _ => 1.0,
-                        };
-                        let gain = game.sounds.gain(&name) * scale;
-                        if let Some((pcm, rate, ch)) = game.sound(&name) {
-                            a.play(Some(&name), None, pcm, rate, ch, gain, false, true);
-                        }
-                    }
-                    Effect::StopVideo => {
-                        game.player = None;
-                        playing_soundtrack = false;
-                    }
-                    _ => {}
-                }
             }
         }
 
@@ -435,20 +422,11 @@ pub fn play_with(
         let down = window.get_mouse_down(MouseButton::Left);
         // A dial that asked to keep turning does so while the button is held.
         if let Some(outcome) = game.tick_held(down) {
-            if outcome.redraw || outcome.destination.is_some() {
+            // Same again: a held dial's repeat goes through `pump` like any
+            // other action, so its effects are already queued and applying
+            // them here would apply them twice.
+            if outcome.redraw || outcome.destination.is_some() || !outcome.effects.is_empty() {
                 dirty = true;
-            }
-            for effect in outcome.effects {
-                if game.apply_puppet(&effect) {
-                    dirty = true;
-                    continue;
-                }
-                if let (Some(a), Effect::PlaySound { name, .. }) = (&audio, &effect) {
-                    let gain = game.sounds.gain(name);
-                    if let Some((pcm, rate, ch)) = game.sound(name) {
-                        a.play(Some(name), None, pcm, rate, ch, gain, false, true);
-                    }
-                }
             }
         }
         // A sequence that is still running takes the click with it.

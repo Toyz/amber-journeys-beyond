@@ -8237,3 +8237,60 @@ them, and look. It needs `set AMBERVISION on` once more, for the reason entry
 are marked where they happen.
 
 260 tests, eleven recordings.
+
+## 170. Two paths, one queue
+
+helba, playing the car: "some of events seem to double play randomly a lot in
+the car".
+
+Not random, and not the car. Two of the window's paths were acting on effects
+that had already been queued.
+
+`Game::pump` runs a hotspot's action list one action at a time, and for each
+one it calls `apply`, whose last line is
+
+```rust
+self.pending.extend(outcome.effects.iter().cloned());
+```
+
+Then it hands back a merged `Outcome` covering everything it ran. That
+outcome is a *report*. Every effect in it is in the queue.
+
+The window's main loop drains that queue every frame, in `apply_effects`, and
+that is where sound is played and films are started. But two other places also
+walked the returned effects and played them themselves:
+
+- the resume block, which is what lets a part-run sequence carry on once the
+  film it was waiting for has finished;
+- the held-button block, which is how a dial keeps turning.
+
+So each of their cues sounded twice: once the moment `pump` returned, and
+again when the queue reached it. It sounded random because the two are not
+close together -- the queue holds at waits and the direct call does not, so
+the gap between the two copies is however long the wait in front of them
+lasts. In most rooms a sequence is short and the two land almost on top of
+each other, which reads as one thick sound. The car's drive is a long
+sequence with several films in it, and there the copies come seconds apart.
+
+Both blocks now do nothing but set `dirty`. Everything they used to do,
+`apply_effect` already did -- including `StopVideo`, which the resume block
+had its own duplicate copy of.
+
+The invariant is worth a test rather than a comment, because it is the kind of
+thing a future caller will get wrong the same way:
+
+```rust
+let outcome = game.pump();
+for effect in &outcome.effects {
+    assert!(game.pending.contains(effect),
+            "{effect:?} was reported but not queued");
+}
+```
+
+The terminal never had this: `walk` prints what `settle` drains and plays
+nothing, so a fault that is only audible could not show up in a recording.
+That is the second time the walkthrough's blindness has hidden something --
+entry 150 was the first -- and both times the answer was the same, which is to
+put the invariant in a test instead of trusting the front end to reveal it.
+
+261 tests, eleven recordings.
