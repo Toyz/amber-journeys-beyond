@@ -15,6 +15,7 @@
 mod brice;
 mod edwin;
 mod margaret;
+pub mod members;
 mod roxy;
 mod shared;
 
@@ -121,6 +122,7 @@ pub fn is_handled(name: &str) -> bool {
 
 pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) -> bool {
     shared::call(name, args, state, out)
+        || members::call(name, args, state, out)
         || roxy::call(name, args, state, out)
         || edwin::call(name, args, state, out)
         || brice::call(name, args, state, out)

@@ -64,6 +64,8 @@ pub struct Game {
     /// Cues still to come in the film that is playing, latest first so the
     /// next one is the last element and can be popped.
     cues: Vec<(u32, crate::markers::Cue)>,
+    /// When the next carol may play on Edwin's ice.
+    carol_after: Option<Instant>,
     /// True while the opening film is playing, because that one film -- and
     /// only that one -- can be cut short by a click.
     intro_running: bool,
@@ -192,6 +194,7 @@ impl Game {
             cursor_hidden: false,
             effect_wait: None,
             cues: Vec::new(),
+            carol_after: None,
             intro_running: false,
             sounds_suspended: false,
             ghost_call_until: None,
@@ -1342,6 +1345,48 @@ impl Game {
         false
     }
 
+    /// A carol, every three and a half minutes, on Edwin's ice.
+    ///
+    /// ```text
+    /// on playASong
+    ///   if getState( #carolsEnabled ) = 0 then return
+    ///   if the ticks - lastSong < 12600 then return
+    ///   lsCarols = getProp( states, #windSongs )
+    ///   ... return if any sound channel is busy ...
+    ///   newSong = getAt( lsCarols, 1 ) : startSound newSong
+    ///   setState( #windSongs, getLast( lsCarols ) )
+    ///   lastSong = the ticks
+    /// ```
+    ///
+    /// Four Christmas carols drifting across a frozen lake, one at a time,
+    /// with the list turning over the same way Chippy's pleas do. The wind
+    /// handlers that stop them -- `killSongs` and `disableSongs` -- were
+    /// ported and the one that starts them was not, so the ice had four songs
+    /// on it and never played any.
+    pub fn tick_carol(&mut self) -> Option<String> {
+        if self.state.get("carolsEnabled").as_int() != Some(1) {
+            return None;
+        }
+        if self.sounds_suspended {
+            return None;
+        }
+        // Three and a half minutes between them, which is the wait the
+        // original counts in ticks.
+        if self.carol_after.is_some_and(|t| Instant::now() < t) {
+            return None;
+        }
+        let carols = self.state.get_all("windSongs").to_vec();
+        let song = carols.first()?.as_str()?.trim_start_matches('#').to_string();
+        // The last comes round to the front, so the next click gets the next
+        // one -- the same rotation as `chippyPleas`.
+        if let Some(last) = carols.last().cloned() {
+            self.state.set("windSongs", last);
+        }
+        self.carol_after = Some(Instant::now() + Duration::from_secs(210));
+        trace!(crate::trace::Topic::Audio, "carol: {song}");
+        Some(song)
+    }
+
     pub fn tick_ghost_call(&mut self) {
         // `idle` puts this behind `getState( #AMBERVISION ) = #on`, and the
         // hint book agrees: the calls begin once the headgear is on and
@@ -1507,6 +1552,11 @@ impl Game {
         rows.sort_by_key(|(ch, _)| *ch);
         for (_, line) in rows {
             out.push(line);
+        }
+        // And what the queue is holding for, since a stage that will not take
+        // a click usually looks exactly like one that will.
+        if self.waiting_for_click() {
+            out.push("holding for a click".into());
         }
         out
     }
@@ -1852,6 +1902,24 @@ impl Game {
             }
         }
         out
+    }
+
+    /// The handler for whatever member is drawn under a point, if it has one.
+    fn member_script_at(&mut self, x: i32, y: i32) -> Option<&'static str> {
+        let channel = self.sprite_at(x, y)?;
+        self.member_script(channel)
+    }
+
+    /// The handler for whatever member a script-driven channel is showing.
+    fn member_script(&mut self, channel: u8) -> Option<&'static str> {
+        let cast = self.puppets.get(&channel).map(|p| p.cast).filter(|c| *c > 0)?;
+        let domain = self.node().domain.clone();
+        let name = self
+            .chapter(&domain)?
+            .movie
+            .member(cast)
+            .and_then(|m| m.name.clone())?;
+        crate::natives::members::script_for(&domain, &name)
     }
 
     /// Where the room puts its `#video` channel.
@@ -2725,6 +2793,19 @@ impl Game {
     }
 
     pub fn click(&mut self, x: i32, y: i32) -> Option<Outcome> {
+        // A member's own script comes first -- before the modal dismissal
+        // below, because Director runs a sprite's script before the frame
+        // sees the click at all. The PeeK unit is the case that needs it: the
+        // unit holds for a click while it is up, and the click that plays a
+        // tonal residue back lands on its readout, so a dismissal rule that
+        // came first swallowed the only click in the game that reads a scan.
+        if let Some(handler) = self.member_script_at(x, y) {
+            trace!(crate::trace::Topic::Script, "member script {handler}");
+            let mut out = Outcome::default();
+            crate::natives::call(handler, &[], &mut self.state, &mut out);
+            self.apply(&out);
+            return Some(out);
+        }
         // A modal screen takes the click that dismisses it. Letting it
         // through would work the room behind the PeeK unit while the unit is
         // still on top of it.
@@ -2932,9 +3013,21 @@ impl Game {
                 ),
                 None => continue,
             };
-            if x >= ox && x < ox + w && y >= oy && y < oy + h {
-                return Some(channel);
+            if x < ox || x >= ox + w || y < oy || y >= oy + h {
+                continue;
             }
+            // And on the art itself, not the transparent field around it.
+            // Keying the member was only half of it: the rectangle test alone
+            // meant the topmost sprite over a point took the click even where
+            // it drew nothing, so the PeeK unit's aerial -- a tall keyed
+            // sprite covering the whole body -- swallowed every click meant
+            // for the readout underneath it. Director's `the clickOn` is the
+            // topmost sprite actually drawn at the point.
+            let px = ((y - oy) as usize * art.width as usize + (x - ox) as usize) * 4;
+            if art.rgba.get(px + 3).is_some_and(|a| *a == 0) {
+                continue;
+            }
+            return Some(channel);
         }
         None
     }

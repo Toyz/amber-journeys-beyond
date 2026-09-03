@@ -8766,3 +8766,110 @@ property of how I had thought about it. Three entries in a row have now been
 about the walkthrough's blindness, and this one was self-inflicted.
 
 265 tests, eleven recordings.
+
+## 178. An audit, and the scripts that belong to a member
+
+helba: "can we do a full from start to finish making sure we're not missing any
+steps, any triggers, anything" -- and then, while I was in the middle of it,
+"i think we're missing the door scanner step from roxy ... i swear we're
+missing story pieces".
+
+### The audit
+
+`verify` already reports unhandled room-script lines, unported verbs and
+unported setters, and all three are empty -- the room scripts are fully
+understood. What it could not see is a handler that no room names but another
+handler calls, which is how half the game works.
+
+So: every handler defined in every movie, against every name the engine
+answers to, with the call sites counted both ways.
+
+```text
+237 handlers defined, 322 names answered, 93 not ported
+```
+
+Of the ninety-three, sixty-two are called from nowhere at all -- Director
+housekeeping, palette and patch tools, debug printers, `xxx`-prefixed
+leftovers, and a handful of genuinely dead handlers like `moveClock` from
+entry 145. Thirty-one are reachable, and the list is short enough to give in
+full:
+
+  - **Housekeeping, no game content:** `report`, `report2`, `patchpalette`,
+    `gammafade`, `setcolor`, `setcursorquality`, `closepatchfile`,
+    `preloadlocations`, `killlistactors`, `prodvloops`, `waitasec`, `random`.
+  - **Ported elsewhere, under another name:** `spawnghostlyevent` is the haunt
+    clock and lives on `Game`; `initinventory`'s tail is entry 175's
+    `closechapter` and its head is the inventory bar, which this engine builds
+    itself; `updateinventory` likewise.
+  - **Cursor feedback:** `castcursor` with twenty-four call sites, `cursoron`,
+    `cursordance`.
+  - **Content still missing:** `playASong`, `chippyGetsOut`, `teddyGetsOut`,
+    `gust`, `cyclestatic`, `fadeupradio`, `refreshalignmentpuzzle`,
+    `playdomainentrysound`, `fadeouttransit`, `pushqt`, `pushvideocarefully`,
+    `chippyspeaksmedium`.
+
+That is the honest answer to "are we missing anything": yes, and here it is.
+
+### The carols
+
+First one taken off the list, because it is atmosphere rather than plumbing
+and it was entirely absent:
+
+```text
+on playASong
+  if getState( #carolsEnabled ) = 0 then return
+  if the ticks - lastSong < 12600 then return
+  newSong = getAt( lsCarols, 1 ) : startSound newSong
+  setState( #windSongs, getLast( lsCarols ) )
+```
+
+Four Christmas carols over Edwin's frozen lake, one every three and a half
+minutes, the list turning over the way Chippy's pleas do. `killSongs` and
+`disableSongs` were ported and this was not, so the ice had four songs on it
+and played none of them.
+
+### The scripts that belong to a member
+
+helba's scanner. Director lets a cast member carry its own handlers, and a
+click on a sprite showing that member runs them before the room sees it. The
+game has twenty-eight, and this engine read none: the dispatch in `click`
+knew the telegram's tiles by channel number and nothing else.
+
+The one that matters is on `TXT-tonal ready`, the PeeK unit's readout:
+
+```text
+on mouseDown  -- cast 'TXT-tonal ready'
+  whichKnob = getState( oStoryteller, #DoorWithScanUnit )
+  if whichKnob = #kitchenOutside    then PKscan = #PkPatioScan
+  if whichKnob = #bathroomInside    then PKscan = #PkBathroomScan
+  if whichKnob = #margaretRmOutside then PKscan = #Pk40sScan
+  if whichKnob = #boatHouseOutside  then PKscan = #PkBoathouseScan
+  if PKscan <> #None then trimState( #tonalResidueRemaining, PKscan )
+  set the visible of sprite 44 = TRUE
+```
+
+That is the only click in the shipped data that reads a tonal residue back,
+and it is not a hotspot anywhere. `full.walk` has been faking it since entry
+145.
+
+Porting it took three things, and two of them were bugs:
+
+  - a table of `(chapter, member name, handler)`, looked up from the cast a
+    script-driven channel is showing;
+  - **`sprite_at` tested a rectangle, not the art.** It keyed the member --
+    the comment even says a click lands on the art and not the field around it
+    -- and then only checked bounds, so the PeeK unit's aerial, a tall keyed
+    sprite covering the whole body, took every click meant for the readout
+    underneath. It now tests the pixel's alpha, which is what Director's `the
+    clickOn` means;
+  - **the modal dismissal came first.** The unit holds for a click while it is
+    up, and `click` spent that click on the hold before any sprite was asked.
+    Director runs a sprite's script before the frame sees the click at all, so
+    the member script now goes first.
+
+With those, clicking the readout reads the residue. What is still set by hand
+in `full.walk` is one step earlier: the alert that puts the readout on that
+page unprompted. The click exists now; the thing that makes it worth clicking
+does not yet.
+
+268 tests, eleven recordings.

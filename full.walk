@@ -215,8 +215,10 @@ click 320 200
 click 320 200
 # 
 # One tonal residue has to be read as well. The click that does it is on
-# the scan unit's own readout, which is a cast member script this engine
-# does not read yet -- see WORKLOG 145 -- so it is done here by hand.
+# the unit's own readout -- a `mouseDown` belonging to the cast member
+# `TXT-tonal ready` rather than to any room. That click works now, and
+# entry 178 has the machinery; what is still missing is the alert that
+# puts the readout on that page unprompted, so the flag is set here.
 trim tonalresidueremaining PkPatioScan
 # Putting the unit away tests for psionic waves, and the phone rings.
 inv 320 410

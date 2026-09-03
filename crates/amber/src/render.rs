@@ -201,6 +201,15 @@ pub fn play_with(
         // calls carry on while the player stands still, which is the point of
         // them.
         game.tick_ghost_call();
+        // And a carol, on Edwin's ice, every three and a half minutes.
+        if let Some(song) = game.tick_carol() {
+            if let Some(a) = &audio {
+                let gain = game.sounds.gain(&song);
+                if let Some((pcm, rate, ch)) = game.sound(&song) {
+                    a.play(Some(&song), None, pcm, rate, ch, gain, false, true);
+                }
+            }
+        }
 
         // The recording takes its next step once the game has gone quiet: a
         // step that starts a film has to be allowed to finish it, or the
