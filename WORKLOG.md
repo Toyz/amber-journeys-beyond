@@ -7215,3 +7215,54 @@ playing, and so do a room change and `updateDisplay`'s sweep -- the three
 places a channel can be taken away.
 
 253 tests, nine recordings.
+
+## 152. Three things helba could see
+
+**The unit closed before it could be watched.** A recording is a list of what a
+player did, and a player watching something takes time over it -- but there was
+no way to write that down, so the replay dismissed the PeeK's recording in the
+same instant it started. `wait <ticks>` is that beat. It paces the *replay*
+rather than the game: the window takes it before sending the next step, and the
+queue carries on underneath, so the film keeps playing while the recording
+stands still. The terminal has no clock and nothing to watch, so it says `wait
+300` and moves on.
+
+Getting that wrong first taught me something. My first attempt queued a
+`WaitTicks` into the effect queue, which meant `settle` ran the queue again --
+and `settle` cleared the click wait that was standing at the time. So the beat
+ate the click, and every step after it was one out of phase. `settle` now
+refuses to run at all while the queue is holding for a click, which is what
+entry 150 should have said in the first place.
+
+**The bar was a row of clocks in Margaret's house.** The icon table is written
+as cast *numbers*:
+
+```text
+#PeekUnit: [the number of cast "PeeK color", the number of cast "PeeK glow", ...]
+```
+
+and a number means something different in every movie. 951 is `PeeK color` in
+ROXY and `MDR-CLOCK-4.45` in MARGARET. The bar was drawn out of whichever
+chapter the player was standing in, so stepping through the portal turned the
+inventory into three clock faces. The table now remembers which chapter its
+numbers are written in, and the bar is drawn from that one wherever the player
+is.
+
+**The film on the AMBER device jumped.** Not where it was drawn -- that has
+been right since entry 141 -- but *when*. The position was re-derived every
+frame from the sprite whose guard currently holds, and the sequence that fits
+the oscillator moves on while its own film is still running:
+
+```text
+setState( #oscillatorInPlace, #placingNow )   -- the film's guard
+pushVideo : wait #videoStop
+setState( #oscillatorInPlace, TRUE )          -- and it is gone
+```
+
+For the last frames no video sprite's guard held at all, so the film fell back
+to the middle of the stage and the 60 by 40 patch that had been sitting neatly
+in the device's slot jumped into the middle of the glass. That is the picture
+helba sent. A film now keeps the position it was opened at until it is
+replaced.
+
+254 tests, nine recordings.

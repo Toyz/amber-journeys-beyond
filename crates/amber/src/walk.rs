@@ -50,7 +50,7 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
         println!("          a room name, `state [filter]`, `blocked`,");
         println!("          `give <item>`, `use <item>`, `set <flag> <value>`,");
         println!("          `click x y`, `inv x y`,");
-        println!("          `look`, `skip`, `quit`");
+        println!("          `wait <ticks>`, `look`, `skip`, `quit`");
     }
 
     let stdin = std::io::stdin();
@@ -225,6 +225,18 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
                 Step::Broken
             }
         };
+    }
+    // A beat, in sixtieths of a second, so a recording can stop to watch
+    // something. It holds the *replay* rather than the game: the window
+    // takes it before sending the next step, and the terminal has no clock
+    // and nothing to watch, so it says so and moves on.
+    if let Some(rest) = cmd.strip_prefix("wait ") {
+        let Ok(ticks) = rest.trim().parse::<u32>() else {
+            println!("  usage: wait <ticks>");
+            return Step::Broken;
+        };
+        println!("  wait {ticks}");
+        return Step::Done;
     }
     if cmd == "blocked" {
         show_blocked(game);

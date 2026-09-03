@@ -223,9 +223,20 @@ pub fn play_with(
         {
             if let Some(cmd) = replay.pop_front() {
                 println!("> {cmd}");
-                let _ = crate::walk::command(&mut game, &cmd, false);
-                dirty = true;
-                next_step = std::time::Instant::now() + std::time::Duration::from_millis(600);
+                // `wait <ticks>` is the recording asking to be left alone for
+                // a moment, so that whatever is on screen can be watched. It
+                // paces the replay rather than the game: the queue carries on,
+                // the film keeps playing, and only the next step is held back.
+                let beat = cmd
+                    .strip_prefix("wait ")
+                    .and_then(|n| n.trim().parse::<u64>().ok())
+                    .map(|ticks| std::time::Duration::from_millis(ticks * 1000 / 60));
+                if beat.is_none() {
+                    let _ = crate::walk::command(&mut game, &cmd, false);
+                    dirty = true;
+                }
+                next_step = std::time::Instant::now()
+                    + beat.unwrap_or(std::time::Duration::from_millis(600));
                 if replay.is_empty() {
                     println!("-- recording finished, the game is yours --");
                 }

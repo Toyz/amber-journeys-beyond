@@ -98,6 +98,8 @@ pub struct Game {
     movies: MovieIndex,
     pub sounds: SoundBank,
     pub inventory: Inventory,
+    /// The chapter whose cast numbers the icon table is written in.
+    icons_from: String,
     /// Per chapter, the cast members its handlers name rather than number.
     presentation: HashMap<String, Presentation>,
     /// The radio or clock programme currently running, if any.
@@ -113,6 +115,8 @@ pub struct Game {
     /// The rect that film's cast member says it occupies, which is not always
     /// the size the film is stored at.
     playing_size: Option<(u32, u32)>,
+    /// Where the film was placed when it was opened.
+    playing_at: Option<(i32, i32)>,
     /// Whether a sequence has taken the pointer away. Every set piece opens
     /// with `cursorOff` and the player is meant to watch it, not click through
     /// it.
@@ -159,6 +163,7 @@ impl Game {
             pending: Vec::new(),
             playing: None,
             playing_size: None,
+            playing_at: None,
             cursor_hidden: false,
             effect_wait: None,
             intro_running: false,
@@ -175,6 +180,7 @@ impl Game {
             movies: MovieIndex::build(root),
             sounds: SoundBank::new(root),
             inventory: Inventory::from_texts(&[]),
+            icons_from: String::new(),
             presentation: HashMap::new(),
             program: None,
             pcm_cache: HashMap::new(),
@@ -187,10 +193,19 @@ impl Game {
             if let Some(chapter) = game.chapter(&domain) {
                 let texts = chapter.movie.texts();
                 game.sounds.add_tables(&texts);
-                // The icon table is the same in every chapter; take the first
-                // that yields one.
+                // The icon table is the same in every chapter; take the
+                // first that yields one, and remember which chapter it came
+                // from. The table is written as cast *numbers*, and a number
+                // means something different in every movie -- 951 is "PeeK
+                // color" in ROXY and "MDR-CLOCK-4.45" in MARGARET. Drawing
+                // the bar out of whichever chapter the player is standing in
+                // turned the inventory into a row of clock faces the moment
+                // they stepped into Margaret's house.
                 if game.inventory.is_empty() {
                     game.inventory = Inventory::from_texts(&texts);
+                    if !game.inventory.is_empty() {
+                        game.icons_from = domain.clone();
+                    }
                 }
                 game.presentation
                     .insert(domain.clone(), Presentation::from_texts(&texts));
@@ -707,8 +722,20 @@ impl Game {
         let Some(name) = self.video() else {
             self.playing = None;
             self.playing_size = None;
+            self.playing_at = None;
             return;
         };
+        // The sprite whose guard holds now, kept for as long as the film runs.
+        // A room can declare several films on the video channel, each gated on
+        // a different state and each with its own `#coords`: the study puts
+        // the headgear films at (303, 220) and the film of the oscillator
+        // being fitted at (317, 185).
+        let state = &self.state;
+        self.playing_at = self.world.nodes[self.room]
+            .sprites
+            .iter()
+            .find(|s| matches!(s.channel, Channel::Video) && state.test(&s.condition))
+            .and_then(|s| s.center);
         self.playing = Some(name.clone());
         match self.movies.find(&name) {
             Some(path) => {
@@ -855,6 +882,12 @@ impl Game {
     /// that is state is applied.
     pub fn settle(&mut self) -> Vec<String> {
         let mut report = Vec::new();
+        // Nothing can proceed while the queue is holding for a click, and
+        // clearing it here would take the click out of the player's hands --
+        // which is the whole of what entry 150 was about.
+        if self.waiting_for_click() {
+            return report;
+        }
         // A sequence interleaves: the script runs until it waits, the effects
         // queued so far play, and then the script goes on. Running the whole
         // script and *then* draining -- which is what this used to do -- shows
@@ -1530,12 +1563,20 @@ impl Game {
         // sit at (303, 220) and `oslator1.mov`, the film of the oscillator
         // being fitted, at (317, 185). Placing the oscillator played the
         // right film in the headgear's place.
-        let state = &self.state;
-        let video_centre = self.world.nodes[self.room]
-            .sprites
-            .iter()
-            .find(|s| matches!(s.channel, Channel::Video) && state.test(&s.condition))
-            .and_then(|s| s.center);
+        // Where it was placed when it was opened, not where the guards say it
+        // would go now. A sequence sets the flag its film is gated on and
+        // *then* waits for the film -- fitting the oscillator is exactly that:
+        //
+        // ```text
+        // setState( #oscillatorInPlace, #placingNow )  -- the film's guard
+        // pushVideo : wait #videoStop
+        // setState( #oscillatorInPlace, TRUE )         -- and it is gone
+        // ```
+        //
+        // so re-deriving the position every frame meant the film played in the
+        // AMBER device's slot and then, on the last frame or two, jumped to
+        // the middle of the stage when no sprite's guard held any longer.
+        let video_centre = self.playing_at;
 
         for (channel, layer) in stage {
             match layer {
@@ -2057,7 +2098,9 @@ impl Game {
         let placed = self
             .inventory
             .layout(slots.into_iter(), width as i32, height as i32);
-        let domain = self.node().domain.clone();
+        // Not the room's chapter: the icons are cast numbers in the chapter
+        // the table was read from.
+        let domain = self.icons_from.clone();
 
         for (item, x, y) in placed {
             if in_use.as_deref() == Some(item.to_ascii_lowercase().as_str()) {
@@ -2748,6 +2791,49 @@ mod tests {
         game.state.set_all("oscillatorInPlace", vec![lingo::Value::Int(0)]);
         game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("waitingForPlayer".into())]);
         assert_eq!(centre_now(&game), Some((303, 220)), "the other one");
+    }
+
+    #[test]
+    fn a_film_stays_where_it_was_placed_when_its_guard_stops_holding() {
+        // The sequence that fits the oscillator sets the flag its film is
+        // gated on, plays the film, waits for it, and then sets the flag on
+        // again -- so for the last frames of the film no video sprite's guard
+        // holds at all. Deriving the position every frame moved the film out
+        // of the AMBER device's slot and into the middle of the stage just
+        // before it ended, which is the jump helba photographed.
+        use crate::world::{Channel, Cond, Node, Sprite};
+
+        let mut game = Game::for_test();
+        game.world.nodes.push(Node {
+            sprites: vec![Sprite {
+                cast_name: Some("oslator1.mov".into()),
+                cast_number: 0,
+                cast_lookup: None,
+                channel: Channel::Video,
+                condition: Cond::Equals {
+                    key: "oscillatorInPlace".into(),
+                    value: lingo::Value::Symbol("placingNow".into()),
+                },
+                center: Some((317, 185)),
+                ink: 0,
+                volume: None,
+            }],
+            ..Node::default()
+        });
+        game.room = game.world.nodes.len() - 1;
+
+        game.state
+            .set_all("oscillatorInPlace", vec![lingo::Value::Symbol("placingNow".into())]);
+        game.start_room_video();
+        assert_eq!(game.playing_at, Some((317, 185)));
+
+        // The sequence moves on while the film is still running.
+        game.state.set_all("oscillatorInPlace", vec![lingo::Value::Int(1)]);
+        assert_eq!(
+            game.playing_at,
+            Some((317, 185)),
+            "it stays in the slot until the film is replaced"
+        );
     }
 
     #[test]

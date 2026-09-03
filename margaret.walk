@@ -41,9 +41,11 @@ forward
 examine
 # Take the PeeK unit; the next click stows it.
 pointer
-# Taking it opens it. The first click dismisses what it is showing and the
-# second puts it back in the bag; until it is back, the item in hand covers
-# every exit in the room.
+# Taking it opens it. Give it five seconds to slide up and say its piece --
+# the window honours the beat and the terminal steps over it -- then the
+# first click dismisses the readout and the second puts it back in the bag.
+# Until it is back, the item in hand covers every exit in the room.
+wait 300
 click 320 200
 click 320 200
 # Back down to the writing desk.
@@ -104,6 +106,7 @@ click 495 200
 click 490 130
 # Open the PeeK: it reports the machine running.
 inv 320 410
+wait 300
 click 320 200
 # Put the unit back.
 click 320 200
