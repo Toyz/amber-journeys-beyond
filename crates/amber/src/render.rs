@@ -402,11 +402,19 @@ pub fn play_with(
             if carried.is_empty() {
                 println!("-- nothing cut in {domain} --");
             } else {
-                let (name, about) = carried[cut_next % carried.len()];
+                let cut = carried[cut_next % carried.len()];
                 cut_next += 1;
-                println!("-- {name}: {about} --");
+                println!("-- {}: {} --", cut.name, cut.about);
                 let mut out = crate::script::Outcome::default();
-                crate::natives::cut::call(name, &[], &mut game.state, &mut out);
+                crate::natives::cut::call(cut.name, &[], &mut game.state, &mut out);
+                // A handler with a guard does nothing out of context, and a
+                // key that silently does nothing is worse than no key.
+                if out.effects.is_empty() {
+                    match cut.needs {
+                        Some(needs) => println!("   nothing to show: it wants {needs}"),
+                        None => println!("   nothing to show"),
+                    }
+                }
                 game.play_outcome(out);
                 dirty = true;
             }

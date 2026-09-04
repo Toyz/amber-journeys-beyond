@@ -14,30 +14,41 @@ use lingo::Value;
 use crate::script::{Effect, Outcome};
 use crate::state::State;
 
-/// The cut handlers, by chapter, with a line about each.
-pub const CUT: &[(&str, &str, &str)] = &[
-    (
-        "EDWIN",
-        "backSeatDriver",
-        "Chippy nags from the passenger seat while the car sits at a junction",
-    ),
-    (
-        "EDWIN",
-        "secretMission",
-        "the chipmunk does something amusing in the corner of the windscreen",
-    ),
-    (
-        "MARGARET",
-        "blackWings",
-        "black wings sweep in from both sides of the stage",
-    ),
+/// One cut handler: which chapter it belongs to, what it does, and what has
+/// to be true for it to do anything.
+pub struct Cut {
+    pub chapter: &'static str,
+    pub name: &'static str,
+    pub about: &'static str,
+    /// The guard in the handler's own words, or none if it has one.
+    pub needs: Option<&'static str>,
+}
+
+pub const CUT: &[Cut] = &[
+    Cut {
+        chapter: "EDWIN",
+        name: "backSeatDriver",
+        about: "Chippy nags from the passenger seat while the car sits at a junction",
+        needs: Some("the chipmunk in the car (#chippyLocation = #inCar)"),
+    },
+    Cut {
+        chapter: "EDWIN",
+        name: "secretMission",
+        about: "the chipmunk does something amusing in the corner of the windscreen",
+        needs: None,
+    },
+    Cut {
+        chapter: "MARGARET",
+        name: "blackWings",
+        about: "black wings sweep in from both sides of the stage",
+        needs: None,
+    },
 ];
 
 /// What a chapter has, for a front end offering to show it.
-pub fn in_chapter(domain: &str) -> Vec<(&'static str, &'static str)> {
+pub fn in_chapter(domain: &str) -> Vec<&'static Cut> {
     CUT.iter()
-        .filter(|(chapter, ..)| chapter.eq_ignore_ascii_case(domain))
-        .map(|(_, name, about)| (*name, *about))
+        .filter(|c| c.chapter.eq_ignore_ascii_case(domain))
         .collect()
 }
 
@@ -229,5 +240,11 @@ mod tests {
         assert_eq!(in_chapter("EDWIN").len(), 2);
         assert_eq!(in_chapter("MARGARET").len(), 1);
         assert!(in_chapter("ROXY").is_empty());
+        // Every one of them answers to its own name.
+        for cut in CUT {
+            let mut s = State::new();
+            let mut out = Outcome::default();
+            assert!(call(cut.name, &[], &mut s, &mut out), "{}", cut.name);
+        }
     }
 }
