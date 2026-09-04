@@ -177,6 +177,14 @@ impl Amber {
         match key {
             Key::Space => {
                 if self.game.skip_video() {
+                    // The film's soundtrack is a one-shot in the mixer and
+                    // knows nothing about the picture being cut short, so
+                    // skipping the opening left two minutes of it playing over
+                    // a silent house.
+                    if let Some(audio) = &self.audio {
+                        audio.stop_oneshots();
+                    }
+                    self.soundtrack_started = false;
                     self.dirty = true;
                 }
             }
@@ -310,6 +318,13 @@ impl Amber {
             self.dirty = false;
         }
         self.out.copy_from_slice(&self.frame);
+        // A sequence takes the pointer away until it is done: `cursorOff` at
+        // the top of a set piece, and the queue running dry is the `cursorOn`
+        // this engine does not otherwise get. Without it the first set piece
+        // took the pointer and never gave it back.
+        if self.game.cursor_hidden && !self.game.effects_busy() && self.game.script_idle() {
+            self.game.cursor_hidden = false;
+        }
         if let Some((x, y)) = self.pointer.filter(|_| !self.game.cursor_hidden) {
             // The game's own cursor art, chosen by whatever verb is under the
             // pointer -- the same call the desktop makes.
