@@ -134,6 +134,9 @@ pub struct Game {
     playing_size: Option<(u32, u32)>,
     /// Where the film was placed when it was opened.
     playing_at: Option<(i32, i32)>,
+    /// Whether the pointer is over the inventory bar, which lights the icons.
+    /// Set by the front end, read when the bar is composed.
+    pub inventory_hot: bool,
     /// Whether a sequence has taken the pointer away. Every set piece opens
     /// with `cursorOff` and the player is meant to watch it, not click through
     /// it.
@@ -236,6 +239,7 @@ impl Game {
             playing_size: None,
             playing_at: None,
             cursor_hidden: false,
+            inventory_hot: false,
             effect_wait: None,
             cues: Vec::new(),
             carol_after: None,
@@ -815,7 +819,7 @@ impl Game {
                 let background = b.background();
                 let rgba = match ink {
                     0 => b.to_rgba(&palette, None),
-                    36 => b.to_rgba(&palette, Some(background)),
+                    36 => b.to_rgba_keyed(&palette, background),
                     _ => b.to_rgba_matte(&palette, background),
                 };
                 CachedArt {
@@ -2195,6 +2199,11 @@ impl Game {
             /// A film a script put on its own channel, drawn in that
             /// channel's place rather than with the room's film.
             Overlay,
+            /// The inventory bar, which is the last of the frame's own
+            /// furniture: `updateInventory` puts its seven icons on sprites
+            /// four to ten, and `SCORE_BASE` is where the room's own sprites
+            /// begin above them.
+            Inventory,
         }
 
         let mut stage: Vec<(u16, Layer)> = Vec::new();
@@ -2217,6 +2226,13 @@ impl Game {
         if let Some(o) = &self.overlay {
             stage.push((o.channel as u16, Layer::Overlay));
         }
+        // The bar is drawn with everything else rather than painted over the
+        // finished picture. It sits below the rooms and far below the channels
+        // a script drives, which is what stops it from covering the PeeK unit:
+        // the unit is 244 by 387 centred at (320, 200), so its bottom thirteen
+        // rows reach into the bar's band, and being painted last the bar was
+        // cutting the foot off it.
+        stage.push((10, Layer::Inventory));
         for (ch, puppet) in self.puppets.iter() {
             if puppet.cast == 0 || puppet.hidden {
                 continue;
@@ -2333,6 +2349,9 @@ impl Game {
                         centre.0 - dw as i32 / 2,
                         centre.1 - dh as i32 / 2,
                     );
+                }
+                Layer::Inventory => {
+                    self.draw_inventory(frame, width, height, self.inventory_hot);
                 }
                 Layer::Movie => {
                     let Some(player) = &self.player else { continue };

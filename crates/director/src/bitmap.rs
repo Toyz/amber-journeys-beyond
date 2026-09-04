@@ -119,6 +119,23 @@ fn unpack(src: &[u8], want: usize) -> Vec<u8> {
 impl Bitmap {
     /// Expands to RGBA using `palette`, treating index 0 as transparent when
     /// `transparent_index` is set (Director's background-transparent ink).
+    /// The colour key, but only where the key colour reaches in from the edge.
+    ///
+    /// Director's `#bgTransparent` keys every pixel of the sprite's background
+    /// colour, wherever it is. That is fine when the colour is only ever the
+    /// field around the art, and this game's members do not keep to it: the
+    /// letter from the mailbox lays its paper in the same index its border
+    /// uses, so keying the colour outright ate holes through the middle of
+    /// every line of the letter.
+    ///
+    /// The field is what surrounds the art, so that is what is keyed. It is
+    /// the same flood the matte does, and the two now differ only in which
+    /// index they start from -- which is the honest shape of the difference,
+    /// since neither ink is given a background colour by the room data.
+    pub fn to_rgba_keyed(&self, palette: &crate::Palette, key: u8) -> Vec<u8> {
+        self.to_rgba_outside(palette, key)
+    }
+
     pub fn to_rgba(&self, palette: &crate::Palette, transparent_index: Option<u8>) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.pixels.len() * 4);
         for &i in &self.pixels {
@@ -172,6 +189,11 @@ impl Bitmap {
     /// colour as the field around it, so keying on the colour punched the
     /// middle out and left a frame with the room showing through it.
     pub fn to_rgba_matte(&self, palette: &crate::Palette, background: u8) -> Vec<u8> {
+        self.to_rgba_outside(palette, background)
+    }
+
+    /// Everything of `background` that the edge can reach, made transparent.
+    fn to_rgba_outside(&self, palette: &crate::Palette, background: u8) -> Vec<u8> {
         let (w, h) = (self.width as usize, self.height as usize);
         let mut outside = vec![false; self.pixels.len()];
         // Flood from every edge pixel that is the background colour; anything
@@ -226,6 +248,43 @@ mod tests {
 
     // PackBits: a byte below 0x80 introduces n+1 literals, one at or above
     // introduces 0x101-n copies of the byte that follows.
+
+    /// The colour key has the same rule, for the same reason. The letter from
+    /// the mailbox lays its paper in the index its border uses, so keying the
+    /// colour wherever it appeared ate holes through every line of the text.
+    #[test]
+    fn the_key_takes_the_field_and_leaves_the_writing() {
+        // A sheet of 1 with a border of 1 around it and some 2s written on
+        // it -- and one stray 1 in the middle of the writing, which is what
+        // the anti-aliased text amounts to.
+        let w = 5usize;
+        let pixels = vec![
+            1, 1, 1, 1, 1, //
+            1, 2, 2, 2, 1, //
+            1, 2, 1, 2, 1, //
+            1, 2, 2, 2, 1, //
+            1, 1, 1, 1, 1, //
+        ];
+        let bmp = Bitmap {
+            width: w as u16,
+            height: 5,
+            pixels,
+            reg_x: 0,
+            reg_y: 0,
+            palette_ref: 0,
+        };
+        let palette = crate::Palette::default();
+        let rgba = bmp.to_rgba_keyed(&palette, 1);
+        let alpha = |x: usize, y: usize| rgba[(y * w + x) * 4 + 3];
+
+        // The field around it goes.
+        assert_eq!(alpha(0, 0), 0);
+        assert_eq!(alpha(4, 4), 0);
+        // The writing stays, and so does the pixel inside it that happens to
+        // be the same colour as the field.
+        assert_eq!(alpha(1, 1), 255);
+        assert_eq!(alpha(2, 2), 255, "a keyed pixel the edge cannot reach");
+    }
 
     #[test]
     fn matte_keys_out_the_field_but_not_a_hole_in_the_middle() {

@@ -9109,3 +9109,50 @@ a mounted disc, or the .iso itself.
 ```
 
 274 tests, eleven recordings, and the game reads off the disc it shipped on.
+
+## 183. Two things drawn over each other
+
+helba, with the PeeK unit up: "the inventory is rendering over it". And,
+separately: "opening the letter from the mailbox has weird artifacting on the
+text".
+
+### The bar was painted last
+
+The unit is `PeeK.up`, 244 by 387, centred at (320, 200) -- so it reaches down
+to y 393, and the inventory bar's band starts at 380. Thirteen rows of it sit
+in the bar's territory, and the bar was painted over the finished picture
+rather than composed with it, so it cut the foot off the unit.
+
+`updateInventory` says where the bar belongs:
+
+```text
+foundationSprite = 3
+... itemSprite = foundationSprite + i    -- sprites 4 to 10
+```
+
+Sprites four to ten, which is inside the 1..12 that `SCORE_BASE` already
+reserves for "the frame's own furniture" -- the comment on that constant has
+said so since it was written. So the bar is a layer in the stage now, at
+channel 10, and the sort puts it under the rooms and far under the channels a
+script drives. Nothing else moves: a room's plates and the bar do not overlap,
+because the game letterboxes its rooms above the bar's band.
+
+### The key ate the letter
+
+The letter is `G_FP_BOX_OPN_LETTER` with ink 36, `#bgTransparent`. Director
+keys the sprite's background colour wherever it appears, and this member lays
+its paper in the same index its border uses -- so keying the colour outright
+punched a hole through every pixel of the writing that shared it. Whole lines
+of the letter came up shredded.
+
+The room data gives no background colour for either transparent ink, which is
+why `background()` reads one off the border. Given that guess, keying *every*
+pixel of it is not defensible: the field is what surrounds the art, so that is
+what is keyed. The flood the matte already used is now shared, and the two inks
+differ only in which index they start from -- which is the honest shape of the
+difference between them here.
+
+The letter reads. The oscillator popping out of the box, which is the other
+ink 36 sprite in that room, is unchanged, and all 1374 sprites still decode.
+
+274 tests, eleven recordings.

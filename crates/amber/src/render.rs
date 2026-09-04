@@ -372,8 +372,8 @@ pub fn play_with(
                 outgoing.copy_from_slice(&frame);
                 dissolve = Some((0.0, t));
             }
+            game.inventory_hot = inventory_hot;
             game.draw(&mut frame, STAGE_W as u32, STAGE_H as u32);
-            game.draw_inventory(&mut frame, STAGE_W as u32, STAGE_H as u32, inventory_hot);
             dirty = false;
         }
 
