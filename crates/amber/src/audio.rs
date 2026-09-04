@@ -7,8 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, Stream, StreamConfig};
+
 
 /// One playing sound. Loops carry the name the scripts know them by, so
 /// `endLoop #houseHum` can stop the right one; one-shots carry none.
@@ -37,7 +36,7 @@ struct Voice {
 }
 
 #[derive(Default)]
-struct Mixer {
+pub struct Mixer {
     voices: Vec<Voice>,
     rate: u32,
     channels: u16,
@@ -172,7 +171,7 @@ impl Mixer {
         });
     }
 
-    fn fill(&mut self, out: &mut [f32]) {
+    pub fn fill(&mut self, out: &mut [f32]) {
         out.fill(0.0);
         let out_channels = self.channels.max(1) as usize;
         let master = self.master;
@@ -543,13 +542,25 @@ mod tests {
     }
 }
 
+/// Somewhere for the mixed samples to go.
+///
+/// The mixer above is the whole of the audio work and knows nothing about a
+/// device: it fills a buffer of interleaved `f32` when asked. A sink is
+/// whatever does the asking -- a CPAL stream on a desktop, a worklet in a
+/// browser, nothing at all in a terminal.
+///
+/// It has no methods, and that is the whole of the contract: the mixer is
+/// pulled from by whatever the sink set running, and holding the sink alive is
+/// what keeps it running. Dropping it stops the sound.
+pub trait Sink: Send {}
+
 pub struct Audio {
     mixer: Arc<Mutex<Mixer>>,
-    // Held to keep the stream alive; dropping it stops playback. A silent
-    // mixer has none: it exists so the audio path can be exercised and
-    // reported on without a device, which is the only way to see what a room
-    // is actually asking the mixer for.
-    _stream: Option<Stream>,
+    // Held to keep the sink alive; dropping it stops playback. A silent mixer
+    // has none: it exists so the audio path can be exercised and reported on
+    // without a device, which is the only way to see what a room is actually
+    // asking the mixer for.
+    _sink: Option<Box<dyn Sink>>,
     rate: u32,
 }
 
@@ -565,7 +576,7 @@ impl Audio {
                 duck: 1.0,
                 suspended: false,
             })),
-            _stream: None,
+            _sink: None,
             rate: 44100,
         }
     }
@@ -630,15 +641,20 @@ impl Audio {
 }
 
 impl Audio {
-    /// Opens the default output device. Returns `None` when there is no audio
-    /// device, which is normal in a terminal or CI and must not be fatal.
+    /// Opens the default output device, whatever this build has one of.
     pub fn open() -> Option<Audio> {
-        let device = cpal::default_host().default_output_device()?;
-        let supported = device.default_output_config().ok()?;
-        let rate = supported.sample_rate();
-        let channels = supported.channels();
-        let config: StreamConfig = supported.into();
+        crate::audio_device::open()
+    }
 
+    /// Builds a mixer and hands it to a sink, which starts pulling from it.
+    ///
+    /// `attach` is given the shared mixer and returns the sink it made, or
+    /// `None` if it could not make one -- which is normal in a terminal or CI
+    /// and must not be fatal.
+    pub fn over<F>(rate: u32, channels: u16, attach: F) -> Option<Audio>
+    where
+        F: FnOnce(Arc<Mutex<Mixer>>) -> Option<Box<dyn Sink>>,
+    {
         let mixer = Arc::new(Mutex::new(Mixer {
             voices: Vec::new(),
             rate,
@@ -648,33 +664,8 @@ impl Audio {
             duck: 1.0,
             suspended: false,
         }));
-
-        let m = Arc::clone(&mixer);
-        let err = |e| eprintln!("audio error: {e}");
-        let stream = match supported.sample_format() {
-            SampleFormat::F32 => device.build_output_stream(
-                config,
-                move |data: &mut [f32], _| {
-                    if let Ok(mut mixer) = m.lock() {
-                        mixer.fill(data);
-                    }
-                },
-                err,
-                None,
-            ),
-            other => {
-                eprintln!("audio: unsupported sample format {other:?}");
-                return None;
-            }
-        }
-        .ok()?;
-
-        stream.play().ok()?;
-        Some(Audio {
-            mixer,
-            _stream: Some(stream),
-            rate,
-        })
+        let sink = attach(Arc::clone(&mixer))?;
+        Some(Audio { mixer, _sink: Some(sink), rate })
     }
 
     /// Queues a sound. `source_rate` is the rate the samples were decoded at.

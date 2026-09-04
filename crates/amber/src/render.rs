@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions};
 
 use crate::audio::Audio;
 use crate::cursor;
@@ -110,23 +109,17 @@ pub fn play_with(
         }
     );
 
-    let mut window = Window::new(
-        "Amber: Journeys Beyond",
-        STAGE_W,
-        STAGE_H,
-        WindowOptions {
-            scale: minifb::Scale::X1,
-            resize: true,
-            scale_mode: minifb::ScaleMode::AspectRatioStretch,
-            ..WindowOptions::default()
-        },
-    )?;
-    // The original runs at a nominal 15 fps; this only caps the loop, and the
-    // room is static between clicks anyway.
-    window.set_target_fps(60);
-    // The game draws its own pointer into the frame, so the desktop's would be
-    // a second one sitting on top of it.
-    window.set_cursor_visibility(false);
+    const STAGE: (usize, usize) = (STAGE_W, STAGE_H);
+    let mut host = crate::host_desktop::Desktop::open("Amber: Journeys Beyond", STAGE)?;
+    // Everything below drives the `Host` trait rather than a window: the loop
+    // does not know what is showing the frame.
+    let host: &mut dyn crate::host::Host = &mut host;
+    let mut input = crate::host::Input {
+        pointer: None,
+        down: false,
+        pressed: Vec::new(),
+        open: true,
+    };
 
     // `frame` holds the composed scene, redrawn only when it changes;
     // `out` adds the cursor, which follows the mouse every frame.
@@ -162,7 +155,8 @@ pub fn play_with(
     // its icons are drawn in full colour or as outlines.
     let mut inventory_hot = false;
     let mut last_frame = std::time::Instant::now();
-    while window.is_open() && !window.is_key_down(Key::Escape) {
+    while input.open && !input.pressed.contains(&crate::host::Key::Escape) {
+        input = host.poll(STAGE);
         frames += 1;
         // Nothing pulls samples through a silent mixer, so without this every
         // sound would run for ever, the four channels would fill, and the log
@@ -266,7 +260,7 @@ pub fn play_with(
         // Space skips whatever movie is playing. The opening is two minutes
         // long and the original had no way past it either, so this is the one
         // deliberate departure from the game's behaviour.
-        if window.is_key_pressed(Key::Space, minifb::KeyRepeat::No) && game.skip_video() {
+        if input.pressed.contains(&crate::host::Key::Space) && game.skip_video() {
             crate::record::step("skip");
             if let Some(a) = &audio {
                 a.stop_oneshots();
@@ -390,7 +384,7 @@ pub fn play_with(
         }
         // Tab shows where the live hotspots actually are, which is the quickest
         // way to tell a missing exit from one that is merely hard to find.
-        if window.is_key_pressed(Key::Tab, minifb::KeyRepeat::No) {
+        if input.pressed.contains(&crate::host::Key::Hotspots) {
             show_hotspots = !show_hotspots;
         }
         // S prints what is on the stage, bottom to top, into the log. A fault
@@ -398,26 +392,16 @@ pub fn play_with(
         // because something is running one on a channel as well -- has had to
         // be diagnosed from a photograph until now. This is the compositor
         // saying what it is about to paint, at the moment it looks wrong.
-        if window.is_key_pressed(Key::S, minifb::KeyRepeat::No) {
+        if input.pressed.contains(&crate::host::Key::Stage) {
             println!("-- stage, bottom to top --");
             for line in game.stage_report() {
                 println!("   {line}");
             }
         }
 
-        // The window may be resized, but the stage is always 640x480 and the
-        // scale mode letterboxes it, so mouse coordinates need mapping back.
-        let (win_w, win_h) = window.get_size();
-        let map = |x: f32, y: f32| -> (i32, i32) {
-            let scale = (win_w as f32 / STAGE_W as f32).min(win_h as f32 / STAGE_H as f32);
-            let (ox, oy) = (
-                (win_w as f32 - STAGE_W as f32 * scale) / 2.0,
-                (win_h as f32 - STAGE_H as f32 * scale) / 2.0,
-            );
-            (((x - ox) / scale) as i32, ((y - oy) / scale) as i32)
-        };
-
-        let pos = window.get_mouse_pos(MouseMode::Pass).map(|(x, y)| map(x, y));
+        // Already in stage coordinates: the host maps them back, because it
+        // is the only thing that knows how it scaled the frame.
+        let pos = input.pointer;
         // `if the mouseV > gInventoryTopY` -- the bar lights up under the
         // cursor and goes back to outlines when it leaves, and the original
         // redraws the stage on each crossing.
@@ -441,12 +425,12 @@ pub fn play_with(
             format!("Amber - {} / {name} - {hint}", room.domain)
         };
         if title != last_title {
-            window.set_title(&title);
+            host.set_title(&title);
             last_title = title.clone();
         }
 
         // Act on the release edge, so a click cannot fire twice.
-        let down = window.get_mouse_down(MouseButton::Left);
+        let down = input.down;
         // A dial that asked to keep turning does so while the button is held.
         if let Some(outcome) = game.tick_held(down) {
             // Same again: a held dial's repeat goes through `pump` like any
@@ -543,7 +527,7 @@ pub fn play_with(
                 cursor::draw(&mut out, STAGE_W as i32, STAGE_H as i32, mx, my, verb);
             }
         }
-        window.update_with_buffer(&out, STAGE_W, STAGE_H)?;
+        host.present(&out, STAGE)?;
     }
     Ok(())
 }

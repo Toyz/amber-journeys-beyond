@@ -9156,3 +9156,61 @@ The letter reads. The oscillator popping out of the box, which is the other
 ink 36 sprite in that room, is unchanged, and all 1374 sprites still decode.
 
 274 tests, eleven recordings.
+
+## 184. The other half of the seam
+
+Entry 181 put the data behind a trait. This does the same for the platform,
+and it was smaller than the line counts suggested.
+
+### The window
+
+`render.rs` is nine hundred lines and exactly sixteen of them touched minifb --
+ten methods and four keys. So the trait is what those sixteen lines asked for:
+
+```rust
+pub trait Host {
+    fn poll(&mut self, stage: (usize, usize)) -> Input;
+    fn present(&mut self, frame: &[u32], stage: (usize, usize)) -> std::io::Result<()>;
+    fn set_title(&mut self, title: &str);
+}
+```
+
+`Input` is the pointer in *stage* coordinates, whether the button is down, and
+which of four keys went down this frame. The mapping from window space to
+stage space moved into the host, because the host is the only thing that knows
+how it scaled and letterboxed the frame -- the loop had been doing that sum
+itself with numbers it had to ask the window for.
+
+Four keys, and all four are conveniences this engine added rather than
+anything the original had: quit, skip the film, show the hotspots, print the
+stage.
+
+### The sound
+
+Better separated already. `Mixer` does all the work and fills a buffer of
+interleaved `f32` when asked; CPAL appeared in one function and one field. So
+the sink is a trait with no methods at all:
+
+```rust
+pub trait Sink: Send {}
+```
+
+which reads oddly and is exactly right. The mixer is pulled from by whatever
+the sink set running, and holding the sink alive is the whole contract.
+`Audio::over(rate, channels, attach)` builds the mixer and hands it to
+whatever wants to pull on it; the fifty lines that know about CPAL are in
+`audio_device`.
+
+### What is left
+
+```text
+crates/amber/src/audio_device.rs    3 lines mentioning a platform
+crates/amber/src/host_desktop.rs    5
+```
+
+Two files, eight lines. Everything else -- the game, the scripts, the
+compositor, the mixer, the content -- names no platform at all. A wasm build
+is a `Host` over a canvas, a `Sink` over a worklet and a `Content` over a
+fetch or a bundle, and nothing above them has to know.
+
+274 tests, eleven recordings.

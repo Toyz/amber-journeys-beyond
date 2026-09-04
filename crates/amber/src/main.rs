@@ -7,11 +7,14 @@
 #[macro_use]
 mod trace;
 mod audio;
+mod audio_device;
 mod casttable;
 mod content;
 mod record;
 mod cursor;
 mod game;
+mod host;
+mod host_desktop;
 mod inventory;
 mod iso;
 mod locations;
