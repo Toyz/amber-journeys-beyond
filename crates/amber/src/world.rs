@@ -489,7 +489,10 @@ impl World {
     ///
     /// Amber splits its rooms across four chapters, one per haunting, each in its
     /// own directory with its own Director movie.
-    pub fn load(root: &Path) -> std::io::Result<World> {
+    pub fn load(
+        content: &dyn crate::content::Content,
+        catalogue: &crate::content::Catalogue,
+    ) -> std::io::Result<World> {
         const DOMAINS: [(&str, &str); 4] = [
             ("ROXY", "ROXY"),
             ("MARGARET", "MARG"),
@@ -502,19 +505,19 @@ impl World {
         let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
 
         for (dir, prefix) in DOMAINS {
-            let path = root.join(dir);
-            if !path.is_dir() {
-                continue;
-            }
-            let mut files: Vec<(u32, std::path::PathBuf)> = std::fs::read_dir(&path)?
-                .filter_map(|e| e.ok())
-                .filter_map(|e| {
-                    let name = e.file_name().to_string_lossy().to_ascii_uppercase();
+            let mut files: Vec<(u32, String)> = catalogue
+                .dir(dir)
+                .into_iter()
+                .filter_map(|path| {
+                    let name = path.rsplit('/').next()?.to_ascii_uppercase();
                     let stem = name.strip_suffix(".DAT")?;
                     let n = stem.strip_prefix(&format!("{prefix}_"))?;
-                    Some((n.parse().ok()?, e.path()))
+                    Some((n.parse().ok()?, path.to_string()))
                 })
                 .collect();
+            if files.is_empty() && catalogue.in_dir(dir, &format!("{dir}.DXR")).is_none() {
+                continue;
+            }
             files.sort_by_key(|(n, _)| *n);
 
             let start = nodes.len();
@@ -532,8 +535,10 @@ impl World {
             // cast number is the same in all three places a room is referenced.
             let mut seen: HashMap<u32, usize> = HashMap::new();
 
-            let movie = find_ci(&path, &format!("{dir}.DXR"))
-                .and_then(|p| director::Movie::open(p).ok());
+            let movie = catalogue
+                .in_dir(dir, &format!("{dir}.DXR"))
+                .and_then(|p| content.read(p))
+                .and_then(|b| director::Movie::from_bytes(b).ok());
             if let Some(movie) = &movie {
                 for (number, member_name) in movie.members_named_with(".DATA") {
                     let Some(text) = movie.text(number) else { continue };
@@ -564,12 +569,12 @@ impl World {
             }
 
             for (_, file) in files {
-                let bytes = std::fs::read(&file)?;
+                let Some(bytes) = content.read(&file) else { continue };
                 let records = match parse_dat(&bytes) {
                     Ok(r) => r,
                     // One unparsable file should not sink the other chapters.
                     Err(e) => {
-                        eprintln!("warning: {}: {e}", file.display());
+                        eprintln!("warning: {file}: {e}");
                         continue;
                     }
                 };

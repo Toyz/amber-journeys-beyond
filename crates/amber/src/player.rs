@@ -1,6 +1,5 @@
 //! Playback state for the movie a room places on its `#video` channel.
 
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use std::sync::Arc;
@@ -79,8 +78,10 @@ impl VideoPlayer {
     /// the whole track, so it cannot be decoded from an arbitrary point; the
     /// movies are short enough that holding the PCM is cheaper than the
     /// bookkeeping to stream it.
-    pub fn open(path: &Path) -> Option<VideoPlayer> {
-        let movie = Movie::open(path).ok()?;
+    /// From bytes, which is what a content source hands over: nothing below
+    /// here knows whether they came from a directory, an ISO or a bundle.
+    pub fn from_bytes(data: Vec<u8>) -> Option<VideoPlayer> {
+        let movie = Movie::from_bytes(data).ok()?;
         let video = movie.track(TrackKind::Video)?;
         let (width, height) = (video.width, video.height);
         let frame_count = video.samples.len();

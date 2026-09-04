@@ -8993,3 +8993,55 @@ produces is a tonal residue: who touched that handle. Nothing about it opens
 anything.
 
 269 tests, eleven recordings.
+
+## 181. Where the data comes from
+
+helba, thinking ahead: trait the backend so this can run somewhere other than
+a desktop -- wasm, say -- and swap the content loader, "maybe i wanna load
+content right off the iso instead". Content first.
+
+It turned out smaller than it looked. The engine reads the disc in exactly two
+ways: it walks the tree once at startup to learn what is there, and then reads
+whole files by name. Nothing streams and nothing is written. So the trait is
+two methods:
+
+```rust
+pub trait Content: Send + Sync {
+    fn list(&self) -> Vec<String>;
+    fn read(&self, path: &str) -> Option<Vec<u8>>;
+}
+```
+
+An ISO image, a zip, a bundle compiled into a wasm binary and a directory all
+answer those two. `Files` is the directory implementation, and it is the only
+place left in the engine that knows what a path is.
+
+Above it sits a `Catalogue`, built once from `list`, which is where all the
+case-folding went. The disc is inconsistent with itself -- the scripts say
+`intro.mov`, the ISO says `INTRO.MOV`, and the Macintosh half of the hybrid
+disagrees with the PC half about several directory names -- so `find_ci`,
+which used to re-read a directory every time it was asked, is now a hash
+lookup done once.
+
+Five places changed and none of them are game logic:
+
+  - `MovieIndex` and `SoundBank` index the catalogue instead of walking the
+    filesystem, and hand back a path string rather than a `Path`;
+  - `World::load` reads the chapter movie and the `.DAT` files through the
+    trait;
+  - `Game` carries the content and opens chapter movies, films and sounds
+    through it -- `Game::new(path)` still works and is now a thin wrapper over
+    `Game::from_content(Box<dyn Content>)`;
+  - `VideoPlayer::open(&Path)` is gone; it is `from_bytes` only, which is what
+    `qt::Movie` and `director::Movie` already offered underneath.
+
+The lower crates needed nothing at all. `director::Movie::from_bytes` and
+`qt::Movie::from_bytes` were already the real entry points, with `open` as a
+`std::fs::read` convenience on top, so they were ready for this before it was
+asked for.
+
+What this buys, concretely: the next content source is a file that implements
+two methods. Nothing above it -- not a room, not a handler, not a recording --
+has to know.
+
+272 tests, eleven recordings.

@@ -5,7 +5,7 @@
 //! identical whatever the front end is.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -55,7 +55,9 @@ pub struct Game {
     pub room: usize,
     /// Where the player came from, for `goBack`.
     history: Vec<usize>,
-    root: PathBuf,
+    /// Where the game's data comes from.
+    content: Box<dyn crate::content::Content>,
+    catalogue: crate::content::Catalogue,
     chapters: HashMap<String, Chapter>,
     /// Effects the last click produced, for the front end to play back.
     pub pending: Vec<Effect>,
@@ -172,20 +174,48 @@ impl Game {
             nodes: vec![crate::world::Node::default()],
             ..World::default()
         };
-        Game::over(world, Path::new("."))
+        // A content source with nothing in it: these tests are about what a
+        // move arms, not about what is on the disc.
+        struct Nothing;
+        impl crate::content::Content for Nothing {
+            fn list(&self) -> Vec<String> {
+                Vec::new()
+            }
+            fn read(&self, _: &str) -> Option<Vec<u8>> {
+                None
+            }
+        }
+        let content: Box<dyn crate::content::Content> = Box::new(Nothing);
+        let catalogue = crate::content::Catalogue::build(content.as_ref());
+        Game::over(world, content, catalogue)
     }
 
     pub fn new(root: &Path) -> std::io::Result<Game> {
-        Ok(Game::over(World::load(root)?, root))
+        Game::from_content(Box::new(crate::content::Files::new(root)))
     }
 
-    fn over(world: World, root: &Path) -> Game {
+    /// Opens the game over any source of content: a directory, an ISO, a
+    /// bundle. Nothing below this point knows which it is.
+    pub fn from_content(content: Box<dyn crate::content::Content>) -> std::io::Result<Game> {
+        let catalogue = crate::content::Catalogue::build(content.as_ref());
+        let world = World::load(content.as_ref(), &catalogue)?;
+        Ok(Game::over(world, content, catalogue))
+    }
+
+    fn over(
+        world: World,
+        content: Box<dyn crate::content::Content>,
+        catalogue: crate::content::Catalogue,
+    ) -> Game {
+        let movies = MovieIndex::build(&catalogue);
+        let sounds = SoundBank::new(&catalogue);
         let mut game = Game {
             world,
             state: State::new(),
             room: 0,
             history: Vec::new(),
-            root: root.to_path_buf(),
+            content,
+            catalogue,
             chapters: HashMap::new(),
             pending: Vec::new(),
             playing: None,
@@ -206,8 +236,8 @@ impl Game {
             repeating: None,
             script: Vec::new(),
             waiting: None,
-            movies: MovieIndex::build(root),
-            sounds: SoundBank::new(root),
+            movies,
+            sounds,
             inventory: Inventory::from_texts(&[]),
             icons_from: String::new(),
             seeded: std::collections::BTreeSet::new(),
@@ -715,9 +745,11 @@ impl Game {
 
     fn chapter(&mut self, domain: &str) -> Option<&mut Chapter> {
         if !self.chapters.contains_key(domain) {
-            let path =
-                crate::world::find_ci(&self.root.join(domain), &format!("{domain}.DXR"))?;
-            let movie = Movie::open(path).ok()?;
+            let path = self
+                .catalogue
+                .in_dir(domain, &format!("{domain}.DXR"))?
+                .to_string();
+            let movie = Movie::from_bytes(self.content.read(&path)?).ok()?;
             let palettes = movie.palettes();
             let texts = movie.texts();
             let schema = Schema::from_texts(&texts);
@@ -866,10 +898,10 @@ impl Game {
                     return;
                 }
                 self.player = None;
-                match self.movies.find(&n) {
+                match self.movies.find(&n).map(str::to_string) {
                     Some(path) => {
-                        trace!(crate::trace::Topic::Video, "push {n} -> {}", path.display());
-                        self.player = VideoPlayer::open(path);
+                        trace!(crate::trace::Topic::Video, "push {n} -> {path}");
+                        self.player = self.open_film(&path);
                     }
                     None => trace!(crate::trace::Topic::Video, "no file for movie {n}"),
                 }
@@ -936,10 +968,10 @@ impl Game {
             .find(|s| matches!(s.channel, Channel::Video) && state.test(&s.condition))
             .and_then(|s| s.center);
         self.playing = Some(name.clone());
-        match self.movies.find(&name) {
+        match self.movies.find(&name).map(str::to_string) {
             Some(path) => {
-                trace!(crate::trace::Topic::Video, "open {name} -> {}", path.display());
-                self.player = VideoPlayer::open(path);
+                trace!(crate::trace::Topic::Video, "open {name} -> {path}");
+                self.player = self.open_film(&path);
             }
             None => {
                 trace!(crate::trace::Topic::Video, "no file for movie {name}");
@@ -1962,6 +1994,11 @@ impl Game {
         crate::natives::members::script_for(&domain, &name)
     }
 
+    /// Opens a film from the content source.
+    fn open_film(&self, path: &str) -> Option<VideoPlayer> {
+        VideoPlayer::from_bytes(self.content.read(path)?)
+    }
+
     /// Where the room puts its `#video` channel.
     ///
     /// In Director a channel's position is a score property: the `#showIF`
@@ -2002,14 +2039,13 @@ impl Game {
         };
 
         self.puppets.entry(channel).or_default().cast = 0;
-        match self.movies.find(&name) {
+        match self.movies.find(&name).map(str::to_string) {
             Some(path) => {
                 trace!(
                     crate::trace::Topic::Video,
-                    "channel {channel} plays {name} -> {}",
-                    path.display()
+                    "channel {channel} plays {name} -> {path}"
                 );
-                let mut player = VideoPlayer::open(path);
+                let mut player = self.open_film(&path);
                 if let Some(p) = &mut player {
                     p.set_looping(loops);
                 }
@@ -2485,8 +2521,8 @@ impl Game {
             let decoded = match self.sounds.source_in(group, item)?.clone() {
                 Source::Files(takes) => {
                     let name = takes.first()?;
-                    let path = self.sounds.file(name)?.to_path_buf();
-                    sound::load(&path)
+                    let path = self.sounds.file(name)?.to_string();
+                    sound::load(&self.content.read(&path)?)
                 }
                 Source::Cast(number) => {
                     let domain = self.node().domain.clone();
@@ -2541,8 +2577,8 @@ impl Game {
         // Ecall12, rather than symbols in the bank, and this is how they are
         // reached.
         if self.sounds.source(key).is_none() {
-            let path = self.sounds.file(key)?.to_path_buf();
-            return sound::load(&path);
+            let path = self.sounds.file(key)?.to_string();
+            return sound::load(&self.content.read(&path)?);
         }
         match self.sounds.source(key)?.clone() {
             // Several takes of the same sound; the game varies between them,
@@ -2550,8 +2586,8 @@ impl Game {
             Source::Files(takes) => {
                 let pick = takes.len().min(1 + (self.room % takes.len().max(1)));
                 let name = takes.get(pick - 1).or_else(|| takes.first())?;
-                let path = self.sounds.file(name)?.to_path_buf();
-                sound::load(&path)
+                let path = self.sounds.file(name)?.to_string();
+                sound::load(&self.content.read(&path)?)
             }
             Source::Cast(number) => {
                 // The current chapter first, because that is where a room's
@@ -3555,9 +3591,11 @@ mod tests {
     fn a_film_on_a_channel_is_a_still_until_something_plays_it() {
         // Nothing to point at in the test harness, so the rule is checked on
         // the player itself, which is what `point_channel` parks.
-        let Some(mut player) = crate::player::VideoPlayer::open(std::path::Path::new(
-            "extract/EDWIN/MOVIES_E/CARBACK.MOV",
-        )) else {
+        let Some(bytes) = std::fs::read("extract/EDWIN/MOVIES_E/CARBACK.MOV").ok() else {
+            // No game data here; the rule is still stated above.
+            return;
+        };
+        let Some(mut player) = crate::player::VideoPlayer::from_bytes(bytes) else {
             // No game data here; the rule is still stated above.
             return;
         };

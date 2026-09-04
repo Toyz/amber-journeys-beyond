@@ -16,7 +16,6 @@
 //! the movies use, or WAV carrying unsigned 8-bit PCM.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 use lingo::{parse_value, Value};
 
@@ -47,15 +46,19 @@ pub struct SoundBank {
     /// in the bedroom than in the kitchen.
     groups: HashMap<(String, String), Source>,
     gains: HashMap<String, f32>,
-    files: HashMap<String, PathBuf>,
+    /// Upper-case file name -> the path the content spells it with.
+    files: HashMap<String, String>,
 }
 
 impl SoundBank {
-    pub fn new(root: &Path) -> SoundBank {
+    pub fn new(catalogue: &crate::content::Catalogue) -> SoundBank {
         let mut files = HashMap::new();
-        index_files(root, 0, &mut files);
-        for extra in crate::fallback_roots() {
-            index_files(&extra, 0, &mut files);
+        for path in catalogue.all() {
+            let Some(name) = path.rsplit('/').next() else { continue };
+            let upper = name.to_ascii_uppercase();
+            if upper.ends_with(".AIF") || upper.ends_with(".WAV") || upper.ends_with(".AIFF") {
+                files.entry(upper).or_insert_with(|| path.to_string());
+            }
         }
         SoundBank {
             sources: HashMap::new(),
@@ -198,16 +201,16 @@ impl SoundBank {
     /// The bank's extensions are not reliable: five of Edwin's voice cues are
     /// listed as `.wav` while the files are `.AIF`. The stem is what
     /// identifies the sound, so the extension is retried rather than trusted.
-    pub fn file(&self, name: &str) -> Option<&Path> {
+    pub fn file(&self, name: &str) -> Option<&str> {
         let key = name.trim().to_ascii_uppercase();
         if let Some(p) = self.files.get(&key) {
-            return Some(p.as_path());
+            return Some(p.as_str());
         }
         let stem = key.rsplit_once('.').map(|(s, _)| s).unwrap_or(&key);
         ["AIF", "WAV", "AIFF"]
             .iter()
             .find_map(|ext| self.files.get(&format!("{stem}.{ext}")))
-            .map(PathBuf::as_path)
+            .map(String::as_str)
     }
 
     pub fn len(&self) -> usize {
@@ -231,32 +234,12 @@ impl SoundBank {
     }
 }
 
-fn index_files(dir: &Path, depth: usize, out: &mut HashMap<String, PathBuf>) {
-    if depth > 4 {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            index_files(&path, depth + 1, out);
-        } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            let upper = name.to_ascii_uppercase();
-            if upper.ends_with(".AIF") || upper.ends_with(".WAV") || upper.ends_with(".AIFF") {
-                out.entry(upper).or_insert(path);
-            }
-        }
-    }
-}
 
 /// Reads an AIFF/AIFF-C or WAV file into PCM.
-pub fn load(path: &Path) -> Option<Pcm> {
-    let data = std::fs::read(path).ok()?;
+pub fn load(data: &[u8]) -> Option<Pcm> {
     match data.get(..4)? {
-        b"FORM" => load_aiff(&data),
-        b"RIFF" => load_wav(&data),
+        b"FORM" => load_aiff(data),
+        b"RIFF" => load_wav(data),
         _ => None,
     }
 }

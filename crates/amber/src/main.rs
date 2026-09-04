@@ -8,6 +8,7 @@
 mod trace;
 mod audio;
 mod casttable;
+mod content;
 mod record;
 mod cursor;
 mod game;
@@ -230,7 +231,9 @@ fn main() -> ExitCode {
 type Res = Result<(), Box<dyn std::error::Error>>;
 
 fn cmd_info(dir: &Path) -> Res {
-    let world = World::load(dir)?;
+    let content = content::Files::new(dir);
+    let catalogue = content::Catalogue::build(&content);
+    let world = World::load(&content, &catalogue)?;
     println!("rooms: {}", world.len());
     let mut names: Vec<_> = world.domains.iter().collect();
     names.sort();
@@ -288,7 +291,8 @@ fn cmd_info(dir: &Path) -> Res {
     }
 
     // Every movie a room can ask for, and whether the file is present.
-    let index = media::MovieIndex::build(dir);
+    let content = content::Files::new(dir);
+    let index = media::MovieIndex::build(&content::Catalogue::build(&content));
     let mut wanted: BTreeMap<String, usize> = BTreeMap::new();
     // Separately, the ones only ever named by a sprite that cannot appear.
     // `[#equals: [#always, 0]]` is how the authors switched a sprite off
@@ -411,7 +415,9 @@ fn cmd_info(dir: &Path) -> Res {
 }
 
 fn cmd_rooms(dir: &Path, domain: Option<&str>) -> Res {
-    let world = World::load(dir)?;
+    let content = content::Files::new(dir);
+    let catalogue = content::Catalogue::build(&content);
+    let world = World::load(&content, &catalogue)?;
     for node in &world.nodes {
         if domain.is_some_and(|d| !node.domain.eq_ignore_ascii_case(d)) {
             continue;
@@ -448,7 +454,9 @@ fn cmd_rooms(dir: &Path, domain: Option<&str>) -> Res {
 }
 
 fn cmd_room(dir: &Path, domain: &str, index: usize) -> Res {
-    let world = World::load(dir)?;
+    let content = content::Files::new(dir);
+    let catalogue = content::Catalogue::build(&content);
+    let world = World::load(&content, &catalogue)?;
     let node = world
         .nodes
         .iter()
@@ -999,7 +1007,9 @@ fn cmd_verify(dir: &Path) -> Res {
     verify_audio_mix(dir)?;
     verify_movie_loops(dir)?;
     verify_chapter_entries(dir)?;
-    let world = World::load(dir)?;
+    let content = content::Files::new(dir);
+    let catalogue = content::Catalogue::build(&content);
+    let world = World::load(&content, &catalogue)?;
     let mut unhandled: BTreeMap<String, usize> = BTreeMap::new();
     let mut effects: BTreeMap<String, usize> = BTreeMap::new();
     let mut destinations = 0usize;
