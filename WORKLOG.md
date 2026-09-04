@@ -9331,3 +9331,71 @@ With that it fails against a wrong cast name and passes against the right one,
 which is the whole point of writing it.
 
 279 tests, eleven recordings.
+
+## 187. A library, and a clock
+
+Finishing what entries 181 and 184 started. Three seams were traited and the
+crate still could not be built for anywhere but a desktop, for two reasons
+that had nothing to do with the seams.
+
+### It was a binary
+
+Every module was a module of `main.rs`. There was no library, so nothing could
+depend on the engine -- a web front end had nothing to import. Split:
+`lib.rs` is the game and `main.rs` is the command line, and the two things
+that name a platform are behind a feature:
+
+```toml
+[features]
+default = ["desktop"]
+desktop = ["dep:cpal", "dep:minifb"]
+```
+
+`render`, `walk`, `host_desktop` and `audio_device` are `#[cfg(feature =
+"desktop")]`. Built without it the crate is the rooms, the scripts, the state
+machine, the compositor and the mixer, and nothing else.
+
+```text
+$ cargo build --lib --no-default-features --target wasm32-unknown-unknown
+$
+```
+
+Which is the first time this has compiled for anything but the machine it was
+written on.
+
+### It had no time
+
+Compiling is not running. `Instant::now()` **panics** on
+`wasm32-unknown-unknown` -- there is no clock behind it -- and the engine asked
+the time in twenty-four places: the film that is playing, every `wait n ticks`,
+the ghost calls, Edwin's carols, the radio's next take, a held dial's repeat.
+The first film would have taken the whole thing down.
+
+So a `clock` module, and one function:
+
+```rust
+pub fn now() -> f64;      // seconds since the engine started
+pub fn advance(seconds: f64);
+```
+
+On a desktop `now` reads an `Instant` behind a `OnceLock`. On wasm it reads
+whatever the host last supplied, and the host calls `advance` once a frame
+with `performance.now()`. `advance` is a no-op where the platform has a clock,
+so a host may call it unconditionally and not care which it is talking to.
+
+`Wait::Until` and the four fields that held a deadline are now `f64` seconds
+rather than `Instant`. That is a plainer type and it loses nothing: everything
+done with them was a comparison or an addition of seconds, and `Instant` was
+buying a type that does not exist everywhere.
+
+### The last of it
+
+Making the crate a library made a dozen items public that had not been, and
+clippy had something to say about five of them: a public `len` with no
+`is_empty`. They are counts rather than collections -- how many tables were
+loaded, how many files the image holds -- so they are `count` now, which is
+what they always meant. `World` got a real `is_empty` as well, because a world
+with no rooms is a thing the engine already tests for.
+
+280 tests, eleven recordings, clean off the disc image and clean under
+`--strict`, and the engine builds for the web.

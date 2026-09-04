@@ -213,7 +213,7 @@ impl SoundBank {
             .map(String::as_str)
     }
 
-    pub fn len(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.sources.len()
     }
 

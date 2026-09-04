@@ -4,9 +4,19 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["desktop"]
+# The window and the audio device. Everything else in the crate is the game
+# and names no platform, so a build without this is what the web target uses.
+desktop = ["dep:cpal", "dep:minifb"]
+
 [dependencies]
-cpal = "0.18.2"
+cpal = { version = "0.18.2", optional = true }
 director = { path = "../director" }
 lingo = { path = "../lingo" }
-minifb = "0.28.0"
+minifb = { version = "0.28.0", optional = true }
 qt = { path = "../qt" }
+
+[[bin]]
+name = "amber"
+required-features = ["desktop"]

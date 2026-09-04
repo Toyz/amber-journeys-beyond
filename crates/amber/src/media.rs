@@ -44,7 +44,7 @@ impl MovieIndex {
             .map(String::as_str)
     }
 
-    pub fn len(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.by_name.len()
     }
 }

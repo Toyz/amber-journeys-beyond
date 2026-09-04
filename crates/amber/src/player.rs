@@ -1,6 +1,6 @@
 //! Playback state for the movie a room places on its `#video` channel.
 
-use std::time::{Duration, Instant};
+use crate::clock;
 
 use std::sync::Arc;
 
@@ -62,7 +62,8 @@ pub struct VideoPlayer {
     frame_count: usize,
     /// Track timescale, in units per second.
     timescale: u32,
-    started: Instant,
+    /// When the film started, on the engine's own clock.
+    started: crate::clock::Moment,
     pub finished: bool,
     /// Decoded audio for the whole movie, if it has a sound track. Shared so
     /// the mixer can hold it without copying a track that runs to megabytes.
@@ -133,7 +134,7 @@ impl VideoPlayer {
             current: usize::MAX,
             frame_count,
             timescale: timescale.max(1),
-            started: Instant::now(),
+            started: clock::now(),
             finished: frame_count == 0,
             // Scenery until a script says otherwise.
             looping: true,
@@ -158,7 +159,7 @@ impl VideoPlayer {
             self.finished = true;
             return false;
         };
-        let mut now = (self.started.elapsed().as_secs_f64() * self.timescale as f64) as u64;
+        let mut now = ((clock::now() - self.started) * self.timescale as f64) as u64;
         // Inside a segment the clock starts at its first frame, and the movie
         // is over when it reaches the last.
         if let Some((from, to)) = self.segment {
@@ -176,7 +177,7 @@ impl VideoPlayer {
             if self.looping {
                 // Start the clock again rather than counting on from a
                 // timestamp that is already past the end.
-                self.started = Instant::now();
+                self.started = clock::now();
                 self.current = usize::MAX;
                 return self.seek(0);
             }
@@ -242,7 +243,7 @@ impl VideoPlayer {
     /// movieTime of sprite 44` -- and so does `#trackData`, whose cues are
     /// keyed by it.
     pub fn movie_time(&self) -> u32 {
-        (self.started.elapsed().as_secs_f64() * 60.0) as u32
+        ((clock::now() - self.started) * 60.0) as u32
     }
 
     /// Holds the film on its first frame without playing it.
@@ -261,7 +262,7 @@ impl VideoPlayer {
     pub fn restart(&mut self) {
         self.segment = None;
         self.finished = self.frame_count == 0;
-        self.started = Instant::now();
+        self.started = clock::now();
         self.current = usize::MAX;
         self.seek(0);
     }
@@ -278,7 +279,7 @@ impl VideoPlayer {
         self.segment = Some((from, to));
         self.looping = false;
         self.finished = false;
-        self.started = Instant::now();
+        self.started = clock::now();
         self.current = usize::MAX;
         if let Some(video) = self.movie.track(TrackKind::Video) {
             if let Some(i) = video.sample_at(from) {
@@ -334,6 +335,6 @@ impl VideoPlayer {
             .unwrap_or(0);
         self.current = usize::MAX;
         self.seek(target);
-        self.started = Instant::now() - Duration::from_secs_f64(seconds.max(0.0));
+        self.started = clock::now() - seconds.max(0.0);
     }
 }

@@ -155,7 +155,7 @@ impl Iso {
                 .is_some_and(|e| e.eq_ignore_ascii_case("iso"))
     }
 
-    pub fn len(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.paths.len()
     }
 }
@@ -179,7 +179,7 @@ impl Content for Iso {
 pub fn open(path: &Path) -> std::io::Result<Box<dyn Content>> {
     if Iso::looks_like_one(path) {
         let iso = Iso::open(path)?;
-        eprintln!("reading {} ({} files)", path.display(), iso.len());
+        eprintln!("reading {} ({} files)", path.display(), iso.count());
         return Ok(Box::new(iso));
     }
     Ok(Box::new(crate::content::Files::new(&PathBuf::from(path))))

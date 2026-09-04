@@ -116,7 +116,7 @@ impl CastTables {
         rows.iter().find(|(k, _)| *k == wanted).map(|(_, v)| *v)
     }
 
-    pub fn len(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.tables.len()
     }
 

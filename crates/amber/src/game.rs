@@ -7,7 +7,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use director::{Bitmap, Movie, Palette};
 use lingo::Rect;
@@ -67,7 +66,7 @@ pub struct Game {
     /// next one is the last element and can be popped.
     cues: Vec<(u32, crate::markers::Cue)>,
     /// When the next carol may play on Edwin's ice.
-    carol_after: Option<Instant>,
+    carol_after: Option<crate::clock::Moment>,
     /// True while the opening film is playing, because that one film -- and
     /// only that one -- can be cut short by a click.
     intro_running: bool,
@@ -76,7 +75,7 @@ pub struct Game {
     sounds_suspended: bool,
     /// When the ghost call now sounding -- or the pause standing in for one --
     /// is over, and the next turn of the rota may take its place.
-    ghost_call_until: Option<Instant>,
+    ghost_call_until: Option<crate::clock::Moment>,
     /// How far through each ghost's own calls the game has got. The original
     /// keeps this in `gCurrentEntrySounds` and never resets it, so a ghost
     /// works through its recordings in order and starts again at the top.
@@ -97,7 +96,7 @@ pub struct Game {
     /// 128 by 96 film.
     overlay: Option<Overlay>,
     /// The hotspot to re-run while the button is held, and when next to do it.
-    repeating: Option<(Vec<String>, Instant)>,
+    repeating: Option<(Vec<String>, crate::clock::Moment)>,
     /// Actions still to run from the current hotspot, and what they are
     /// waiting on. In-world animation depends on this: a switch sets a flag,
     /// redraws so the movie appears, waits for it to finish, then clears the
@@ -1054,7 +1053,7 @@ impl Game {
                             trace!(
                                 crate::trace::Topic::Sprite,
                                 "cast lookup miss {table}[{flag} = {key:?}], {} tables loaded",
-                                tables.map(|t| t.len()).unwrap_or(0)
+                                tables.map(|t| t.count()).unwrap_or(0)
                             );
                         }
                         found?
@@ -1462,7 +1461,7 @@ impl Game {
         }
         // Three and a half minutes between them, which is the wait the
         // original counts in ticks.
-        if self.carol_after.is_some_and(|t| Instant::now() < t) {
+        if self.carol_after.is_some_and(|t| crate::clock::now() < t) {
             return None;
         }
         let carols = self.state.get_all("windSongs").to_vec();
@@ -1472,7 +1471,7 @@ impl Game {
         if let Some(last) = carols.last().cloned() {
             self.state.set("windSongs", last);
         }
-        self.carol_after = Some(Instant::now() + Duration::from_secs(210));
+        self.carol_after = Some(crate::clock::now() + 210.0);
         trace!(crate::trace::Topic::Audio, "carol: {song}");
         Some(song)
     }
@@ -1491,7 +1490,7 @@ impl Game {
         if self.sounds_suspended {
             return;
         }
-        if self.ghost_call_until.is_some_and(|t| Instant::now() < t) {
+        if self.ghost_call_until.is_some_and(|t| crate::clock::now() < t) {
             return;
         }
         let rota = self.state.get_all("ghostsCalling").to_vec();
@@ -1511,7 +1510,7 @@ impl Game {
         }
 
         if batter.eq_ignore_ascii_case("nobody") {
-            self.ghost_call_until = Some(Instant::now() + Duration::from_secs(1));
+            self.ghost_call_until = Some(crate::clock::now() + 1.0);
             return;
         }
 
@@ -1531,7 +1530,7 @@ impl Game {
             .sound(&name)
             .map(|(pcm, rate, ch)| pcm.len() as f64 / (rate.max(1) * ch.max(1) as u32) as f64)
             .unwrap_or(0.0);
-        self.ghost_call_until = Some(Instant::now() + Duration::from_secs_f64(secs));
+        self.ghost_call_until = Some(crate::clock::now() + secs);
 
         let loudness = match self.state.get("ghostCallVol").as_int().unwrap_or(180) {
             v if v <= 90 => "low",
@@ -1700,7 +1699,7 @@ impl Game {
     /// clock is skipped -- a film wait, a sound wait and a click wait are all
     /// left exactly as they are, because those are the ones that deadlock.
     pub fn fast_forward_ticks(&mut self) {
-        let now = Instant::now();
+        let now = crate::clock::now();
         for wait in [&mut self.effect_wait, &mut self.waiting] {
             if let Some(Wait::Until(t)) = wait {
                 *t = now;
@@ -2427,7 +2426,7 @@ impl Game {
             order,
             playing: None,
             next: 0,
-            due: Instant::now(),
+            due: crate::clock::now(),
             gain,
             misses: 0,
         });
@@ -2448,7 +2447,7 @@ impl Game {
     /// without waiting out each take. Diagnostics only.
     pub fn force_program_step(&mut self) {
         if let Some(p) = self.program.as_mut() {
-            p.due = Instant::now();
+            p.due = crate::clock::now();
         }
     }
 
@@ -2465,7 +2464,7 @@ impl Game {
     /// running without the mixer having to report completions.
     pub fn tick_program(&mut self) -> Option<Cue> {
         let program = self.program.as_ref()?;
-        if Instant::now() < program.due {
+        if crate::clock::now() < program.due {
             return None;
         }
         let (group, item, gain, finished) = {
@@ -2522,7 +2521,7 @@ impl Game {
         };
         if let Some(p) = self.program.as_mut() {
             // A missing item waits a short beat rather than no time at all.
-            p.due = Instant::now() + Duration::from_secs_f64(seconds.max(0.25));
+            p.due = crate::clock::now() + seconds.max(0.25);
             p.misses = if pcm.is_some() { 0 } else { p.misses + 1 };
             // A programme whose items all fail would otherwise poll for ever.
             if p.misses > p.order.len() {
@@ -2993,7 +2992,7 @@ impl Game {
         // original spends before it starts spinning.
         self.repeating = outcome
             .repeat_while_held
-            .then(|| (actions, Instant::now() + Duration::from_millis(400)));
+            .then(|| (actions, crate::clock::now() + 0.4));
         Some(outcome)
     }
 
@@ -3009,13 +3008,13 @@ impl Game {
             return None;
         }
         let (actions, due) = self.repeating.as_ref()?;
-        if Instant::now() < *due {
+        if crate::clock::now() < *due {
             return None;
         }
         let actions = actions.clone();
         let outcome = script::run(&actions, &mut self.state);
         self.apply(&outcome);
-        self.repeating = Some((actions, Instant::now() + Duration::from_millis(120)));
+        self.repeating = Some((actions, crate::clock::now() + 0.12));
         Some(outcome)
     }
 
@@ -3078,7 +3077,7 @@ impl Game {
 
     fn wait_satisfied(&self, wait: &Wait, armed_from_queue: bool) -> bool {
         match wait {
-            Wait::Until(t) => Instant::now() >= *t,
+            Wait::Until(t) => crate::clock::now() >= *t,
             // A room with no movie has nothing to wait for; treating that as
             // satisfied stops a missing video from stalling the sequence.
             // The rest of the reasoning is on `film_wait_satisfied`.
@@ -3333,17 +3332,15 @@ fn world_domains(world: &World) -> Vec<String> {
 /// ran at the wrong speed.
 fn wait_for(effect: &Effect) -> Option<Wait> {
     match effect {
-        Effect::WaitTicks(t) => Some(Wait::Until(
-            Instant::now() + Duration::from_secs_f64(*t as f64 / 60.0),
-        )),
+        Effect::WaitTicks(t) => {
+            Some(Wait::Until(crate::clock::now() + *t as f64 / 60.0))
+        }
         Effect::WaitForVideo => Some(Wait::Video),
         Effect::WaitForOverlay => Some(Wait::Overlay),
         Effect::WaitForClick => Some(Wait::Click),
         // A sound's real length is not known here, so this is a short hold
         // rather than a promise.
-        Effect::WaitForSound(_) => {
-            Some(Wait::Until(Instant::now() + Duration::from_millis(250)))
-        }
+        Effect::WaitForSound(_) => Some(Wait::Until(crate::clock::now() + 0.25)),
         _ => None,
     }
 }
@@ -3394,7 +3391,7 @@ fn name_wait(wait: Option<&Wait>) -> String {
 
 /// What a part-run script is waiting on.
 enum Wait {
-    Until(Instant),
+    Until(crate::clock::Moment),
     Video,
     /// Held until a film on a script-driven channel ends -- the PeeK unit
     /// sliding up, which the original runs out with its own loop.
@@ -3498,7 +3495,7 @@ struct Program {
     /// to its end.
     playing: Option<String>,
     /// When the current item is expected to finish.
-    due: Instant,
+    due: crate::clock::Moment,
     gain: f32,
     /// Consecutive items that failed to resolve, so a wholly unresolvable
     /// programme stops instead of polling.
@@ -4020,7 +4017,7 @@ mod tests {
         let mut game = Game::for_test();
         game.state.set_all("AMBERVISION", vec![lingo::Value::Symbol("on".into())]);
         game.state.set_all("ghostsCalling", vec![lingo::Value::Symbol("Margaret".into())]);
-        game.ghost_call_until = Some(Instant::now() + Duration::from_secs(30));
+        game.ghost_call_until = Some(crate::clock::now() + 30.0);
         game.tick_ghost_call();
         assert!(game.pending.is_empty(), "called over the top of a call");
     }
@@ -4070,7 +4067,7 @@ mod tests {
         // ghosts should be able to start straight away rather than waiting
         // out a call that has just been cut off.
         let mut game = Game::for_test();
-        game.ghost_call_until = Some(Instant::now() + Duration::from_secs(30));
+        game.ghost_call_until = Some(crate::clock::now() + 30.0);
         game.apply_puppet(&Effect::StopGhostCall);
         assert!(game.ghost_call_until.is_none());
     }

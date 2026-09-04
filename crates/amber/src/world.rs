@@ -624,8 +624,14 @@ impl World {
         })
     }
 
-    pub fn len(&self) -> usize {
+    /// How many rooms the world holds.
+    pub fn count(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// Whether it holds none, which means the content source was wrong.
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
     }
 
 }

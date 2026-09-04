@@ -641,9 +641,20 @@ impl Audio {
 }
 
 impl Audio {
-    /// Opens the default output device, whatever this build has one of.
+    /// Opens the default output device, if this build has one.
+    ///
+    /// A build without a device is not a broken one: the terminal has never
+    /// had sound and reports what it would have played instead, and the web
+    /// build supplies its own sink through `over`.
     pub fn open() -> Option<Audio> {
-        crate::audio_device::open()
+        #[cfg(feature = "desktop")]
+        {
+            crate::audio_device::open()
+        }
+        #[cfg(not(feature = "desktop"))]
+        {
+            None
+        }
     }
 
     /// Builds a mixer and hands it to a sink, which starts pulling from it.
