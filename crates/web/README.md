@@ -15,7 +15,15 @@ hand-written half -- one HTML file and the audio worklet.
 
 ## Run
 
-Any static server, from `crates/web/page`:
+```sh
+./crates/web/serve.sh /path/to/extracted/disc
+```
+
+Builds the wasm, writes the manifest, links the disc into the page's directory
+without copying five hundred megabytes, and serves the lot threaded. It prints
+the URL and the keys.
+
+For the picker instead, any static server from `crates/web/page` will do:
 
 ```sh
 python3 -m http.server 8080
