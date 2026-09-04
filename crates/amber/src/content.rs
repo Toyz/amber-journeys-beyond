@@ -144,6 +144,12 @@ impl Catalogue {
             .collect()
     }
 
+    /// How many files the source holds, which is the first thing to know when
+    /// it holds none of the ones expected.
+    pub fn file_count(&self) -> usize {
+        self.paths.len()
+    }
+
     /// Every path, for an index that wants to pick its own out.
     pub fn all(&self) -> impl Iterator<Item = &str> {
         self.paths.iter().map(String::as_str)

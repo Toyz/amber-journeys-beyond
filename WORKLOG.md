@@ -9045,3 +9045,67 @@ two methods. Nothing above it -- not a room, not a handler, not a recording --
 has to know.
 
 272 tests, eleven recordings.
+
+## 182. Straight off the disc
+
+helba, with the image in the working directory:
+
+```text
+cargo run play 'Amber - Journeys Beyond (1996)(Hue Forest).iso' --replay full.walk
+thread 'main' panicked at crates/amber/src/game.rs:657:26:
+index out of bounds: the len is 0 but the index is 0
+```
+
+The trait from entry 181 was one implementation short. `Files` was handed a
+path that is not a directory, found nothing in it, and the engine carried on
+into an empty world.
+
+### The image
+
+The disc is a hybrid -- an Apple partition map for the Macintosh half and an
+ISO 9660 filesystem for the PC half -- and it is the second one this reads.
+Sector 16 is the primary volume descriptor, which gives the logical block size
+and a thirty-four byte record for the root directory. A directory is a run of
+records, each with the extent it starts at, its length, whether it is itself a
+directory, and its name. Walking that tree once gives the offset and length of
+every file, which is exactly and only what `Content` wants.
+
+Nothing more is implemented: no Joliet, no Rock Ridge, no multi-extent files.
+A 1996 data disc uses none of them, and a reader that handles what is actually
+there is easier to be sure of than one that handles everything.
+
+Two details cost a moment each. A directory record of length zero is padding
+to the end of the sector rather than the end of the directory, so the walk
+steps to the next block boundary and keeps going. And every file name carries
+a version -- `ROXY.DXR;1` -- which is filesystem bookkeeping and not part of
+the name.
+
+676 files, and the whole game runs out of it:
+
+```text
+$ amber walk 'Amber - Journeys Beyond (1996)(Hue Forest).iso' --replay full.walk
+reading Amber - Journeys Beyond (1996)(Hue Forest).iso (676 files)
+...
+ROXY / garageEscape   [inventory blackout]
+```
+
+Opening film to credits, 1024 steps, no faults. `verify` reports the same
+1325 rooms, the same 1374 sprites decoding, the same nothing dangling. The
+extracted copy still works and every recording still replays against it; the
+source is the only thing that changed.
+
+`Game::new` now opens whichever kind of thing the path is, so the same command
+line takes an installed copy, a mounted disc or an image without being told.
+
+### And the panic
+
+Worth its own line. A content source with nothing in it is not an empty game,
+it is the wrong path, and the engine should say so rather than index into a
+world with no rooms:
+
+```text
+error: no game data here (0 file(s) found). Point this at the installed game,
+a mounted disc, or the .iso itself.
+```
+
+274 tests, eleven recordings, and the game reads off the disc it shipped on.

@@ -190,8 +190,9 @@ impl Game {
         Game::over(world, content, catalogue)
     }
 
+    /// Opens the game at a path, which may be a directory or a CD image.
     pub fn new(root: &Path) -> std::io::Result<Game> {
-        Game::from_content(Box::new(crate::content::Files::new(root)))
+        Game::from_content(crate::iso::open(root)?)
     }
 
     /// Opens the game over any source of content: a directory, an ISO, a
@@ -199,6 +200,19 @@ impl Game {
     pub fn from_content(content: Box<dyn crate::content::Content>) -> std::io::Result<Game> {
         let catalogue = crate::content::Catalogue::build(content.as_ref());
         let world = World::load(content.as_ref(), &catalogue)?;
+        // A source with nothing in it is not an empty game, it is the wrong
+        // path -- and saying so beats the index panic that came of carrying
+        // on with no rooms at all.
+        if world.nodes.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "no game data here ({} file(s) found). Point this at the \
+                     installed game, a mounted disc, or the .iso itself.",
+                    catalogue.file_count()
+                ),
+            ));
+        }
         Ok(Game::over(world, content, catalogue))
     }
 
