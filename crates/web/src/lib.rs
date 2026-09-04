@@ -20,6 +20,10 @@ use amber::iso::Iso;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::Clamped;
 
+/// The key a film's soundtrack is mixed under, so it can be stopped when its
+/// picture goes. Without one it outlived the room it belonged to.
+const FILM: &str = "\u{1}filmSoundtrack";
+
 const STAGE_W: usize = 640;
 const STAGE_H: usize = 480;
 
@@ -259,6 +263,12 @@ impl Amber {
         // room's bed stacked on the last, which is what was looping.
         if self.game.room != self.ambience_room {
             self.ambience_room = self.game.room;
+            // A film belongs to the room that placed it, and so does its
+            // sound: walking away took the picture and left the soundtrack.
+            if let Some(audio) = &self.audio {
+                audio.stop(FILM);
+            }
+            self.soundtrack_started = false;
             amber::game::update_ambience(&mut self.game, self.audio.as_ref());
         }
         if self.game.tick_overlay() {
@@ -287,9 +297,19 @@ impl Amber {
             if let Some(audio) = &self.audio {
                 self.soundtrack_started = true;
                 if rate > 0 && !pcm.is_empty() {
-                    // QuickTime plays a movie's soundtrack outside the four
-                    // channels, so it takes none of them.
-                    audio.play(None, None, pcm, rate, channels, 1.0, false, false);
+                    // Keyed, so leaving the room can stop it. QuickTime plays
+                    // a movie's soundtrack outside the four channels, so it
+                    // takes none of them either way.
+                    audio.play(
+                        None,
+                        Some(FILM.to_string()),
+                        pcm,
+                        rate,
+                        channels,
+                        1.0,
+                        false,
+                        false,
+                    );
                 }
             }
         }
@@ -378,6 +398,47 @@ impl Amber {
             self.dirty = true;
             return;
         }
+        // The film effects are the front end's, not `apply_puppet`'s, and this
+        // front end did not have them at all: `pushVideo` played nothing,
+        // `killVideo` stopped nothing, and a scrubbed segment moved its state
+        // and showed no picture. So every set piece was missing, the room's
+        // own film was never taken down -- which is why the lake ghost ran on
+        // after its sound had finished -- and its soundtrack outlived the room
+        // it belonged to.
+        match effect {
+            Effect::PlayVideo(ref which) => {
+                let which = which.clone();
+                self.game.play_movie(which.as_deref());
+                self.soundtrack_started = false;
+                self.dirty = true;
+                return;
+            }
+            Effect::StopVideo => {
+                self.game.player = None;
+                self.soundtrack_started = false;
+                // The soundtrack is a one-shot in the mixer and knows nothing
+                // about its picture being taken down.
+                if let Some(audio) = &self.audio {
+                    audio.stop(FILM);
+                }
+                self.dirty = true;
+                return;
+            }
+            // A zero-length segment parks on a frame rather than playing,
+            // which is what entering a room with the vane already turned
+            // needs.
+            Effect::PlayVideoSegment { from, to } => {
+                if self.game.player.is_none() {
+                    self.game.start_room_video();
+                }
+                if let Some(player) = &mut self.game.player {
+                    player.play_segment(from, to);
+                }
+                self.dirty = true;
+                return;
+            }
+            _ => {}
+        }
         let Some(audio) = &self.audio else { return };
         match effect {
             Effect::PlaySound { name, loudness } => {
@@ -398,9 +459,19 @@ impl Amber {
                     audio.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true, true);
                 }
             }
-            Effect::StopLoop { name, .. } => audio.stop(&name),
+            Effect::StopLoop { name, .. } => {
+                audio.stop(&name);
+                self.game.stop_program(&name);
+            }
+            // Fades are not modelled yet; the duck itself is what the scripts
+            // rely on.
             Effect::SuspendSounds { .. } => audio.set_suspended(true),
             Effect::RestoreSounds { .. } => audio.set_suspended(false),
+            Effect::StopGhostCall => {
+                if let Some(n) = self.game.state.get("gLastCall").as_str() {
+                    audio.stop_oneshot(n);
+                }
+            }
             _ => {}
         }
     }
