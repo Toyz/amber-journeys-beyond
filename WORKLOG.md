@@ -8937,3 +8937,59 @@ clock now, and the recording replays identically twice over -- which is the
 property that was actually being tested.
 
 268 tests, eleven recordings, and `full.walk` is 1024 lines.
+
+## 180. A still where a film should be
+
+helba, with a photograph of the PeeK unit on the porch: the body is there and
+the little screen is a hole with the brick wall behind it. And: "the videos in
+the peek didn't play they were just static now".
+
+Mine, from entry 174. Pointing a channel at a film now parks it on its first
+frame, which is right -- `setCarLocation` depends on it -- and the three
+handlers that want motion were given a `PlayOverlay` to ask for it. The PeeK
+unit has more than one: the roll-up got its play and the clips in the screen
+did not, so every haunt played back as a frozen frame, and where the frame was
+a fade the screen was transparent and the room showed through.
+
+The clips are put on the channel through one closure, so the fix is there:
+
+```rust
+let frame = |out: &mut Outcome, name: &str| {
+    out.effects.push(Effect::SpriteCastFromTable { channel: SCREEN, ... });
+    out.effects.push(Effect::PlayOverlay { channel: SCREEN });
+};
+```
+
+and the scan playback from entry 178 gets one too -- `set the visible of
+sprite 44 = TRUE` shows the screen, and the film on it is the point.
+
+The blank frame the screen rests on stays parked, which is what it is.
+
+### The pickup, which turned out to be right
+
+helba also thought the pickup itself was missing something. It is not, and the
+reason it looks like it is worth writing down:
+
+```text
+[#pointer, rect(127, 102, 511, 334),
+ ["useInventory( #PeekUnit )",
+  " setProp( the lsStateData of oStoryteller, #moveCount, [0] )"],
+ [#equals: [#playerHasPeekUnit, 0]]]
+```
+
+Taking the unit puts the move counter back to nothing, so the sixty moves
+before the first haunt are counted from the pickup rather than from the
+opening film. That does happen -- but not on the click. `useInventory` opens
+the unit and the unit holds for a click, so `pump` stops there with the reset
+still in the script; it lands when the player dismisses the playback. Reading
+the counter in between shows the old number, which is exactly what it looked
+like when I checked. A test says so now.
+
+### And the door sensor
+
+"the door sensor doesn't move doors thats odd?" -- it is not a lock, it is a
+scanner. `#DoorWithScanUnit` says which knob it is clamped to and the thing it
+produces is a tonal residue: who touched that handle. Nothing about it opens
+anything.
+
+269 tests, eleven recordings.

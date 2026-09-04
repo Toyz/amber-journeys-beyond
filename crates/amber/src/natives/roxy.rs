@@ -722,21 +722,29 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             // `camSprite` is the roll-up's channel once the unit is up, so
             // every clip plays in the little screen rather than over the whole
             // body of the unit.
-            let frame = |name: &str| Effect::SpriteCastFromTable {
-                channel: SCREEN,
-                table: "PkVideoNormal".into(),
-                key: name.into(),
+            // A clip in the unit's little screen: the channel is pointed at
+            // it and then told to run. Pointing alone is a still -- which is
+            // right for the blank frame the screen rests on and wrong for
+            // every one of these, and getting that wrong left the unit
+            // showing a frozen first frame with the room visible through it.
+            let frame = |out: &mut Outcome, name: &str| {
+                out.effects.push(Effect::SpriteCastFromTable {
+                    channel: SCREEN,
+                    table: "PkVideoNormal".into(),
+                    key: name.into(),
+                });
+                out.effects.push(Effect::PlayOverlay { channel: SCREEN });
             };
 
             if let Some((_, clip)) = HAUNTS
                 .iter()
                 .find(|(d, _)| d.eq_ignore_ascii_case(&display))
             {
-                out.effects.push(frame("PkFadeIn"));
+                frame(out, "PkFadeIn");
                 out.effects.push(Effect::WaitTicks(15));
-                out.effects.push(frame(clip));
+                frame(out, clip);
                 out.effects.push(Effect::WaitForClick);
-                out.effects.push(frame("PkFadeOut"));
+                frame(out, "PkFadeOut");
                 out.effects.push(Effect::WaitTicks(15));
                 out.effects.push(Effect::SetState {
                     key: "PKbarStatus".into(),
@@ -749,7 +757,7 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             } else if display.eq_ignore_ascii_case("psionicFragment") {
                 // The fragment the pyramid offers, which is picked up by
                 // looking at it.
-                out.effects.push(frame("PkFragment"));
+                frame(out, "PkFragment");
                 out.effects.push(Effect::WaitForClick);
             } else if display.eq_ignore_ascii_case("BARstartup") {
                 // The machine reporting for duty, and then reporting that it

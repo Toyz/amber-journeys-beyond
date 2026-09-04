@@ -79,10 +79,14 @@ pub fn call(name: &str, _args: &[Value], state: &mut State, out: &mut Outcome) -
                 "tonalResidueRemaining",
                 &Value::Symbol((*scan).into()),
             );
+            // `set the visible of sprite 44 = TRUE` shows the little
+            // screen, and the film on it is the playback -- so it runs, as
+            // every clip in the unit does.
             out.effects.push(Effect::SpriteVisible {
                 channel: 44,
                 visible: true,
             });
+            out.effects.push(Effect::PlayOverlay { channel: 44 });
             out.redraw = true;
         }
         _ => return false,

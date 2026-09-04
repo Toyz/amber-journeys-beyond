@@ -1094,3 +1094,32 @@ mod tests {
         assert_eq!(out.writes, vec![("showMontage".into(), Value::Int(0))]);
     }
 }
+
+#[cfg(test)]
+mod pickup_tests {
+    use super::*;
+
+    /// Taking the PeeK unit starts the haunt clock, by putting the move
+    /// counter back to nothing:
+    ///
+    /// ```text
+    /// [#pointer, rect(127, 102, 511, 334),
+    ///  ["useInventory( #PeekUnit )",
+    ///   " setProp( the lsStateData of oStoryteller, #moveCount, [0] )"],
+    ///  [#equals: [#playerHasPeekUnit, 0]]]
+    /// ```
+    ///
+    /// The sixty moves before the first haunt are counted from the pickup and
+    /// not from the opening film, so a player who explored first was owed the
+    /// full sixty and got however many were left.
+    #[test]
+    fn taking_the_unit_starts_the_haunt_clock_again() {
+        let mut state = State::new();
+        state.set_all("moveCount", vec![Value::Int(40)]);
+        run(
+            &[" setProp( the lsStateData of oStoryteller, #moveCount, [0] )".into()],
+            &mut state,
+        );
+        assert_eq!(state.get("moveCount"), Value::Int(0));
+    }
+}
