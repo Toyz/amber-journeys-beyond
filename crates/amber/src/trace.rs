@@ -148,8 +148,21 @@ fn mask() -> u32 {
     *MASK.get_or_init(|| match std::env::var("AMBER_TRACE") {
         Ok(spec) => bits_for(&spec),
         Err(_) => 0,
-    })
+    }) | EXTRA.load(Ordering::Relaxed)
 }
+
+/// Turns topics on without an environment variable.
+///
+/// A browser has no environment and no stderr, so a front end without either
+/// says what it wants and where to put it. Diagnosing the same fault twice
+/// through a hole in the tracing is what this is for.
+pub fn listen(spec: &str, to: fn(&str)) {
+    EXTRA.fetch_or(bits_for(spec), Ordering::Relaxed);
+    let _ = ECHO.set(to);
+}
+
+static EXTRA: AtomicU32 = AtomicU32::new(0);
+static ECHO: OnceLock<fn(&str)> = OnceLock::new();
 
 /// Whether anything is listening for this topic.
 ///
@@ -219,7 +232,10 @@ pub fn record(topic: Topic, args: Arguments<'_>) {
                 }
             }
         }
-        None => eprint!("{line}"),
+        None => match ECHO.get() {
+            Some(echo) => echo(line.trim_end()),
+            None => eprint!("{line}"),
+        },
     }
 }
 

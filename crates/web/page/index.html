@@ -128,6 +128,11 @@ async function main() {
     document.addEventListener("pointerdown", begin);
   });
 
+  // `?trace=video,audio` puts the engine's own records in the console, which
+  // is the only place a browser has to read them.
+  const topics = params.get("trace");
+  if (topics) game.trace(topics);
+
   document.getElementById("open").style.display = "none";
   canvas.style.display = "block";
 

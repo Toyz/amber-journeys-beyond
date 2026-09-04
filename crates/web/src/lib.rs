@@ -136,6 +136,14 @@ impl Amber {
         self.game.awaiting_content()
     }
 
+    /// Turns the engine's own tracing on and sends it to the console.
+    ///
+    /// `topics` is what the desktop takes in `AMBER_TRACE` -- `video`,
+    /// `audio`, `script`, `room`, `sprite`, `state`, or `all`.
+    pub fn trace(&self, topics: &str) {
+        amber::trace::listen(topics, |line| log(line));
+    }
+
     /// Starts the mixer at the rate the page's audio context runs at.
     ///
     /// The sink has nothing to hold: the worklet pulls through [`Amber::fill`]
