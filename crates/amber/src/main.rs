@@ -905,7 +905,7 @@ fn cmd_mix(dir: &Path, room: &str, clicks: &[String]) -> Res {
     game.jump_to(target);
 
     let audio = audio::Audio::silent();
-    render::update_ambience(&mut game, Some(&audio));
+    game::update_ambience(&mut game, Some(&audio));
     // A radio or clock is a programme of takes queued one at a time, so it
     // only becomes a voice once it is advanced. The window does that every
     // frame; here it takes one nudge.

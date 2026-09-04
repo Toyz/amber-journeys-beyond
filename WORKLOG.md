@@ -9466,3 +9466,67 @@ The default is `false`, so a directory and an image answer "no, and it never
 will be" and behave exactly as they did. Nothing else in the engine changed.
 
 280 tests, eleven recordings, and it builds for the web.
+
+## 189. Three things the browser front end was missing
+
+helba, playing it: no sound, no pointer, and then -- once there was sound --
+"the opening has no sound but there is sound in the game also certain events
+are looping randomly like the haunt by the boathouse".
+
+All three were the same mistake in three places: the desktop front end does
+something the web one did not, and none of them were engine work.
+
+### The pointer
+
+```rust
+if !game.draw_cursor(&mut out, ..., verb, mx, my) {
+    cursor::draw(&mut out, ..., verb);
+}
+```
+
+`draw_cursor` returns false when the verb under the pointer has no cast behind
+it -- `#back` and `#noCursor` are system cursors and the game ships no art for
+them -- and the desktop draws its own shape in that case. The web version
+called the first half and ignored the answer, so in every room whose cursor is
+a system one there was no pointer at all.
+
+To answer the question directly: the game's own cursors *are* what is drawn,
+in both front ends. The drawn shapes are only what is left where the original
+had nothing either.
+
+### The sound
+
+The worklet asked for a buffer and waited for the main thread to send one
+back. `process` runs every 128 frames, which at 48kHz is under three
+milliseconds, and a message round trip through a main thread that is also
+drawing the game does not fit in that. The queue was empty nearly every time
+and the result was silence.
+
+Pushing ahead is the only shape that works without a `SharedArrayBuffer`,
+which would need the page cross-origin isolated. The main thread now mixes a
+quarter of a second ahead and the worklet plays out of a queue, reporting how
+much is left so the top-up knows when to run.
+
+### The opening
+
+Silent, while the rest of the game had sound. A browser will not start an
+audio context without a gesture, and the game starts its opening film the
+moment it opens -- so there was no mixer to hand the soundtrack to, and the
+flag saying "this film's soundtrack has been dealt with" was set anyway.
+
+Two fixes. The flag is only set once there is a mixer, and the page waits for
+one click before starting the game at all -- otherwise the soundtrack would be
+handed over a minute late and play a minute out of step with the picture.
+
+### The looping
+
+`update_ambience` lived in the desktop front end. It is what retires the loops
+a room does not want and re-levels the ones it does, and without it every
+room's bed stacked on the last: the house hum followed the player onto the
+grounds and the boathouse haunt kept going after it was over.
+
+Which makes it engine work after all, and it has moved: the ambient loops
+belong to the room, not to the window. Both front ends call the same function
+now.
+
+280 tests, eleven recordings.

@@ -4303,3 +4303,58 @@ fn transition_for(name: &str) -> Transition {
         _ => at(Wipe::Dissolve, 2.0, 0),
     }
 }
+
+/// Makes the mixer match what the current room asks to hear.
+///
+/// Lived in the desktop front end until the browser one went without it and
+/// every room's ambience stacked on the last: the loops are the room's, not
+/// the window's, so this belongs with the game.
+///
+/// Shared with the `mix` command, which runs it against a silent mixer so the
+/// result can be printed. A room's audio is decided in one place either way.
+pub fn update_ambience(game: &mut Game, audio: Option<&crate::audio::Audio>) {
+// Ambient loops belong to the room, so they start on arrival and are
+// left running until a room wants something different.
+    if let Some(a) = audio {
+        // Retire loops this room does not want and re-level the ones
+        // it does, before starting anything new. Without this the
+        // house hum follows the player out onto the grounds, where
+        // the room's own mix asks for silence.
+        let wanted: Vec<(String, f32)> = game
+            .ambience()
+            .into_iter()
+            .map(|(name, level)| {
+                let gain = level * game.sounds.gain(&name);
+                (name, gain)
+            })
+            .collect();
+        a.set_loops(&wanted);
+        let already = a.playing_loops();
+
+        for (name, level) in game.ambience() {
+            if already.contains(&name) {
+                continue;
+            }
+            let gain = level * game.sounds.gain(&name);
+            // A radio or clock is a programme of takes played in order,
+            // not one looping voice, so it goes to the sequencer. Some
+            // groups hold a single take and no running order; those are
+            // ordinary loops and the mixer can hold them gaplessly.
+            if game.sounds.is_group(&name) {
+                if game.start_program(&name, gain) {
+                    continue;
+                }
+                let single = game.sounds.group_items(&name).first().map(|s| s.to_string());
+                if let Some(item) = single {
+                    if let Some((pcm, rate, ch)) = game.group_sound_public(&name, &item) {
+                        a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true, true);
+                    }
+                }
+                continue;
+            }
+            if let Some((pcm, rate, channels)) = game.sound(&name) {
+                a.play(Some(&name), Some(name.clone()), pcm, rate, channels, gain, true, true);
+            }
+        }
+    }
+}

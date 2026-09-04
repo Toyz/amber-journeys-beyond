@@ -44,6 +44,8 @@ pub struct Amber {
     streamed: Option<Streamed>,
     /// Whether the film that is playing has had its soundtrack handed over.
     soundtrack_started: bool,
+    /// The room the mixer's ambient loops were set for.
+    ambience_room: usize,
     title: String,
 }
 
@@ -79,6 +81,7 @@ impl Amber {
             hot: false,
             streamed: None,
             soundtrack_started: false,
+            ambience_room: usize::MAX,
             title: String::new(),
         })
     }
@@ -242,6 +245,14 @@ impl Amber {
         if self.game.poll_content() {
             self.dirty = true;
         }
+        // The room's ambience is the room's, and it has to be re-levelled when
+        // the room changes -- loops the new one does not want are retired and
+        // the ones it does are set to the level it asks for. Without it every
+        // room's bed stacked on the last, which is what was looping.
+        if self.game.room != self.ambience_room {
+            self.ambience_room = self.game.room;
+            amber::game::update_ambience(&mut self.game, self.audio.as_ref());
+        }
         if self.game.tick_overlay() {
             self.dirty = true;
         }
@@ -261,9 +272,15 @@ impl Amber {
             }
         }
         if let Some((pcm, rate, channels)) = soundtrack {
-            self.soundtrack_started = true;
-            if rate > 0 && !pcm.is_empty() {
-                if let Some(audio) = &self.audio {
+            // Only counted as handed over once there is a mixer to hand it to.
+            // The audio context needs a gesture and the opening film starts
+            // before there has been one, so marking it done regardless left
+            // the opening silent for the whole two minutes.
+            if let Some(audio) = &self.audio {
+                self.soundtrack_started = true;
+                if rate > 0 && !pcm.is_empty() {
+                    // QuickTime plays a movie's soundtrack outside the four
+                    // channels, so it takes none of them.
                     audio.play(None, None, pcm, rate, channels, 1.0, false, false);
                 }
             }
@@ -297,8 +314,24 @@ impl Amber {
             // The game's own cursor art, chosen by whatever verb is under the
             // pointer -- the same call the desktop makes.
             let verb = self.game.hotspot_at(x, y).map(|(v, _)| v);
-            self.game
-                .draw_cursor(&mut self.out, STAGE_W as u32, STAGE_H as u32, verb, x, y);
+            // The game's own art first; the drawn shapes are what is left when
+            // a cursor is a system one -- `#back` and `#noCursor` have no cast
+            // behind them -- so the player is never without a pointer. The
+            // desktop has always done both and this did only the first, which
+            // is why there was no pointer at all in most rooms.
+            if !self
+                .game
+                .draw_cursor(&mut self.out, STAGE_W as u32, STAGE_H as u32, verb, x, y)
+            {
+                amber::cursor::draw(
+                    &mut self.out,
+                    STAGE_W as i32,
+                    STAGE_H as i32,
+                    x,
+                    y,
+                    verb,
+                );
+            }
         }
         for (i, px) in self.out.iter().enumerate() {
             let [b, g, r, _] = px.to_le_bytes();

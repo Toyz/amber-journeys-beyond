@@ -118,26 +118,48 @@ async function main() {
     say(String(e));
     return;
   }
+  // A browser will not start an audio context without a gesture, and the
+  // opening film starts the moment the game does -- so the game waits for one
+  // click. Otherwise the opening plays silently and its soundtrack, handed
+  // over late, would come in a minute out of step with the picture.
+  say("ready — click to begin");
+  await new Promise((go) => {
+    const begin = () => { document.removeEventListener("pointerdown", begin); go(); };
+    document.addEventListener("pointerdown", begin);
+  });
+
   document.getElementById("open").style.display = "none";
   canvas.style.display = "block";
 
   // The audio context needs a gesture, and the first click is one.
-  let audio = null;
+  //
+  // The worklet plays out of a queue this thread keeps topped up, because the
+  // game -- and so the mixer -- is here. A quarter of a second of buffer is
+  // enough to ride out a slow frame and short enough that a sound still lands
+  // when it should.
+  let audio = null, node = null, queued = 0;
+  const AHEAD = 0.25, CHUNK = 4096;
   const startAudio = async () => {
     if (audio) return;
     audio = new AudioContext();
     await audio.audioWorklet.addModule("./mixer.js");
     game.start_audio(audio.sampleRate, 2);
-    const node = new AudioWorkletNode(audio, "amber-mixer",
-                                      { outputChannelCount: [2] });
-    // The worklet asks for samples; the answer comes from the mixer here,
-    // because the game is on this thread.
-    node.port.onmessage = ({ data }) => {
-      const buf = new Float32Array(data.frames * 2);
-      game.fill(buf);
-      node.port.postMessage(buf, [buf.buffer]);
-    };
+    node = new AudioWorkletNode(audio, "amber-mixer",
+                                { outputChannelCount: [2] });
+    node.port.onmessage = ({ data }) => { queued = data; };
     node.connect(audio.destination);
+  };
+
+  // Called every frame: mix ahead until the worklet has enough.
+  const pump = () => {
+    if (!node) return;
+    const want = audio.sampleRate * AHEAD;
+    for (let i = 0; queued < want && i < 8; i++) {
+      const buf = new Float32Array(CHUNK * 2);
+      game.fill(buf);
+      queued += CHUNK;
+      node.port.postMessage(buf, [buf.buffer]);
+    }
   };
 
   const toStage = (e) => {
@@ -153,7 +175,6 @@ async function main() {
   });
   canvas.addEventListener("pointerleave", () => game.pointer(0, 0, false));
   canvas.addEventListener("pointerdown", (e) => {
-    startAudio();
     const [x, y] = toStage(e);
     game.pointer(x, y, true);
     game.button(true);
@@ -183,9 +204,12 @@ async function main() {
     fetching = false;
   };
 
+  await startAudio();
+
   let title = "";
   const frame = (now) => {
     feed();
+    pump();
     game.frame(now, ctx);
     const t = game.title();
     if (t !== title) { title = t; document.title = `Amber - ${t}`; }
