@@ -9292,3 +9292,42 @@ current chapter carries and says what it is.
 ```
 
 278 tests, eleven recordings.
+
+## 186. The wings were in the wrong house
+
+helba: "i didn't see the blackwins?"
+
+They were not there to see. `blackWings` is defined in every chapter's movie,
+which is what a shared library handler looks like, and I read that as
+"Margaret's" because hers is the copy I happened to disassemble. The art says
+otherwise:
+
+```text
+#blackWing: the number of cast "black box"     -- 2205, 100 by 300
+```
+
+and that entry is in Roxy's presentation table and no other. So the piece
+belongs to her house; run in Margaret's chapter it looks for art that is not
+there and draws nothing, silently, which is exactly what happened.
+
+Moved. The key offers it in Roxy's house now.
+
+### A test that could not fail
+
+Worth its own note, because I nearly shipped it. I wrote a test to prove the
+art resolves, deliberately broke it to check it bit, and it went on passing --
+because tests run from the crate directory and not from the repo root, so
+`Game::new("extract")` failed and the test took its "no game data here, skip"
+path every time.
+
+That is the second time a skip-if-absent test has quietly protected nothing;
+entry 174's is the same shape and now has the same fix. The path is anchored:
+
+```rust
+let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+```
+
+With that it fails against a wrong cast name and passes against the right one,
+which is the whole point of writing it.
+
+279 tests, eleven recordings.

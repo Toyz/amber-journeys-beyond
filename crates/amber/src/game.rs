@@ -2705,6 +2705,13 @@ impl Game {
 
     /// A cast member the current chapter names, as the original reads it off
     /// the puppeteer with `getProp(oPuppeteer, #name)`.
+    /// The same, in a named chapter rather than the one the player is in.
+    #[cfg(test)]
+    pub fn presentation_cast_in(&mut self, domain: &str, name: &str) -> Option<u32> {
+        self.chapter(domain);
+        self.presentation.get(domain).and_then(|p| p.cast(name))
+    }
+
     pub fn presentation_cast(&self, name: &str) -> Option<u32> {
         self.presentation
             .get(&self.node().domain)
@@ -3678,6 +3685,29 @@ mod tests {
             Effect::StartLoop { name, volume: Some(255) } if name == "trackLoop"
         ))));
         assert!(game.cues.is_empty(), "the list is spent");
+    }
+
+    /// The wipe the cut-content key shows has to find its art, and its art is
+    /// in one chapter's table only -- which is the whole of what says the
+    /// piece belongs to Roxy's house rather than to whichever chapter the
+    /// handler happens to be compiled into.
+    #[test]
+    fn the_black_wings_find_their_art_in_roxys_house() {
+        // Tests run from the crate directory, not the repo root, and a test
+        // that quietly skips is worse than no test: this one passed against a
+        // deliberately wrong cast name until the path was fixed.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        let mut game = match Game::new(&root) {
+            Ok(g) => g,
+            // No game data here; the rule is stated above.
+            Err(_) => return,
+        };
+        let cast = game.presentation_cast_in("ROXY", "blackWing");
+        assert_eq!(cast, Some(2205), "the wipe's art is cast 2205, \"black box\"");
+        assert!(
+            game.presentation_cast_in("MARGARET", "blackWing").is_none(),
+            "and it is in no other chapter's table"
+        );
     }
 
     /// A channel's position is a score property, and the room's `#showIF`

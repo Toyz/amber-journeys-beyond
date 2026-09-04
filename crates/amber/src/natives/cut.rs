@@ -38,9 +38,9 @@ pub const CUT: &[Cut] = &[
         needs: None,
     },
     Cut {
-        chapter: "MARGARET",
+        chapter: "ROXY",
         name: "blackWings",
-        about: "black wings sweep in from both sides of the stage",
+        about: "two black panels sweep in from the sides of the stage",
         needs: None,
     },
 ];
@@ -135,8 +135,12 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //   repeat five times: move each twenty pixels towards the other,
         //                      updateStage
         //
-        // Two black wings closing across the stage from the sides. Margaret's,
-        // and nothing in her chapter or anywhere else asks for them.
+        // Two black panels closing across the stage from the sides. The
+        // handler is compiled into every chapter, as the shared library
+        // handlers are, but the art is not: `#blackWing` is cast 2205, "black
+        // box", 100 by 300, and it is in Roxy's presentation table alone. So
+        // it belongs to her house, and nothing in it -- or anywhere else --
+        // asks for it. A wipe, built and never used.
         "blackwings" => {
             const LEFT: u8 = 38;
             const RIGHT: u8 = 40;
@@ -238,8 +242,10 @@ mod tests {
     #[test]
     fn each_chapter_knows_what_it_is_hiding() {
         assert_eq!(in_chapter("EDWIN").len(), 2);
-        assert_eq!(in_chapter("MARGARET").len(), 1);
-        assert!(in_chapter("ROXY").is_empty());
+        // The art `blackWings` wants is in Roxy's table and no other, which is
+        // the only thing that says which chapter it belongs to.
+        assert_eq!(in_chapter("ROXY").len(), 1);
+        assert!(in_chapter("MARGARET").is_empty());
         // Every one of them answers to its own name.
         for cut in CUT {
             let mut s = State::new();
