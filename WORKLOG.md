@@ -9670,3 +9670,58 @@ Playing `edwin.walk` now, he calls six times crossing the ice: `help5`, then
 the edges. Before the fix, once.
 
 283 tests, eleven recordings.
+
+## 193. Growing it, without pretending there is more of it
+
+helba: "what would happen if we supported proper upscaling now lol like we let
+you run it upscaled".
+
+The numbers change the answer, so they came first:
+
+```text
+1062 bitmaps at 600x300     the room plates
+ 302 at 440x330, 180 at 452x354   close-ups
+  46 films at 320x240
+     stage 640x480
+```
+
+Six hundred by three hundred is the picture; the rest of the stage is the
+letterbox and the inventory bar. There is no detail hiding anywhere -- that is
+what the disc has, and any amount of scaling is inventing the rest.
+
+So the question is only which way to grow it, and the usual answer for a game
+this old is wrong here. This is not pixel art. The plates are pre-rendered 3D
+scenes crushed to 256 colours with an ordered dither, and the filters built
+for pixel art -- hq2x and its family -- look for hard edges to follow, find
+the dither, and follow that.
+
+Three, then:
+
+  - **nearest**, which is the honest one and what it looked like on a monitor
+    that was not doing anything clever. At three times, every dither dot is
+    nine and the grid is plain;
+  - **smooth**, a plain bilinear, which loses the dither along with everything
+    else;
+  - **undither**, which takes the dither out first and then interpolates.
+
+The third is a small bilateral: each pixel becomes the mean of the neighbours
+within forty of it per channel. Dither is neighbouring pixels a short distance
+apart standing for a colour between them, so it averages; an edge is
+neighbours a long way apart, so it does not.
+
+Per channel, not summed across three -- a grey ramp moves all three at once,
+so a sum counts the same step three times and calls a neighbouring shade an
+edge. The test caught that: a checkerboard of `#404040` and `#505050` is a
+dither and stayed one until the metric changed.
+
+Rendered side by side on the path outside the house, the third is the one to
+look at: the night sky's banding goes, the trees keep their outline, and the
+brick keeps its texture without the checkerboard laid over it.
+
+`play --scale 2 --filter undither` on the desktop; `?filter=undither` in the
+browser, where the scaling is the canvas's and the only part worth doing in
+Rust is the part CSS cannot. The stage stays 640 by 480 either way and the
+pointer is mapped against it, so nothing in the game knows how large it is
+being shown.
+
+286 tests, eleven recordings.

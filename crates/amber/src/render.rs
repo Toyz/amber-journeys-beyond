@@ -110,7 +110,20 @@ pub fn play_with(
     );
 
     const STAGE: (usize, usize) = (STAGE_W, STAGE_H);
-    let mut host = crate::host_desktop::Desktop::open("Amber: Journeys Beyond", STAGE)?;
+    // `--scale` and `--filter`. The stage stays 640 by 480 and the window is
+    // whatever that grows to: the pointer is mapped against the stage, so the
+    // game never knows how big it is being shown.
+    let factor = std::env::var("AMBER_SCALE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(1)
+        .clamp(1, 4);
+    let filter = std::env::var("AMBER_FILTER")
+        .ok()
+        .and_then(|v| crate::scale::Filter::parse(&v))
+        .unwrap_or_default();
+    let shown = (STAGE_W * factor, STAGE_H * factor);
+    let mut host = crate::host_desktop::Desktop::open("Amber: Journeys Beyond", shown)?;
     // Everything below drives the `Host` trait rather than a window: the loop
     // does not know what is showing the frame.
     let host: &mut dyn crate::host::Host = &mut host;
@@ -554,7 +567,12 @@ pub fn play_with(
                 cursor::draw(&mut out, STAGE_W as i32, STAGE_H as i32, mx, my, verb);
             }
         }
-        host.present(&out, STAGE)?;
+        if factor == 1 && filter == crate::scale::Filter::Nearest {
+            host.present(&out, STAGE)?;
+        } else {
+            let grown = crate::scale::up(&out, STAGE_W, STAGE_H, factor, filter);
+            host.present(&grown, shown)?;
+        }
     }
     Ok(())
 }

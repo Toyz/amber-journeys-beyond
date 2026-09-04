@@ -133,6 +133,17 @@ async function main() {
   const topics = params.get("trace");
   if (topics) game.trace(topics);
 
+  // `?filter=undither` takes the ordered dither out before the browser scales
+  // the canvas, and asks the browser to interpolate rather than block up. The
+  // art is dithered photography rather than pixel art, so the default is still
+  // the sharp one -- but this is the one worth looking at.
+  if (params.get("filter") === "undither") {
+    game.set_undither(true);
+    canvas.style.imageRendering = "auto";
+  } else if (params.get("filter") === "smooth") {
+    canvas.style.imageRendering = "auto";
+  }
+
   document.getElementById("open").style.display = "none";
   canvas.style.display = "block";
 

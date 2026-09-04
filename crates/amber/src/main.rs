@@ -139,6 +139,20 @@ fn main() -> ExitCode {
             }
             // Muting turns the audio log on, since the point of playing
             // without sound is to read what the sound would have been.
+            // `--scale <n>` and `--filter <nearest|smooth|undither>`, read as
+            // environment variables so `shot` and `play` take them the same
+            // way and a comparison can be scripted.
+            for (flag, var) in [("--scale", "AMBER_SCALE"), ("--filter", "AMBER_FILTER")] {
+                if let Some(i) = args.iter().position(|a| a == flag) {
+                    match args.get(i + 1) {
+                        Some(v) => std::env::set_var(var, v),
+                        None => {
+                            eprintln!("{flag} needs a value");
+                            return ExitCode::FAILURE;
+                        }
+                    }
+                }
+            }
             let muted = args.iter().any(|a| a == "--mute");
             if muted && std::env::var("AMBER_TRACE").is_err() {
                 std::env::set_var("AMBER_TRACE", "audio");
@@ -146,6 +160,14 @@ fn main() -> ExitCode {
             let room = args
                 .get(2)
                 .filter(|a| !a.starts_with("--"))
+                .filter(|a| {
+                    // Not the value of a flag that takes one.
+                    !args.windows(2).any(|w| {
+                        (w[0] == "--scale" || w[0] == "--filter" || w[0] == "--replay"
+                            || w[0] == "--record")
+                            && &w[1] == *a
+                    })
+                })
                 .map(String::as_str);
             render::play_with(&dir, room, steps, muted)
         }
@@ -745,6 +767,20 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path, force: &[String]) -> Res {
     // A headless shot has no cursor, so the bar is drawn cool.
     game.draw_inventory(&mut frame, W, H, false);
 
+    // `AMBER_SCALE=3` and `AMBER_FILTER=undither` grow the stage on the way
+    // out, which is how the three filters were compared: the same room, the
+    // same frame, three files.
+    let factor: usize = std::env::var("AMBER_SCALE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let filter = std::env::var("AMBER_FILTER")
+        .ok()
+        .and_then(|v| scale::Filter::parse(&v))
+        .unwrap_or_default();
+    let frame = scale::up(&frame, W as usize, H as usize, factor, filter);
+    let (w, h) = (W * factor as u32, H * factor as u32);
+
     // The framebuffer is BGRA-in-a-u32; the writer wants straight RGBA bytes.
     let mut rgba = Vec::with_capacity(frame.len() * 4);
     for px in &frame {
@@ -752,10 +788,10 @@ fn cmd_shot(dir: &Path, room: &str, out: &Path, force: &[String]) -> Res {
             (px >> 16) as u8,
             (px >> 8) as u8,
             *px as u8,
-            (px >> 24) as u8,
+            0xff,
         ]);
     }
-    write_png(out, W, H, &rgba)?;
+    write_png(out, w, h, &rgba)?;
 
     let drawn = game.visible().len();
     let node = game.node();

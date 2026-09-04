@@ -32,6 +32,7 @@ pub mod natives;
 pub mod player;
 pub mod presentation;
 pub mod record;
+pub mod scale;
 pub mod schema;
 pub mod script;
 pub mod sound;

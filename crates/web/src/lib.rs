@@ -50,6 +50,8 @@ pub struct Amber {
     soundtrack_started: bool,
     /// The room the mixer's ambient loops were set for.
     ambience_room: usize,
+    /// Whether the dither is taken out before the frame is shown.
+    undither: bool,
     /// What the film channel last showed, so a film reopening on its own is
     /// visible in the console rather than only on screen.
     watching: Option<(String, bool)>,
@@ -89,6 +91,7 @@ impl Amber {
             streamed: None,
             soundtrack_started: false,
             ambience_room: usize::MAX,
+            undither: false,
             watching: None,
             title: String::new(),
         })
@@ -134,6 +137,18 @@ impl Amber {
     /// page can say so rather than looking frozen.
     pub fn waiting(&self) -> bool {
         self.game.awaiting_content()
+    }
+
+    /// Takes the ordered dither out of the picture before it is shown.
+    ///
+    /// The scaling itself is the browser's -- the canvas is 640 by 480 and CSS
+    /// decides how big that is drawn -- so the only part worth doing here is
+    /// the part CSS cannot: the dither is a lossy encoding of a smoother
+    /// original, and taking it out at native size lets the browser's own
+    /// interpolation work on what was underneath rather than on the dots.
+    pub fn set_undither(&mut self, on: bool) {
+        self.undither = on;
+        self.dirty = true;
     }
 
     /// Turns the engine's own tracing on and sends it to the console.
@@ -368,7 +383,14 @@ impl Amber {
             self.game.draw(&mut self.frame, STAGE_W as u32, STAGE_H as u32);
             self.dirty = false;
         }
-        self.out.copy_from_slice(&self.frame);
+        if self.undither {
+            // On the composed scene rather than on each plate, so the films
+            // and the sprites over them are cleaned too.
+            self.out
+                .copy_from_slice(&amber::scale::undither(&self.frame, STAGE_W, STAGE_H));
+        } else {
+            self.out.copy_from_slice(&self.frame);
+        }
         // A sequence takes the pointer away until it is done: `cursorOff` at
         // the top of a set piece, and the queue running dry is the `cursorOn`
         // this engine does not otherwise get. Without it the first set piece
