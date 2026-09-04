@@ -953,6 +953,20 @@ impl Game {
                 // holding, the coords went with it, and the track films drew
                 // centred on the stage instead of in the windscreen.
                 self.playing_at = self.video_channel_centre();
+                // And whether it runs once or for ever, which is a property of
+                // the cast member and not of the room that places it. The
+                // room's own film has always been told; a film pushed by name
+                // was not, and `VideoPlayer` opens looping -- so every pushed
+                // film ran for ever unless a `wait #videoStop` behind it
+                // happened to turn the loop off.
+                let loops = self
+                    .chapter(&domain)
+                    .and_then(|c| c.movie.member_by_name(&n))
+                    .map(|m| m.loops)
+                    .unwrap_or(false);
+                if let Some(p) = &mut self.player {
+                    p.set_looping(loops);
+                }
             }
             // `pushVideo` with nothing named plays whatever the room has on
             // its video channel. It is almost always preceded by a `setState`

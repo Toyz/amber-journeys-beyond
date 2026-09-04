@@ -9530,3 +9530,51 @@ belong to the room, not to the window. Both front ends call the same function
 now.
 
 280 tests, eleven recordings.
+
+## 190. The clock the browser was reading
+
+helba: "the haunt by the boat house on the start just loops forever its a
+water effect of edwin you can see right at the start of the boathouse".
+
+That is `lakegst2.mov` on the video channel of `Gbhs_B_S`, and the disc says
+it plays once:
+
+```text
+[      0] video  Gbhs_B_S   open lakegst2.mov -> ROXY/MOVIES/LAKEGST2.MOV
+[      0] video  Gbhs_B_S   lakegst2.mov plays once
+```
+
+Walking in opens it once and walking away and back opens it once more, which
+is right. So the film was not being restarted -- it was being *told the wrong
+time*.
+
+### `performance.now()` counts from the page, not from the game
+
+The clock seam from entry 187 takes a reading from the host and hands it
+straight to the engine. A browser's reading is `performance.now()`,
+milliseconds since the page loaded -- and by the time the game opens, the page
+has been up for however long the disc took to arrive. A hundred and twenty-five
+megabytes of it.
+
+So: the opening film is started while the engine's clock still reads zero,
+because nothing has supplied a reading yet. The next frame supplies one, and
+the clock jumps forward by however many seconds the load took. Every film
+opened before that is instantly past its end, and any film that loops restarts
+on every frame from then on.
+
+The first reading is now the zero point. Whatever the host counts from, the
+engine counts from when the host started talking.
+
+### And a film pushed by name never stopped looping
+
+Found on the way. `VideoPlayer` opens looping -- "scenery until a script says
+otherwise" -- and `start_room_video` has always corrected that from the cast
+member. `play_movie(Some(name))` never did. So every film a handler pushed by
+name ran for ever unless a `wait #videoStop` behind it happened to turn the
+loop off, which `drain_ready` does only when a film wait is armed.
+
+That is the whole of Edwin's car, the credits, and every montage that names
+its film. It has never been visible on the desktop because those films are all
+followed by a wait; it would be visible the moment one was not.
+
+280 tests, eleven recordings.
