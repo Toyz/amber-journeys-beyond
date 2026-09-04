@@ -9578,3 +9578,52 @@ its film. It has never been visible on the desktop because those films are all
 followed by a wait; it would be visible the moment one was not.
 
 280 tests, eleven recordings.
+
+## 191. A film that arrives after it was asked for
+
+Four rounds of guessing at the lake ghost, and the answer came the moment the
+engine could say what it was doing. helba, with the console:
+
+```text
+[0] video  Gbhs_B_S   open lakegst2.mov -> ROXY/MOVIES/LAKEGST2.MOV
+[0] video  Gbhs_B_S   waiting for ROXY/MOVIES/LAKEGST2.MOV
+[0] video  Gbhs_B_S   lakegst2.mov plays once (0 frames)
+[0] video  Gbhs_B_S   ROXY/MOVIES/LAKEGST2.MOV arrived
+           film lakegst2.mov loops
+```
+
+**Zero frames.** `start_room_video` opened nothing -- the content source is
+fetching, this is the streaming mode -- and then read the member, worked out
+that the film plays once, and applied that to a player which did not exist
+yet. Then the bytes arrived, `poll_content` built the player, and
+`VideoPlayer` opens looping: "scenery until a script says otherwise". Nothing
+said otherwise.
+
+Which is why the intro recovered and the ghost did not. The intro has a `wait
+#videoStop` behind it and `drain_ready` takes the loop off a film something is
+waiting for. The ghost is scenery. Nobody was waiting.
+
+So opening a film and telling it what it is are two things now, and the second
+happens again when the bytes turn up. The test withholds each film until it
+has been asked for once -- which is what a fetch looks like from inside the
+engine -- walks to the room by the boathouse, and checks the ghost plays once
+whenever it arrives.
+
+### The thing that actually cost the four rounds
+
+Not the bug. The bug is four lines. What cost the rounds was that a browser
+has no stderr and no environment, so `AMBER_TRACE` could not be set and
+`eprintln!` went nowhere, and I was reasoning about a difference between two
+platforms from a single line of console output. The desktop said `plays once`
+and the browser said `loops` off the same disc, and I could not watch either
+of them decide.
+
+`trace::listen(topics, sink)` fixes that -- topics without an environment
+variable, records wherever the caller says. The web exposes it as
+`?trace=video,room,script`. The answer was in the first paste after that.
+
+Which is the lesson entries 150, 158, 170, 172 and 177 have each been circling
+from a different side: the fault is rarely the expensive part. Not being able
+to see is.
+
+282 tests, eleven recordings.

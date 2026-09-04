@@ -1018,14 +1018,28 @@ impl Game {
             }
         }
 
-        // Whether a film loops is a property of the cast member, not of the
-        // room that places it or of what else is on screen. Director stores
-        // it there, which is why nothing in a room's own record says which
-        // kind of film it has.
+        self.dress_film(&name);
+    }
+
+    /// Applies to the open film everything its cast member says about it.
+    ///
+    /// Whether a film loops is a property of the member, not of the room that
+    /// places it or of what else is on screen; so is the rect it is drawn at.
+    /// Director stores both there, which is why nothing in a room's own record
+    /// says which kind of film it has.
+    ///
+    /// Separate from opening it because the two do not always happen together.
+    /// A content source that fetches over a network has nothing to open yet --
+    /// the player is `None` and this runs against nothing -- and the film is
+    /// built later, when the bytes arrive. `VideoPlayer` opens looping, so a
+    /// film that arrived late was never told to stop, and the lake ghost by
+    /// the boathouse ran round for ever while the same film on a desktop
+    /// played once and held.
+    fn dress_film(&mut self, name: &str) {
         let domain = self.node().domain.clone();
         let member = self
             .chapter(&domain)
-            .and_then(|c| c.movie.member_by_name(&name))
+            .and_then(|c| c.movie.member_by_name(name))
             .map(|m| (m.loops, m.width, m.height));
         let loops = member.map(|(l, ..)| l).unwrap_or(false);
         self.playing_size = member
@@ -2072,6 +2086,11 @@ impl Game {
         trace!(crate::trace::Topic::Video, "{path} arrived");
         self.awaiting = None;
         self.player = VideoPlayer::from_bytes(bytes);
+        // And it is told what it is, which the open could not do because there
+        // was nothing to tell.
+        if let Some(name) = self.playing.clone() {
+            self.dress_film(&name);
+        }
         self.player.is_some()
     }
 
@@ -3772,6 +3791,72 @@ mod tests {
         assert!(
             game.presentation_cast_in("MARGARET", "blackWing").is_none(),
             "and it is in no other chapter's table"
+        );
+    }
+
+    /// A film that arrives after it was asked for is still told what it is.
+    ///
+    /// A content source that fetches over a network has nothing to hand over
+    /// when the room opens its film, so the player is built later -- and
+    /// `VideoPlayer` opens looping, "scenery until a script says otherwise".
+    /// Nothing said otherwise, so the lake ghost by the boathouse ran round
+    /// for ever in a browser and played once on a desktop, off the same disc.
+    #[test]
+    fn a_film_that_arrives_late_is_still_told_whether_it_loops() {
+        use crate::content::Content;
+
+        /// Has the disc, and hands nothing over until asked twice.
+        struct Slow {
+            files: crate::content::Files,
+            asked: std::cell::RefCell<std::collections::HashSet<String>>,
+        }
+        // One thread in this test, and the trait wants these.
+        unsafe impl Send for Slow {}
+        unsafe impl Sync for Slow {}
+
+        impl Content for Slow {
+            fn list(&self) -> Vec<String> {
+                self.files.list()
+            }
+            fn read(&self, path: &str) -> Option<Vec<u8>> {
+                // Each film is withheld until it has been asked for once,
+                // which is what a fetch looks like from here.
+                let key = path.to_ascii_uppercase();
+                if key.ends_with(".MOV") && !self.asked.borrow().contains(&key) {
+                    return None;
+                }
+                self.files.read(path)
+            }
+            fn request(&self, path: &str) -> bool {
+                self.asked.borrow_mut().insert(path.to_ascii_uppercase());
+                true
+            }
+        }
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        if !root.is_dir() {
+            return;
+        }
+        let content = Slow {
+            files: crate::content::Files::new(&root),
+            asked: std::cell::RefCell::new(std::collections::HashSet::new()),
+        };
+        let Ok(mut game) = Game::from_content(Box::new(content)) else {
+            return;
+        };
+
+        // The room by the boathouse where Edwin's ghost is in the water.
+        let room = game.world.resolve("Gbhs_B_S", Some("ROXY")).expect("the room");
+        game.move_to(room);
+        game.start_room_video();
+        assert!(game.player.is_none(), "the film has not arrived yet");
+        assert!(game.awaiting_content(), "and the engine knows it is coming");
+
+        assert!(game.poll_content(), "it arrives");
+        let player = game.player.as_ref().expect("and opens");
+        assert!(
+            !player.loops(),
+            "lakegst2.mov plays once, whenever its bytes turn up"
         );
     }
 
