@@ -1,0 +1,198 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Amber: Journeys Beyond</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #cfcfcf;
+               font: 13px/1.5 system-ui, sans-serif; }
+  body { display: grid; place-items: center; }
+  #stage { display: none; image-rendering: pixelated; max-width: 100vw;
+           max-height: 100vh; aspect-ratio: 4 / 3; cursor: none; }
+  #open { max-width: 34rem; padding: 2rem; }
+  h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 .8rem; }
+  p { margin: 0 0 .8rem; color: #9a9a9a; }
+  kbd { background: #222; border: 1px solid #444; border-radius: 3px;
+        padding: 0 .3em; }
+  #status { color: #7a7a7a; }
+</style>
+
+<div id="open">
+  <h1>Amber: Journeys Beyond</h1>
+  <p>Hue Forest Entertainment, 1996, running natively in this tab.</p>
+  <p>Choose your own disc image. Nothing is uploaded: the file is read into
+     this page and never leaves it.</p>
+  <p><input type="file" id="pick" accept=".iso,.ISO"></p>
+  <p id="status"></p>
+  <p><kbd>Space</kbd> skip a film &nbsp; <kbd>S</kbd> dump the stage &nbsp;
+     <kbd>C</kbd> show what the chapter never shows</p>
+</div>
+<canvas id="stage" width="640" height="480"></canvas>
+
+<script type="module">
+import init, { Amber } from "./pkg/amber_web.js";
+
+const status = document.getElementById("status");
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d", { alpha: false });
+
+const say = (t) => { status.textContent = t; };
+
+async function fetchBytes(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+// Served as files rather than as one image. The first load is the room data
+// and the chapter the player starts in -- everything else is fetched as the
+// game reaches it, which is what `wanted()` and `supply()` are for.
+async function streamed(base) {
+  say("fetching the manifest…");
+  const manifest = await (await fetch(`${base}/manifest.json`)).json();
+  const seed = {};
+  // The room data is small and all of it is needed to build the world; the hub
+  // chapter is needed to draw anything at all. The other three chapters are
+  // thirty to forty megabytes each and are not touched until the player walks
+  // into them.
+  const first = manifest.filter((p) =>
+    p.toUpperCase().endsWith(".DAT") || p.toUpperCase() === "ROXY/ROXY.DXR");
+  let done = 0;
+  for (const path of first) {
+    seed[path] = await fetchBytes(`${base}/${path}`);
+    say(`loading… ${++done} of ${first.length}`);
+  }
+  return { manifest, seed };
+}
+
+async function bytes() {
+  // A disc may be served alongside the page for sharing -- `?iso=<url>` --
+  // and otherwise the player picks their own. Either way it ends up as one
+  // array in memory and takes exactly the same path from here.
+  const url = new URLSearchParams(location.search).get("iso");
+  if (url) {
+    say(`fetching ${url}…`);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
+    const total = Number(res.headers.get("content-length")) || 0;
+    if (!res.body || !total) return new Uint8Array(await res.arrayBuffer());
+    // Report progress: it is a large file and a silent minute looks broken.
+    const reader = res.body.getReader();
+    const parts = [];
+    let read = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      read += value.length;
+      say(`fetching… ${(read / 1048576).toFixed(0)} of ${(total / 1048576).toFixed(0)} MB`);
+    }
+    const all = new Uint8Array(read);
+    let at = 0;
+    for (const p of parts) { all.set(p, at); at += p.length; }
+    return all;
+  }
+  return await new Promise((resolve, reject) => {
+    document.getElementById("pick").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      say(`reading ${file.name}…`);
+      resolve(new Uint8Array(await file.arrayBuffer()));
+    }, { once: true });
+  });
+}
+
+async function main() {
+  await init();
+  const params = new URLSearchParams(location.search);
+  // `?files=<base>` streams the game a file at a time from a server; `?iso=`
+  // fetches one image; neither means the player picks their own.
+  const base = params.get("files");
+  const image = base ? await streamed(base.replace(/\/$/, "")) : await bytes();
+  say("opening the disc…");
+
+  let game;
+  try {
+    game = image.manifest
+      ? Amber.streaming(image.manifest, image.seed)
+      : new Amber(image);
+  } catch (e) {
+    say(String(e));
+    return;
+  }
+  document.getElementById("open").style.display = "none";
+  canvas.style.display = "block";
+
+  // The audio context needs a gesture, and the first click is one.
+  let audio = null;
+  const startAudio = async () => {
+    if (audio) return;
+    audio = new AudioContext();
+    await audio.audioWorklet.addModule("./mixer.js");
+    game.start_audio(audio.sampleRate, 2);
+    const node = new AudioWorkletNode(audio, "amber-mixer",
+                                      { outputChannelCount: [2] });
+    // The worklet asks for samples; the answer comes from the mixer here,
+    // because the game is on this thread.
+    node.port.onmessage = ({ data }) => {
+      const buf = new Float32Array(data.frames * 2);
+      game.fill(buf);
+      node.port.postMessage(buf, [buf.buffer]);
+    };
+    node.connect(audio.destination);
+  };
+
+  const toStage = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [
+      Math.floor((e.clientX - r.left) / r.width * 640),
+      Math.floor((e.clientY - r.top) / r.height * 480),
+    ];
+  };
+  canvas.addEventListener("pointermove", (e) => {
+    const [x, y] = toStage(e);
+    game.pointer(x, y, true);
+  });
+  canvas.addEventListener("pointerleave", () => game.pointer(0, 0, false));
+  canvas.addEventListener("pointerdown", (e) => {
+    startAudio();
+    const [x, y] = toStage(e);
+    game.pointer(x, y, true);
+    game.button(true);
+  });
+  window.addEventListener("pointerup", () => game.button(false));
+  window.addEventListener("keydown", (e) => {
+    const key = { " ": "skip", "s": "stage", "S": "stage",
+                  "c": "cut", "C": "cut", "Tab": "hotspots" }[e.key];
+    if (key) { e.preventDefault(); game.key(key); }
+  });
+
+  // Whatever the engine asked for and has not been given. One at a time, so a
+  // film does not queue behind a chapter movie.
+  let fetching = false;
+  const feed = async () => {
+    if (fetching || !base) return;
+    const want = game.wanted();
+    if (!want.length) return;
+    fetching = true;
+    for (const path of want) {
+      try {
+        game.supply(path, await fetchBytes(`${base}/${path}`));
+      } catch (e) {
+        console.warn(String(e));
+      }
+    }
+    fetching = false;
+  };
+
+  let title = "";
+  const frame = (now) => {
+    feed();
+    game.frame(now, ctx);
+    const t = game.title();
+    if (t !== title) { title = t; document.title = `Amber - ${t}`; }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+main();
+</script>

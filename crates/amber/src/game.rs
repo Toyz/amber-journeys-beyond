@@ -67,6 +67,12 @@ pub struct Game {
     cues: Vec<(u32, crate::markers::Cue)>,
     /// When the next carol may play on Edwin's ice.
     carol_after: Option<crate::clock::Moment>,
+    /// A film whose bytes have been asked for and have not arrived.
+    ///
+    /// Only a content source that fetches over a network ever sets this. While
+    /// it is set the film wait holds, so a film that is still coming is waited
+    /// for rather than skipped.
+    awaiting: Option<String>,
     /// True while the opening film is playing, because that one film -- and
     /// only that one -- can be cut short by a click.
     intro_running: bool,
@@ -242,6 +248,7 @@ impl Game {
             effect_wait: None,
             cues: Vec::new(),
             carol_after: None,
+            awaiting: None,
             intro_running: false,
             sounds_suspended: false,
             ghost_call_until: None,
@@ -915,6 +922,7 @@ impl Game {
                     return;
                 }
                 self.player = None;
+                self.awaiting = None;
                 match self.movies.find(&n).map(str::to_string) {
                     Some(path) => {
                         trace!(crate::trace::Topic::Video, "push {n} -> {path}");
@@ -2012,8 +2020,44 @@ impl Game {
     }
 
     /// Opens a film from the content source.
-    fn open_film(&self, path: &str) -> Option<VideoPlayer> {
-        VideoPlayer::from_bytes(self.content.read(path)?)
+    fn open_film(&mut self, path: &str) -> Option<VideoPlayer> {
+        if let Some(bytes) = self.content.read(path) {
+            self.awaiting = None;
+            return VideoPlayer::from_bytes(bytes);
+        }
+        // Not here yet. If the source is fetching it, remember that and hold;
+        // if it simply does not have it, this is one of the films the disc
+        // names and never shipped, and the game carries on without it.
+        if self.content.request(path) {
+            trace!(crate::trace::Topic::Video, "waiting for {path}");
+            self.awaiting = Some(path.to_string());
+        } else {
+            self.awaiting = None;
+        }
+        None
+    }
+
+    /// Retries a film whose bytes had not arrived when it was asked for.
+    ///
+    /// Called once a frame by a front end whose content comes over a network.
+    /// Returns true when the film has started, so the caller can redraw.
+    pub fn poll_content(&mut self) -> bool {
+        let Some(path) = self.awaiting.clone() else {
+            return false;
+        };
+        let Some(bytes) = self.content.read(&path) else {
+            self.content.request(&path);
+            return false;
+        };
+        trace!(crate::trace::Topic::Video, "{path} arrived");
+        self.awaiting = None;
+        self.player = VideoPlayer::from_bytes(bytes);
+        self.player.is_some()
+    }
+
+    /// Whether a film is still on its way, which holds the wait behind it.
+    pub fn awaiting_content(&self) -> bool {
+        self.awaiting.is_some()
     }
 
     /// Where the room puts its `#video` channel.
@@ -3081,6 +3125,10 @@ impl Game {
             // A room with no movie has nothing to wait for; treating that as
             // satisfied stops a missing video from stalling the sequence.
             // The rest of the reasoning is on `film_wait_satisfied`.
+            // A film whose bytes have not arrived is not a film that has
+            // finished. Without this the wait cleared on the spot and the
+            // sequence ran straight past a cutscene that was still loading.
+            Wait::Video if self.awaiting.is_some() => false,
             Wait::Video => film_wait_satisfied(
                 &self.pending,
                 self.player.as_ref().map(|p| p.finished),

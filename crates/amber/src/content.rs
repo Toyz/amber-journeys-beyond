@@ -27,6 +27,21 @@ pub trait Content: Send + Sync {
     /// as "the disc does not have this" rather than as an error: the game
     /// names a handful of movies that were never shipped.
     fn read(&self, path: &str) -> Option<Vec<u8>>;
+
+    /// Asks for a file that is not to hand yet, and says whether it is coming.
+    ///
+    /// A directory and an image both have everything already, so the default
+    /// is "no, and it never will be". A source that fetches over a network
+    /// answers `true` and starts the fetch; the engine then holds rather than
+    /// carrying on without it, which is the difference between a film that
+    /// arrives late and a film that is silently skipped.
+    ///
+    /// It must be cheap to call repeatedly with the same path: the engine asks
+    /// again every frame until the bytes turn up.
+    fn request(&self, path: &str) -> bool {
+        let _ = path;
+        false
+    }
 }
 
 /// A directory on the host filesystem, plus any fallback roots.

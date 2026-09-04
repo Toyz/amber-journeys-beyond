@@ -785,6 +785,16 @@ impl Audio {
         }
     }
 
+    /// Mixes the next samples into `out`, interleaved.
+    ///
+    /// For a platform that pulls rather than being pushed to: a browser's
+    /// audio worklet asks for a buffer at a time, and this is what it asks.
+    pub fn fill(&self, out: &mut [f32]) {
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.fill(out);
+        }
+    }
+
     pub fn rate(&self) -> u32 {
         self.rate
     }

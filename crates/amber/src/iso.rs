@@ -21,6 +21,31 @@ use std::sync::Mutex;
 
 use crate::content::Content;
 
+/// Somewhere an image's bytes can be read from at an offset.
+///
+/// A file on a desktop, and a buffer everywhere else -- a browser hands over
+/// the image the player picked as one array, and the same reader walks it.
+pub trait ReadAt: Send + Sync {
+    fn read_at(&self, at: u64, len: u64) -> Option<Vec<u8>>;
+}
+
+impl ReadAt for Mutex<File> {
+    fn read_at(&self, at: u64, len: u64) -> Option<Vec<u8>> {
+        let mut out = vec![0u8; len as usize];
+        let mut file = self.lock().ok()?;
+        file.seek(SeekFrom::Start(at)).ok()?;
+        file.read_exact(&mut out).ok()?;
+        Some(out)
+    }
+}
+
+impl ReadAt for Vec<u8> {
+    fn read_at(&self, at: u64, len: u64) -> Option<Vec<u8>> {
+        let (at, len) = (at as usize, len as usize);
+        self.get(at..at.checked_add(len)?).map(<[u8]>::to_vec)
+    }
+}
+
 /// One file's place in the image.
 #[derive(Clone, Copy)]
 struct Extent {
@@ -29,26 +54,30 @@ struct Extent {
 }
 
 pub struct Iso {
-    file: Mutex<File>,
+    image: Box<dyn ReadAt>,
     files: HashMap<String, Extent>,
     paths: Vec<String>,
 }
 
 impl Iso {
-    /// Opens an image and reads its directory tree.
+    /// Opens an image file and reads its directory tree.
     pub fn open(path: &Path) -> std::io::Result<Iso> {
-        let mut file = File::open(path)?;
+        Iso::over(Box::new(Mutex::new(File::open(path)?)))
+            .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
+    }
 
+    /// The same over an image already in memory, which is what a browser has.
+    pub fn over(image: Box<dyn ReadAt>) -> std::io::Result<Iso> {
         // The primary volume descriptor. Sector 16 by definition, and the
         // sector size at this point is always 2048 -- the block size the
         // descriptor itself declares applies to everything after it.
-        let mut pvd = [0u8; 2048];
-        file.seek(SeekFrom::Start(16 * 2048))?;
-        file.read_exact(&mut pvd)?;
-        if &pvd[1..6] != b"CD001" {
+        let pvd = image.read_at(16 * 2048, 2048).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "not a CD image")
+        })?;
+        if pvd.get(1..6) != Some(b"CD001") {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("{}: no ISO 9660 volume descriptor", path.display()),
+                "no ISO 9660 volume descriptor",
             ));
         }
         // Numbers are stored twice, little-endian then big; the little half is
@@ -61,7 +90,7 @@ impl Iso {
         let len = u32::from_le_bytes([root[10], root[11], root[12], root[13]]) as u64;
 
         let mut iso = Iso {
-            file: Mutex::new(file),
+            image,
             files: HashMap::new(),
             paths: Vec::new(),
         };
@@ -136,14 +165,9 @@ impl Iso {
     }
 
     fn bytes(&self, at: u64, len: u64) -> std::io::Result<Vec<u8>> {
-        let mut out = vec![0u8; len as usize];
-        let mut file = self
-            .file
-            .lock()
-            .map_err(|_| std::io::Error::other("the image is poisoned"))?;
-        file.seek(SeekFrom::Start(at))?;
-        file.read_exact(&mut out)?;
-        Ok(out)
+        self.image
+            .read_at(at, len)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short image"))
     }
 
     /// Whether a path is worth trying to open as an image.

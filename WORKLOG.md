@@ -9399,3 +9399,70 @@ with no rooms is a thing the engine already tests for.
 
 280 tests, eleven recordings, clean off the disc image and clean under
 `--strict`, and the engine builds for the web.
+
+## 188. Amber in a browser
+
+helba: "amber in the browser will go hard the first time it's ever loaded in
+amber". So: `crates/web`, which is the three seams filled in and nothing else.
+
+  - the disc is a `Content`,
+  - the canvas is a `Host`,
+  - an audio worklet pulls from the mixer.
+
+No game logic. Anything that had to be written twice would be a hole in the
+traits rather than something to solve there, and nothing did.
+
+```text
+624K  crates/web/page/pkg/amber_web_bg.wasm
+```
+
+The whole engine -- 1325 rooms, four chapters of ported Lingo, a Cinepak and an
+Apple Animation decoder, an IMA ADPCM decoder, a mixer and a compositor -- in
+six hundred kilobytes.
+
+### The disc, three ways
+
+**The player's own image.** The default, and the reason the ISO reader from
+entry 182 was worth generalising: it took a `File`, it takes a `ReadAt` now,
+and a browser's `Uint8Array` is one. The file goes from the picker into memory
+and never leaves the tab. Nothing is hosted and nothing is uploaded.
+
+**One image, fetched.** `?iso=amber.iso`, for sharing a running copy. Simple,
+and five hundred and seventy megabytes before the first frame.
+
+**Served as files.** helba, seeing that number: "we don't ship the entire ISO
+that gets painfully slow". Right. `?files=/game` reads a manifest and then the
+files it names, and the first load is only what is needed to draw:
+
+```text
+233M  the chapter movies and the room data
+  1.4M  of which is the room data
+124M  ROXY.DXR, the hub, needed to draw anything at all
+309M  the films, fetched as they are reached
+ 31M  the sounds, likewise
+```
+
+So a hundred and twenty-five megabytes to the first frame instead of five
+hundred and seventy-four, and Margaret, Brice and Edwin -- thirty to forty
+each -- are not touched until their chapter is entered.
+
+### The one thing the engine needed
+
+The engine reads synchronously; a browser fetches asynchronously. That is the
+whole of the difficulty, and it is one method:
+
+```rust
+/// Asks for a file that is not to hand yet, and says whether it is coming.
+fn request(&self, path: &str) -> bool { false }
+```
+
+A read that misses says whether the file is on its way. If it is, the film's
+wait holds until the bytes arrive -- `Wait::Video` is not satisfied while
+something is outstanding -- so a film that is still loading is *waited for*
+rather than silently skipped, which is what would have happened otherwise: a
+missing film satisfies its own wait, by the rule entry 158 put there.
+
+The default is `false`, so a directory and an image answer "no, and it never
+will be" and behave exactly as they did. Nothing else in the engine changed.
+
+280 tests, eleven recordings, and it builds for the web.
