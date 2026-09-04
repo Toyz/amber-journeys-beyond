@@ -53,6 +53,7 @@ impl Host for Desktop {
             (MKey::Space, Key::Space),
             (MKey::Tab, Key::Hotspots),
             (MKey::S, Key::Stage),
+            (MKey::C, Key::Cut),
         ] {
             if self.window.is_key_pressed(theirs, minifb::KeyRepeat::No) {
                 pressed.push(ours);

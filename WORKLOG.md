@@ -9214,3 +9214,81 @@ is a `Host` over a canvas, a `Sink` over a worklet and a `Content` over a
 fetch or a bundle, and nothing above them has to know.
 
 274 tests, eleven recordings.
+
+## 185. What the disc carries and never shows
+
+helba: "i also do wonder if we should see what is left for the cut/disabled
+content and if anything we should add keybinds to show it".
+
+The honest headline first: **there is very little**. This is a tight disc.
+
+  - 278 films on it, 276 named somewhere. The two that are not are
+    `GSCLOGO.MOV` and `HFELOGO.MOV`, the publisher's and the studio's logos,
+    played by the projector before the game starts.
+  - 325 audio files, and every one is named.
+  - 1286 rooms. A hundred and six are reached by no hotspot, and almost all of
+    them are reached by a handler instead -- `Gbhs_Reentry1` by
+    `enterNewDomain`, `car_domainExit` by `driveTheCar`, `ice_boat_sailCU` by
+    `setSail`. Not cut; just not reached by a click.
+  - A directory called `HIDING`, which is `volume =3` and `transition =Bester`.
+    An installer's settings file.
+
+### The commented-out lines
+
+1816 action strings begin with `--`, which is Lingo for a line the authors
+took out. 978 are `--goTo( #destination, #transition )` and 685 are
+`--inventory 'catcher'`, both of which are the template every room was made
+from rather than anything removed. What is left is small and mostly notes to
+each other -- `-- dead-spot over box..`, `-- This line doesn't do ANYTHING!`,
+`-- prevent accidental puzzle quit`.
+
+A few are content. `chippyCries` is commented out in seven rooms and
+`chippyCries #loud` in an eighth: the chipmunk calling for help from under the
+ice, heard from further and further away as you cross it, turned off.
+`setLoop #runningSteps` and its matching `endLoop` in three more. Four voice
+lines -- `#someTrouble`, `#handwriting`, `#sinceTedLeft`, `#noPlease` --
+disabled where they were about to be spoken.
+
+### The three that are whole
+
+Of the sixty-two handlers entry 178 found that nothing calls, three are
+finished pieces of the game rather than Director housekeeping.
+
+**`backSeatDriver`** (Edwin). Chippy, waiting for you to choose a direction:
+
+```text
+if getState( #chippyLocation ) <> #inCar then return
+if idle( 2 ) <> 1 then return
+if inState( #utterancesRemaining, #makeaDecision )  then #makeaDecision
+else if inState( #utterancesRemaining, #impressMe ) then #impressMe
+else if inState( #utterancesRemaining, #smartyPants ) then #smartyPants
+else #stopForDirections
+assertSound thisOne : wait #soundStop
+if thisOne = #impressMe then startSound #imThinking : wait #soundStop
+```
+
+It is `carComments`' twin -- that one runs when a drive ends, this one while
+the car stands at a hub -- and nothing runs it. "Make a decision." "Impress
+me." (thinking about it) "Smarty pants." "Stop and ask for directions."
+
+**`secretMission`** (Edwin). `chipamus.mov`, 76 by 72, the chipmunk amusing
+himself, parked in the bottom right of the windscreen and held there until the
+player clicks. An easter egg with no way in, and the authors named it that.
+
+**`blackWings`** (Margaret). Two black wings on sprites 38 and 40, closing
+across the stage from both sides in five steps of twenty pixels. Nothing in
+her chapter asks for them.
+
+### Seeing them
+
+All three are ported, into `natives::cut`, which is deliberately *not* wired
+into `natives::call` -- nothing in the game should be able to reach them by
+accident. `amber play` binds them to **C**: it plays the next thing the
+current chapter carries and says what it is.
+
+```text
+-- backSeatDriver: Chippy nags from the passenger seat while the car sits
+   at a junction --
+```
+
+278 tests, eleven recordings.

@@ -23,6 +23,8 @@ pub enum Key {
     Hotspots,
     /// Print what is on the stage, bottom to top.
     Stage,
+    /// Play the next piece of cut content this chapter carries.
+    Cut,
 }
 
 /// What the platform saw this frame.

@@ -3155,6 +3155,14 @@ impl Game {
         self.pump()
     }
 
+    /// Queues an outcome made outside the script machinery.
+    ///
+    /// Only the cut-content key uses this: those handlers are not reachable
+    /// from any hotspot, so there is no action list to run them from.
+    pub fn play_outcome(&mut self, outcome: Outcome) {
+        self.apply(&outcome);
+    }
+
     fn apply(&mut self, outcome: &Outcome) {
         // Crossing into another chapter. The transition rooms end on
         // `enterNewDomain`, and until this was acted on the player watched the

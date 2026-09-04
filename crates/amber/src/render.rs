@@ -154,6 +154,8 @@ pub fn play_with(
     // Whether the cursor is over the inventory bar, which decides whether
     // its icons are drawn in full colour or as outlines.
     let mut inventory_hot = false;
+    // Which piece of cut content the C key shows next.
+    let mut cut_next = 0usize;
     let mut last_frame = std::time::Instant::now();
     while input.open && !input.pressed.contains(&crate::host::Key::Escape) {
         input = host.poll(STAGE);
@@ -392,6 +394,23 @@ pub fn play_with(
         // because something is running one on a channel as well -- has had to
         // be diagnosed from a photograph until now. This is the compositor
         // saying what it is about to paint, at the moment it looks wrong.
+        // C plays the next thing the chapter carries and never shows: three
+        // finished handlers nothing in the game calls. See entry 185.
+        if input.pressed.contains(&crate::host::Key::Cut) {
+            let domain = game.node().domain.clone();
+            let carried = crate::natives::cut::in_chapter(&domain);
+            if carried.is_empty() {
+                println!("-- nothing cut in {domain} --");
+            } else {
+                let (name, about) = carried[cut_next % carried.len()];
+                cut_next += 1;
+                println!("-- {name}: {about} --");
+                let mut out = crate::script::Outcome::default();
+                crate::natives::cut::call(name, &[], &mut game.state, &mut out);
+                game.play_outcome(out);
+                dirty = true;
+            }
+        }
         if input.pressed.contains(&crate::host::Key::Stage) {
             println!("-- stage, bottom to top --");
             for line in game.stage_report() {

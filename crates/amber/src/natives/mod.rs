@@ -13,6 +13,7 @@
 //! engine's own report stays an honest measure of what is left.
 
 mod brice;
+pub mod cut;
 mod edwin;
 mod margaret;
 pub mod members;
