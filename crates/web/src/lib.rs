@@ -141,7 +141,7 @@ impl Amber {
     /// `topics` is what the desktop takes in `AMBER_TRACE` -- `video`,
     /// `audio`, `script`, `room`, `sprite`, `state`, or `all`.
     pub fn trace(&self, topics: &str) {
-        amber::trace::listen(topics, |line| log(line));
+        amber::trace::listen(topics, log);
     }
 
     /// Starts the mixer at the rate the page's audio context runs at.
