@@ -1115,9 +1115,15 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::WaitForSound(plea));
             let _ = volume;
 
+            // `set_all`, not `set`. `set` moves a *value* to the head of the
+            // flag's list, so writing the rotated pool as one `Value::List`
+            // put a list inside the list: the next cry read that as its plea,
+            // failed to make a name of it, and gave up. Chippy called once in
+            // the whole chapter and was never heard again, which looked
+            // exactly like the cries having been cut.
             let mut rotated = pool;
             rotated.rotate_left(1);
-            state.set("distantPleas", Value::List(rotated));
+            state.set_all("distantPleas", rotated);
         }
 
 
@@ -1834,6 +1840,42 @@ mod tests {
             "the montage has to come down after the film: {:?}",
             out.effects
         );
+    }
+
+    /// Chippy calls from under the ice all the way across it -- seventy of
+    /// the chapter's hotspots ask him to -- and the pool of pleas turns over
+    /// one at a time so he does not repeat himself.
+    #[test]
+    fn he_keeps_calling_and_works_through_his_pleas() {
+        let mut s = State::new();
+        s.set_all("gChapter", vec![Value::Symbol("EDWIN".into())]);
+        s.set_all("chippyFreed", vec![Value::Int(0)]);
+        s.set_all(
+            "distantPleas",
+            ["help1", "help2", "help3"].map(|p| Value::Symbol(p.into())).to_vec(),
+        );
+
+        let mut heard = Vec::new();
+        for _ in 0..12 {
+            let mut out = Outcome::default();
+            assert!(call("chippycries", &[Value::Symbol("loud".into())], &mut s, &mut out));
+            if let Some(name) = out.effects.iter().find_map(|e| match e {
+                Effect::PlaySound { name, .. } => Some(name.clone()),
+                _ => None,
+            }) {
+                heard.push(name);
+            }
+        }
+        // `#loud` always sounds, so every one of those is a cry.
+        assert_eq!(heard.len(), 12, "he went quiet: {heard:?}");
+        // And he works through the pool rather than repeating the first.
+        assert_eq!(&heard[..4], &["help1", "help2", "help3", "help1"]);
+
+        // Once he is out he stops.
+        s.set_all("chippyFreed", vec![Value::Int(1)]);
+        let mut out = Outcome::default();
+        call("chippycries", &[Value::Symbol("loud".into())], &mut s, &mut out);
+        assert!(out.effects.is_empty(), "he is out of the ice and quiet");
     }
 
     #[test]

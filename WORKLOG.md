@@ -9627,3 +9627,46 @@ from a different side: the fault is rarely the expensive part. Not being able
 to see is.
 
 282 tests, eleven recordings.
+
+## 192. He was calling all along
+
+Entry 185 said `chippyCries` had been cut -- "commented out in seven rooms
+and in an eighth as `chippyCries #loud`: the chipmunk calling for help from
+under the ice, heard from further and further away as you cross it, turned
+off". That is wrong, and worth correcting rather than quietly fixing.
+
+```text
+chippyCries: 70 live, 8 commented out
+```
+
+Seventy. He calls from nearly every move across the ice. The eight commented
+ones are second copies on an alternative exit out of the same room -- a
+`#itemInUse` variant of a `forward`, or a second `forward` -- where two calls
+would have fired for one move. The authors took the duplicate out, not the
+cry. I had counted the crossings-out without counting what was left.
+
+### Why it looked cut
+
+Because in this engine he called once and never again, which is
+indistinguishable from never calling at all.
+
+```rust
+let mut rotated = pool;
+rotated.rotate_left(1);
+state.set("distantPleas", Value::List(rotated));   // wrong
+```
+
+`set` moves a *value* to the head of a flag's list. Handing it the whole
+rotated pool as one `Value::List` put a list inside the list, so the next cry
+read that as its plea, could not make a name of it, and gave up. Eight pleas,
+one heard, silence for the rest of the chapter.
+
+`set_all` replaces the list, which is what was meant. The two other rotations
+in the port -- Chippy's `#chippyPleas` and Edwin's `#windSongs` -- hand `set` a
+single value and were always right; this was the only one of its kind.
+
+Playing `edwin.walk` now, he calls six times crossing the ice: `help5`, then
+`help1` through `help4`, the loud ones near the hole and the quiet ones out at
+the edges. Before the fix, once.
+
+283 tests, eleven recordings.
