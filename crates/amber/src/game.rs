@@ -1036,8 +1036,9 @@ impl Game {
         }
         trace!(
             crate::trace::Topic::Video,
-            "{name} {}",
-            if loops { "loops" } else { "plays once" }
+            "{name} {} ({} frames)",
+            if loops { "loops" } else { "plays once" },
+            self.player.as_ref().map(|p| p.frames()).unwrap_or(0)
         );
     }
 
@@ -2031,6 +2032,11 @@ impl Game {
             .member(cast)
             .and_then(|m| m.name.clone())?;
         crate::natives::members::script_for(&domain, &name)
+    }
+
+    /// What the film channel is showing, by name.
+    pub fn playing_name(&self) -> String {
+        self.playing.clone().unwrap_or_else(|| "(none)".into())
     }
 
     /// Opens a film from the content source.

@@ -231,6 +231,11 @@ impl VideoPlayer {
         self.looping = looping;
     }
 
+    /// How many frames it has, for a front end reporting what it opened.
+    pub fn frames(&self) -> usize {
+        self.frame_count
+    }
+
     /// Whether this film runs for ever. A `wait #videoStop` on one of these
     /// can never clear, which the strict replay reports as the deadlock it is.
     pub fn loops(&self) -> bool {
@@ -336,5 +341,39 @@ impl VideoPlayer {
         self.current = usize::MAX;
         self.seek(target);
         self.started = clock::now() - seconds.max(0.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The lake ghost by the boathouse, which helba watched run for ever.
+    ///
+    /// Its cast member says it plays once, and a film that plays once has to
+    /// reach `finished` and stay there. Real seconds, because the clock this
+    /// reads is the real one.
+    #[test]
+    fn a_film_that_plays_once_ends() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extract/ROXY/MOVIES/LAKEGST2.MOV");
+        let Ok(bytes) = std::fs::read(&path) else { return };
+        let mut player = VideoPlayer::from_bytes(bytes).expect("the film opens");
+        player.set_looping(false);
+
+        // Ten and a half seconds of film. Give it twelve.
+        let started = std::time::Instant::now();
+        let mut frames = 0;
+        while started.elapsed().as_secs_f64() < 12.0 {
+            if player.tick() {
+                frames += 1;
+            }
+            if player.finished {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(8));
+        }
+        assert!(frames > 100, "it should have shown its frames, saw {frames}");
+        assert!(player.finished, "it never ended");
     }
 }

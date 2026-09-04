@@ -50,6 +50,9 @@ pub struct Amber {
     soundtrack_started: bool,
     /// The room the mixer's ambient loops were set for.
     ambience_room: usize,
+    /// What the film channel last showed, so a film reopening on its own is
+    /// visible in the console rather than only on screen.
+    watching: Option<(String, bool)>,
     title: String,
 }
 
@@ -86,6 +89,7 @@ impl Amber {
             streamed: None,
             soundtrack_started: false,
             ambience_room: usize::MAX,
+            watching: None,
             title: String::new(),
         })
     }
@@ -274,6 +278,25 @@ impl Amber {
         if self.game.tick_overlay() {
             self.dirty = true;
         }
+        // Says so when the film on screen changes, or when the same one is
+        // opened again -- a film that restarts itself is the hardest kind of
+        // fault to see from the outside, and this is the only place a browser
+        // can be asked what it thinks it is doing.
+        let showing = self
+            .game
+            .player
+            .as_ref()
+            .map(|p| (self.game.playing_name(), p.loops()));
+        if showing != self.watching {
+            if let Some((name, loops)) = &showing {
+                log(&format!(
+                    "film {name} {}",
+                    if *loops { "loops" } else { "plays once" }
+                ));
+            }
+            self.watching = showing;
+        }
+
         // A playing film supplies its own redraws; a static room only needs
         // one after a click.
         let mut soundtrack = None;

@@ -137,7 +137,12 @@ async function main() {
   // game -- and so the mixer -- is here. A quarter of a second of buffer is
   // enough to ride out a slow frame and short enough that a sound still lands
   // when it should.
-  let audio = null, node = null, queued = 0;
+  // `queued` is this side's estimate of how much the worklet still has to
+  // play. The worklet corrects it when it reports, but the estimate is what
+  // the pump runs on: pacing purely on the reports meant that if the worklet
+  // ever stopped talking -- one exception inside `process` is enough -- this
+  // side would believe it was still full and never mix another sample again.
+  let audio = null, node = null, queued = 0, lastPump = 0;
   const AHEAD = 0.25, CHUNK = 4096;
   const startAudio = async () => {
     if (audio) return;
@@ -147,12 +152,18 @@ async function main() {
     node = new AudioWorkletNode(audio, "amber-mixer",
                                 { outputChannelCount: [2] });
     node.port.onmessage = ({ data }) => { queued = data; };
+    lastPump = performance.now();
     node.connect(audio.destination);
   };
 
   // Called every frame: mix ahead until the worklet has enough.
   const pump = () => {
     if (!node) return;
+    const now = performance.now();
+    // Spend the estimate at the rate the worklet plays it, so it falls even
+    // when nothing is reporting.
+    queued = Math.max(0, queued - (now - lastPump) / 1000 * audio.sampleRate);
+    lastPump = now;
     const want = audio.sampleRate * AHEAD;
     for (let i = 0; queued < want && i < 8; i++) {
       const buf = new Float32Array(CHUNK * 2);

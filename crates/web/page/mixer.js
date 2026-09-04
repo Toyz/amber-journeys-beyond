@@ -25,7 +25,13 @@ class AmberMixer extends AudioWorkletProcessor {
   }
 
   process(_inputs, outputs) {
-    const [left, right] = outputs[0];
+    const channels = outputs[0];
+    const left = channels[0];
+    // A context may hand over one channel rather than two. Reading a second
+    // that is not there throws, the worklet dies, and with it every report the
+    // main thread was pacing itself by -- which is silence from that moment
+    // on, and no error anywhere obvious.
+    const right = channels[1] || left;
     for (let i = 0; i < left.length; i++) {
       const head = this.queue[0];
       if (!head) {
