@@ -173,10 +173,40 @@ wait 300
 click 320 200
 click 320 200
 # 
+# The scan unit, which has been sitting on the patio doorknob since the
+# opening. It comes already holding a finished scan, so it has to be
+# switched off and set running again to have one worth reading: the ON
+# button is `setScanTime 3`, three minutes of it.
+click 564 209
+click 564 209
+click 337 239
+click 75 210
+click 313 225
+click 75 210
+click 319 218
+click 284 217
+click 315 220
+click 107 184
+click 181 299
+pointer
+pointer
+# `setScanTime` ends in `goBack`, so pressing it steps out of the close-up
+# on its own; there is no click to make here.
+# 
 # Now the cameras. With the BAR running, every move past the sixtieth
 # rolls the haunt clock, and each haunt has to be watched back before the
 # next can be caught. Pacing the porch does as well as anything: it is out
 # of every room a camera is watching.
+click 564 209
+click 225 198
+click 309 211
+click 511 209
+click 284 204
+click 338 227
+click 564 209
+click 312 221
+click 564 209
+click 317 190
 click 564 209
 click 75 210
 inv 320 410
@@ -184,6 +214,30 @@ wait 300
 click 320 200
 click 320 200
 click 564 209
+click 75 210
+inv 320 410
+wait 300
+click 320 200
+click 320 200
+click 564 209
+click 75 210
+inv 320 410
+wait 300
+click 317 226
+click 320 200
+click 320 200
+click 320 200
+click 320 200
+click 564 59
+forward
+pointer
+click 608 59
+left
+inv 320 410
+wait 300
+click 320 200
+click 315 210
+click 608 209
 click 75 210
 inv 320 410
 wait 300
@@ -214,12 +268,10 @@ wait 300
 click 320 200
 click 320 200
 # 
-# One tonal residue has to be read as well. The click that does it is on
-# the unit's own readout -- a `mouseDown` belonging to the cast member
-# `TXT-tonal ready` rather than to any room. That click works now, and
-# entry 178 has the machinery; what is still missing is the alert that
-# puts the readout on that page unprompted, so the flag is set here.
-trim tonalresidueremaining PkPatioScan
+# A scan finishes on a move, and the move is what flashes the unit -- so
+# the pacing above ran it out and read it back on the way past. The click
+# that does the reading is on the unit's own readout, a `mouseDown`
+# belonging to the cast member `TXT-tonal ready` and to no room at all.
 # Putting the unit away tests for psionic waves, and the phone rings.
 inv 320 410
 wait 300

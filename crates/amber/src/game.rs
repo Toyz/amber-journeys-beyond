@@ -1261,6 +1261,46 @@ impl Game {
         let count = self.state.get("moveCount").as_int().unwrap_or(0) + 1;
         self.state.set_all("moveCount", vec![lingo::Value::Int(count)]);
 
+        // Both of the things a move can set off are behind one guard: the
+        // player is carrying the unit, and alerts are on.
+        //
+        // ```text
+        // if getState( #playerHasPeekUnit ) <> 0 and gPeekAlertEnabled then
+        //   if gScanFinish <> 0 and the ticks > gScanFinish then
+        //     setState( #PKscanStatus, #ReadyForPlayback )
+        //     setState( #PeekDisplay, #scanStatus )
+        //     gScanFinish = 0
+        //   if getState( #BarOnline ) and getState( #PeekDisplay ) = #None then
+        //     ... the haunts ...
+        // ```
+        let carrying = !self.state.get("playerHasPeekUnit").is_symbol("0")
+            && self.state.get("playerHasPeekUnit").as_int() != Some(0);
+        if !carrying || self.state.get("gPeekAlertEnabled").as_int() == Some(0) {
+            return;
+        }
+
+        // A scan finishes on a move, not on a clock. The countdown itself is
+        // stepped every frame by `resetPeekDisplay`, but the alert -- which is
+        // what puts `TXT-tonal ready` on the readout and makes the unit flash
+        // -- is only ever raised here. Without it the scan reached
+        // `#ReadyForPlayback` and nothing ever said so, so the click that
+        // reads a residue back had nothing to click on. That was the last
+        // hand-set line in `full.walk` that was a missing trigger rather than
+        // a hole in the shipped data.
+        let finish = self.state.get("gScanFinish").as_int().unwrap_or(0);
+        let now = self.state.get("gTicks").as_int().unwrap_or(0);
+        if finish != 0 && now > finish {
+            trace!(crate::trace::Topic::Script, "the scan is ready for playback");
+            self.state
+                .set("PKscanStatus", lingo::Value::Symbol("ReadyForPlayback".into()));
+            self.state
+                .set("PeekDisplay", lingo::Value::Symbol("scanStatus".into()));
+            self.state.set("gScanFinish", lingo::Value::Int(0));
+            let mut out = Outcome::default();
+            crate::natives::call("peekalert", &[], &mut self.state, &mut out);
+            self.apply(&out);
+        }
+
         if !self.state.get("BarOnline").truthy() {
             return;
         }

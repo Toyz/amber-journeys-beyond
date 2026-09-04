@@ -8873,3 +8873,67 @@ page unprompted. The click exists now; the thing that makes it worth clicking
 does not yet.
 
 268 tests, eleven recordings.
+
+## 179. The scanner, end to end
+
+Carrying on down entry 178's list. The door scanner was the piece helba named,
+and it turned out `full.walk` did not touch it at all -- the walk never picked
+up or used the scan device, and the residue was faked with a `trim`.
+
+### The chain
+
+```text
+#DoorWithScanUnit: [#kitchenOutside]   #scanUnitIsActive: [1, 0]
+#PKscanStatus: [#ReadyForPlayback]
+```
+
+The unit starts *already attached* to the patio doorknob, already switched on,
+already holding a finished scan. Nothing announces it. To get a residue worth
+reading the player switches it off and on again -- the ON button is
+`setScanTime 3` -- and then walks about for three minutes.
+
+The finishing is not on a clock. It is in `goTo`, with the haunts, behind the
+same guard:
+
+```text
+if getState( #playerHasPeekUnit ) <> 0 and gPeekAlertEnabled then
+  if gScanFinish <> 0 and the ticks > gScanFinish then
+    setState( #PKscanStatus, #ReadyForPlayback )
+    setState( #PeekDisplay, #scanStatus )
+    gScanFinish = 0
+  if getState( #BarOnline ) and getState( #PeekDisplay ) = #None then
+    ... the haunt clock ...
+```
+
+`count_move` had the haunt half and neither the guard nor the scan half. So a
+scan reached `#ReadyForPlayback` -- `resetPeekDisplay` steps the countdown
+every frame -- and nothing ever said so, which is why the readout could never
+be caught showing `TXT-tonal ready`.
+
+With the alert raised, entry 178's member script finally has something to be
+clicked on, and `full.walk` runs the whole thing: switch the unit off, set it
+running for three minutes, pace the porch for the haunts, and the scan
+finishes on the way past. The unit flashes, the readout says the residue is
+ready, and clicking the readout plays it back.
+
+`trim tonalResidueRemaining PkPatioScan` is gone. Three hand-set lines left,
+and both of the remaining kinds are holes in the shipped data rather than
+holes in the port -- `moveClock` has no caller and the Amber vision's only
+entry is a telephone that rings once.
+
+### The clock the terminal still did not have
+
+Entry 177 gave the terminal a way to run a film's cues without a clock. This
+wanted the other thing: an *absolute* deadline in ticks. `gTicks` is advanced
+by the window and by nothing else, so a scan started in the terminal never
+finished and no recording could reach the click.
+
+A step is now counted as ten seconds. The first attempt counted every command,
+which was wrong in a way worth writing down: the recorder asks `state` and
+`stage` constantly and writes none of it down, so the clock ran faster while
+recording than while replaying and the scan finished at a different point in
+the two. Fifty steps of the recording stopped resolving. Only a step moves the
+clock now, and the recording replays identically twice over -- which is the
+property that was actually being tested.
+
+268 tests, eleven recordings, and `full.walk` is 1024 lines.

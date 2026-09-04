@@ -89,6 +89,26 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
             println!("> {cmd}");
         }
 
+        // The terminal has no clock, and one thing in the game wants one: the
+        // scan unit's deadline is an absolute number of ticks. So a step is
+        // counted as ten seconds of it. Without this a scan set running never
+        // finished here, and the click that reads a residue back -- which the
+        // unit only offers once the scan is done -- could not be reached in a
+        // recording at all.
+        //
+        // Only a step. `state`, `look` and `stage` are questions, not moves,
+        // and the recorder asks a great many of them without writing any of
+        // them down -- so counting those advanced the clock while recording
+        // and not while replaying, and the scan finished at a different point
+        // in the two. A recording that does not replay is not a recording.
+        if !matches!(
+            cmd.split_whitespace().next(),
+            Some("state" | "look" | "stage" | "blocked" | "mix")
+        ) {
+            let ticks = game.state.get("gTicks").as_int().unwrap_or(0);
+            game.state.set("gTicks", lingo::Value::Int(ticks + 600));
+        }
+
         match command(&mut game, cmd, !strict) {
             Step::Done => {}
             Step::Missed => missed += 1,
