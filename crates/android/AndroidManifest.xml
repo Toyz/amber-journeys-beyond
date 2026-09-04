@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A NativeActivity and nothing else: there is no Java in this app, so
+  `hasCode` is false and the whole of it is the shared library named below.
+
+  `extractNativeLibs` is false and the disc is stored rather than deflated, so
+  both the library and the game are mapped where they lie inside the APK. That
+  is what keeps a 574 MB game from needing 574 MB of unpacking on first run.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ink.helba.amber"
+    android:versionCode="1"
+    android:versionName="0.1.0">
+
+  <application
+      android:label="Amber"
+      android:icon="@mipmap/ic_launcher"
+      android:hasCode="false"
+      android:extractNativeLibs="false"
+      android:allowBackup="false"
+      android:enableOnBackInvokedCallback="false">
+
+    <activity
+        android:name="android.app.NativeActivity"
+        android:exported="true"
+        android:launchMode="singleTask"
+        android:screenOrientation="sensorLandscape"
+        android:resizeableActivity="false"
+        android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|uiMode">
+
+      <meta-data android:name="android.app.lib_name" android:value="amber_android"/>
+
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

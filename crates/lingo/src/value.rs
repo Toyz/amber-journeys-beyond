@@ -187,3 +187,96 @@ impl Value {
         }
     }
 }
+
+/// Writes a value back as Lingo source.
+///
+/// The inverse of [`crate::parse_value`], and deliberately so: the save file
+/// this feeds is a Lingo property list of the same shape the game keeps its own
+/// state in, so a save can be read -- and pasted back into the original's
+/// `stateData` -- rather than being an opaque blob of somebody's serialiser.
+///
+/// Round-tripping is a test rather than a hope: `parse_value(v.to_string())`
+/// gives `v` back for every variant.
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Void => write!(f, "VOID"),
+            Value::Int(i) => write!(f, "{i}"),
+            // `1` and `1.0` parse to different variants, so a float always
+            // carries its point or it comes back an integer.
+            Value::Float(x) if x.fract() == 0.0 => write!(f, "{x:.1}"),
+            Value::Float(x) => write!(f, "{x}"),
+            Value::Symbol(s) => write!(f, "#{s}"),
+            Value::String(s) => write!(f, "\"{}\"", s.replace('"', "'")),
+            Value::Point(x, y) => write!(f, "point({x}, {y})"),
+            Value::Rect(r) => {
+                write!(f, "rect({}, {}, {}, {})", r.left, r.top, r.right, r.bottom)
+            }
+            Value::List(items) => {
+                write!(f, "[")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{item}")?;
+                }
+                write!(f, "]")
+            }
+            // An empty property list is `[:]`; an empty linear list is `[]`.
+            // Writing the wrong one turns a table into a list on the way back.
+            Value::Props(pairs) if pairs.is_empty() => write!(f, "[:]"),
+            Value::Props(pairs) => {
+                write!(f, "[")?;
+                for (i, (key, value)) in pairs.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "#{key}: {value}")?;
+                }
+                write!(f, "]")
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+
+    /// Every variant survives being written and read back.
+    ///
+    /// This is the property the save file rests on, so it is asserted over the
+    /// awkward cases rather than a happy one: an empty list is not an empty
+    /// property list, and a whole-number float is not an integer.
+    #[test]
+    fn every_value_round_trips() {
+        let cases = vec![
+            Value::Void,
+            Value::Int(-7),
+            Value::Float(1.0),
+            Value::Float(2.5),
+            Value::Symbol("carrying".into()),
+            Value::String("Gbhs_B_S".into()),
+            Value::Point(320, 240),
+            Value::Rect(Rect { left: 1, top: 2, right: 3, bottom: 4 }),
+            Value::List(vec![]),
+            Value::List(vec![Value::Int(1), Value::Symbol("None".into())]),
+            Value::Props(vec![]),
+            // Keys are lower case because the parser lower-cases them:
+            // Lingo's symbols are case-insensitive, so `#tunedIn` and
+            // `#tunedin` are one key and only one of them can come back. A
+            // fixture in mixed case would be asserting my spelling rather than
+            // the format.
+            Value::Props(vec![
+                ("tunedin".into(), Value::List(vec![Value::Symbol("bedroom".into())])),
+                ("nested".into(), Value::Props(vec![("a".into(), Value::Int(0))])),
+            ]),
+        ];
+        for value in cases {
+            let written = value.to_string();
+            let back = crate::parse_value(&written)
+                .unwrap_or_else(|e| panic!("{written} did not parse back: {e:?}"));
+            assert_eq!(back, value, "round trip changed {written}");
+        }
+    }
+}

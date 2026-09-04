@@ -1,5 +1,6 @@
 //! Window, input and the main loop.
 
+#[cfg(feature = "desktop")]
 use std::path::Path;
 
 
@@ -37,6 +38,7 @@ fn cursor_hint(verb: Verb) -> &'static str {
 /// uses, so watching a `.walk` file and replaying it in the terminal cannot
 /// diverge. Control passes to the player when the recording runs out, which
 /// makes a recording a way of setting the game up as much as of watching it.
+#[cfg(feature = "desktop")]
 pub fn play_with(
     root: &Path,
     start: Option<&str>,
@@ -88,16 +90,7 @@ pub fn play_with(
         (Some(a), false) => eprintln!("audio out at {} Hz", a.rate()),
         (None, _) => eprintln!("no audio device; running silently"),
     }
-    let mut playing_soundtrack = false;
-    let mut ambience_room = usize::MAX;
     eprintln!("space skips a movie, tab outlines live hotspots, escape quits");
-    // The route has to start somewhere known, so the first line of a
-    // recording is the room the game opened in.
-    if crate::record::active() {
-        if let Some(name) = game.node().name.clone() {
-            crate::record::step(&name);
-        }
-    }
     let opening_movie = game.video();
     eprintln!(
         "starting in {} / {}{}",
@@ -108,8 +101,6 @@ pub fn play_with(
             None => String::new(),
         }
     );
-
-    const STAGE: (usize, usize) = (STAGE_W, STAGE_H);
     // `--scale` and `--filter`. The stage stays 640 by 480 and the window is
     // whatever that grows to: the pointer is mapped against the stage, so the
     // game never knows how big it is being shown.
@@ -124,10 +115,50 @@ pub fn play_with(
         .unwrap_or_default();
     let shown = (STAGE_W * factor, STAGE_H * factor);
     let mut host = crate::host_desktop::Desktop::open("Amber: Journeys Beyond", shown)?;
-    // Everything below drives the `Host` trait rather than a window: the loop
-    // does not know what is showing the frame.
-    let host: &mut dyn crate::host::Host = &mut host;
+    // Where a save goes. `AMBER_SAVE` overrides it; otherwise it sits in the
+    // working directory rather than beside the game, because the game may well
+    // be a read-only disc image.
+    let saves = std::env::var_os("AMBER_SAVE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("amber.save"));
+
+    // The loop itself is host-agnostic, so it is `run`: the desktop opens a
+    // window and hands it over, and so does every other front end.
+    run(&mut game, &mut host, audio, steps, muted, factor, filter, Some(saves))
+}
+
+/// The main loop, over any [`Host`](crate::host::Host).
+///
+/// This is the whole game running: input, the effect queue, the waits, the
+/// compositor, the transitions and the mixer. It names no platform -- the
+/// desktop, and anything else with a window, differ only in what they hand in.
+/// Keeping one loop is deliberate: two front ends with a loop each is how this
+/// engine shipped a dozen faults that were live in one and invisible in the
+/// other.
+#[allow(clippy::too_many_arguments)]
+pub fn run(
+    game: &mut Game,
+    host: &mut dyn crate::host::Host,
+    audio: Option<Audio>,
+    steps: Vec<String>,
+    muted: bool,
+    factor: usize,
+    filter: crate::scale::Filter,
+    saves: Option<std::path::PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const STAGE: (usize, usize) = (STAGE_W, STAGE_H);
+    let shown = (STAGE_W * factor, STAGE_H * factor);
+    let mut playing_soundtrack = false;
+    let mut ambience_room = usize::MAX;
+    // The route has to start somewhere known, so the first line of a
+    // recording is the room the game opened in.
+    if crate::record::active() {
+        if let Some(name) = game.node().name.clone() {
+            crate::record::step(&name);
+        }
+    }
     let mut input = crate::host::Input {
+        hover: true,
         pointer: None,
         down: false,
         pressed: Vec::new(),
@@ -170,8 +201,162 @@ pub fn play_with(
     // Which piece of cut content the C key shows next.
     let mut cut_next = 0usize;
     let mut last_frame = std::time::Instant::now();
-    while input.open && !input.pressed.contains(&crate::host::Key::Escape) {
+    let mut menu: Option<crate::menu::Menu> = None;
+    // The picture filter starts where the command line put it and is the
+    // player's from then on.
+    let mut settings = crate::menu::Settings { filter, ..Default::default() };
+    let mut menu_was_down = false;
+    let mut hud_was_down = false;
+    let mut quit = false;
+    while input.open && !quit {
         input = host.poll(STAGE);
+
+        // The pause menu sits over everything. While it is up the game sees no
+        // input at all, which is the whole of what "paused" means here -- and
+        // it is drawn by the engine rather than by a front end, because two
+        // front ends with a menu each is two menus that will disagree.
+        if input.pressed.contains(&crate::host::Key::Menu) {
+            menu = match menu {
+                Some(_) => None,
+                None => Some(crate::menu::Menu::new(
+                    settings,
+                    saves.as_deref().map(crate::save::slots).unwrap_or_default(),
+                )),
+            };
+            dirty = true;
+        }
+        // Acting on the release edge, which is what the game does everywhere
+        // else, so a press that started outside a row does not pick it.
+        let action = match (&mut menu, menu_was_down && !input.down) {
+            (Some(open), true) => match input.pointer {
+                Some((mx, my)) => open.click(mx, my, STAGE_W, STAGE_H),
+                None => crate::menu::Action::None,
+            },
+            _ => crate::menu::Action::None,
+        };
+        menu_was_down = input.down;
+        match action {
+            crate::menu::Action::Resume => menu = None,
+            crate::menu::Action::Quit => quit = true,
+            crate::menu::Action::Save(slot) => {
+                let note = match saves.as_deref() {
+                    Some(base) => {
+                        let path = crate::save::slot_path(base, slot + 1);
+                        match std::fs::write(&path, crate::save::write(game)) {
+                            Ok(()) => "SAVED",
+                            Err(_) => "COULD NOT WRITE",
+                        }
+                    }
+                    None => "NOWHERE TO SAVE",
+                };
+                if let Some(open) = &mut menu {
+                    // The slot list is re-read so the row it was just written
+                    // to stops saying EMPTY.
+                    open.slots = saves.as_deref().map(crate::save::slots).unwrap_or_default();
+                    open.note = Some(note.into());
+                }
+            }
+            crate::menu::Action::Load(slot) => {
+                let loaded = saves
+                    .as_deref()
+                    .map(|base| crate::save::slot_path(base, slot + 1))
+                    .and_then(|path| std::fs::read_to_string(path).ok())
+                    .map(|text| crate::save::read(game, &text));
+                match loaded {
+                    Some(Ok(())) => {
+                        // The queue and the film belong to the room being
+                        // left, so they go with it.
+                        playing_soundtrack = false;
+                        ambience_room = usize::MAX;
+                        menu = None;
+                    }
+                    _ => {
+                        if let Some(open) = &mut menu {
+                            open.note = Some("COULD NOT LOAD".into());
+                        }
+                    }
+                }
+            }
+            crate::menu::Action::None => {}
+        }
+        // Settings follow the menu rather than the menu reaching out: the
+        // volume is the only one that needs telling, and the picture and the
+        // pad are read where they are used.
+        if let Some(open) = &menu {
+            if open.settings != settings {
+                settings = open.settings;
+                if let Some(a) = &audio {
+                    a.set_master(settings.volume);
+                }
+                dirty = true;
+            }
+        }
+
+        if menu.is_some() {
+            input.pointer = None;
+            input.down = false;
+            input.pressed.clear();
+            dirty = true;
+        }
+
+        // The on-screen buttons, which a phone needs because it has no keys.
+        // Checked before the game sees the click and swallowing it either way,
+        // so a press on a button never also works the room underneath.
+        let film_playing = game.can_skip();
+        // Where to click to put down whatever is being held up. Also the only
+        // sign the game is holding for a click: after the PeeK comes down, or
+        // a switch is thrown, the queue waits and there is otherwise nothing
+        // on screen that says so.
+        let way_out = game.way_out();
+        // Set when CLOSE is pressed, and spent by the dispatch below -- so the
+        // button produces the same click a player would have made rather than
+        // a second way of doing it.
+        let mut close_at: Option<(i32, i32)> = None;
+        if menu.is_none() {
+            if let Some((mx, my)) = input.pointer {
+                if let Some(tap) =
+                    crate::menu::hud_hit(mx, my, STAGE_W, film_playing, way_out.is_some())
+                {
+                    if hud_was_down && !input.down {
+                        match tap {
+                            crate::menu::Tap::Menu => {
+                                menu = Some(crate::menu::Menu::new(
+                                    settings,
+                                    saves.as_deref().map(crate::save::slots).unwrap_or_default(),
+                                ));
+                            }
+                            // Closing is the click a player would have made
+                            // on the part of the screen that is not the thing.
+                            crate::menu::Tap::Close => {
+                                if let Some((cx, cy)) = way_out {
+                                    close_at = Some((cx, cy));
+                                }
+                            }
+                            crate::menu::Tap::Skip => {
+                                if game.skip_video() {
+                                    crate::record::step("skip");
+                                    if let Some(a) = &audio {
+                                        a.stop_oneshots();
+                                    }
+                                    playing_soundtrack = false;
+                                }
+                            }
+                        }
+                    }
+                    hud_was_down = input.down;
+                    // The position is taken away so the room underneath does
+                    // not also get the click. The *button* is left alone:
+                    // zeroing it meant `was_down` never became true, so the
+                    // release edge the dispatch below waits for never
+                    // happened -- and CLOSE, which needs that dispatch to
+                    // deliver its click, did nothing at all.
+                    input.pointer = None;
+                    dirty = true;
+                } else {
+                    hud_was_down = false;
+                }
+            }
+        }
         frames += 1;
         // Nothing pulls samples through a silent mixer, so without this every
         // sound would run for ever, the four channels would fill, and the log
@@ -250,7 +435,7 @@ pub fn play_with(
                     .and_then(|n| n.trim().parse::<u64>().ok())
                     .map(|ticks| std::time::Duration::from_millis(ticks * 1000 / 60));
                 if beat.is_none() {
-                    let _ = crate::walk::command(&mut game, &cmd, false);
+                    let _ = crate::walk::command(&mut *game, &cmd, false);
                     dirty = true;
                 }
                 next_step = std::time::Instant::now()
@@ -265,11 +450,11 @@ pub fn play_with(
         // film, wait for it, restore -- so the queue is pumped every frame and
         // not only in the frame a click arrives.
         if game.effects_busy() {
-            apply_effects(&mut game, audio.as_ref(), &mut dirty, &mut playing_soundtrack);
+            apply_effects(&mut *game, audio.as_ref(), &mut dirty, &mut playing_soundtrack);
         }
         if game.room != ambience_room {
             ambience_room = game.room;
-            crate::game::update_ambience(&mut game, audio.as_ref());
+            crate::game::update_ambience(&mut *game, audio.as_ref());
         }
 
         // Space skips whatever movie is playing. The opening is two minutes
@@ -331,7 +516,7 @@ pub fn play_with(
         // not queued effects: a queue is sequential and would have to wait for
         // the film it is meant to play over.
         for effect in game.due_cues() {
-            apply_effect(&mut game, audio.as_ref(), effect, &mut dirty, &mut playing_soundtrack);
+            apply_effect(&mut *game, audio.as_ref(), effect, &mut dirty, &mut playing_soundtrack);
         }
 
         // A playing movie supplies its own redraws; a static room only needs
@@ -442,6 +627,19 @@ pub fn play_with(
         // Already in stage coordinates: the host maps them back, because it
         // is the only thing that knows how it scaled the frame.
         let pos = input.pointer;
+        // Which directions the room offers now. Cheap -- a dozen guards -- and
+        // it has to be current, because the whole point of the pad is that it
+        // shows only what is actually there.
+        let dirs = if menu.is_none() && settings.pad && !game.waiting_for_click() {
+            game.live_directions()
+        } else {
+            Vec::new()
+        };
+        // A tap on the pad *becomes* the click a player would have made on the
+        // scene, rather than dispatching a move of its own. So it takes the
+        // same path, honours the same guards, and records the same step -- a
+        // recording made with a thumb replays identically under a mouse.
+        let pad_target = pos.and_then(|(x, y)| crate::menu::pad_hit(x, y, &dirs, STAGE_W));
         // `if the mouseV > gInventoryTopY` -- the bar lights up under the
         // cursor and goes back to outlines when it leaves, and the original
         // redraws the stage on each crossing.
@@ -489,12 +687,23 @@ pub fn play_with(
         // the film running over the room it had moved to.
         // (`was_down` is carried at the foot of the loop, so the busy
         // branch only has to decline the click.)
-        if !game.effects_busy() && was_down && !down {
-            if let Some((x, y)) = pos {
+        // A queue waiting for a *click* is the exception, and it has to be the
+        // same exception the replay gate above makes: the PeeK unit holds there
+        // until it is dismissed, and the only thing that can dismiss it is a
+        // click. Without this the live player is stuck the moment they open it
+        // -- which the replay path could not show, because it had already been
+        // taught this and the live path had not. Third time a wait has lived in
+        // two places and only one of them learned something.
+        let modal = game.waiting_for_click();
+        if (!game.effects_busy() || modal) && was_down && !down {
+            if let Some((x, y)) = close_at.take().or(pad_target).or(pos) {
                 // The bar sits over the stage, so it gets first refusal on a
                 // click; otherwise picking an item would also walk the player
                 // through whatever hotspot lies beneath it.
-                if game.click_inventory(x, y, STAGE_W as i32, STAGE_H as i32) {
+                // While something is modal the click belongs to it, so the
+                // bar does not get first refusal: stowing an item instead of
+                // dismissing the unit is how it stays open for ever.
+                if !modal && game.click_inventory(x, y, STAGE_W as i32, STAGE_H as i32) {
                     crate::record::step(&format!("inv {x} {y}"));
                     dirty = true;
                     was_down = down;
@@ -527,7 +736,7 @@ pub fn play_with(
                     // setState with no updateDisplay, because Director
                     // refreshed the stage on its own. Recomposing is cheap.
                     dirty = true;
-                    apply_effects(&mut game, audio.as_ref(), &mut dirty, &mut playing_soundtrack);
+                    apply_effects(&mut *game, audio.as_ref(), &mut dirty, &mut playing_soundtrack);
                 }
             }
         }
@@ -558,7 +767,7 @@ pub fn play_with(
         if game.cursor_hidden && !game.effects_busy() && game.script_idle() {
             game.cursor_hidden = false;
         }
-        if let Some((mx, my)) = pos.filter(|_| !game.cursor_hidden) {
+        if let Some((mx, my)) = pos.filter(|_| !game.cursor_hidden && (input.hover || down)) {
             let verb = game.hotspot_at(mx, my).map(|(v, _)| v);
             // The game's own art first; the drawn shapes are what is left when
             // a cursor is a system one -- `#back` and `#noCursor` have no cast
@@ -567,10 +776,17 @@ pub fn play_with(
                 cursor::draw(&mut out, STAGE_W as i32, STAGE_H as i32, mx, my, verb);
             }
         }
-        if factor == 1 && filter == crate::scale::Filter::Nearest {
+        if menu.is_none() {
+            crate::menu::draw_pad(&mut out, STAGE_W, STAGE_H, &dirs, pos);
+        }
+        crate::menu::draw_hud(&mut out, STAGE_W, STAGE_H, game.can_skip(), way_out.is_some(), pos);
+        if let Some(open) = &menu {
+            open.draw(&mut out, STAGE_W, STAGE_H, pos);
+        }
+        if factor == 1 && settings.filter == crate::scale::Filter::Nearest {
             host.present(&out, STAGE)?;
         } else {
-            let grown = crate::scale::up(&out, STAGE_W, STAGE_H, factor, filter);
+            let grown = crate::scale::up(&out, STAGE_W, STAGE_H, factor, settings.filter);
             host.present(&grown, shown)?;
         }
     }
@@ -902,3 +1118,145 @@ mod effect_coverage {
     }
 }
 
+
+#[cfg(test)]
+mod loop_tests {
+    use super::*;
+    use crate::host::{Host, Input};
+
+    /// A host that plays a fixed script of inputs and then closes.
+    ///
+    /// The loop had never been driven by a test at all -- only the replay path
+    /// had, through `walk` -- which is exactly how a click wait came to be
+    /// handled in the replay gate and not in the live one.
+    struct Scripted {
+        frames: Vec<Input>,
+        at: usize,
+    }
+
+    impl Host for Scripted {
+        fn poll(&mut self, _stage: (usize, usize)) -> Input {
+            let frame = self.frames.get(self.at);
+            self.at += 1;
+            match frame {
+                Some(i) => Input {
+                    pointer: i.pointer,
+                    down: i.down,
+                    pressed: i.pressed.clone(),
+                    open: true,
+                    hover: true,
+                },
+                None => Input {
+                    pointer: None,
+                    down: false,
+                    pressed: Vec::new(),
+                    open: false,
+                    hover: true,
+                },
+            }
+        }
+        fn present(&mut self, _frame: &[u32], _stage: (usize, usize)) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn set_title(&mut self, _title: &str) {}
+    }
+
+    fn at(x: i32, y: i32, down: bool) -> Input {
+        Input { pointer: Some((x, y)), down, pressed: Vec::new(), open: true, hover: true }
+    }
+
+    /// Pressing CLOSE actually delivers a click.
+    ///
+    /// It computed the right point and never spent it: the button block zeroed
+    /// `input.down`, so the release edge the dispatch waits on never happened
+    /// and the button did nothing at all.
+    #[test]
+    fn the_close_button_delivers_its_click() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        if !root.is_dir() {
+            return;
+        }
+        let mut game = Game::new(&root).expect("extract/ is not a game");
+        game.skip_opening();
+        game.pending.clear();
+        game.pending.push(Effect::WaitForClick);
+
+        // Somewhere on the CLOSE button, found the way the player finds it.
+        let spot = (0..STAGE_W as i32)
+            .step_by(4)
+            .flat_map(|x| (0..60).step_by(4).map(move |y| (x, y)))
+            .find(|(x, y)| {
+                crate::menu::hud_hit(*x, *y, STAGE_W, false, true)
+                    == Some(crate::menu::Tap::Close)
+            })
+            .expect("no CLOSE button to press");
+
+        let mut host = Scripted {
+            frames: vec![
+                at(spot.0, spot.1, false),
+                at(spot.0, spot.1, true),
+                at(spot.0, spot.1, false),
+                at(spot.0, spot.1, false),
+            ],
+            at: 0,
+        };
+        run(&mut game, &mut host, None, Vec::new(), true, 1, crate::scale::Filter::Nearest, None)
+            .expect("the loop failed");
+
+        assert!(!game.waiting_for_click(), "CLOSE was pressed and nothing happened");
+    }
+
+    /// A click gets through to a queue that is holding for one.
+    ///
+    /// Opening the PeeK unit holds the queue on `Wait::Click` until it is
+    /// dismissed. The live dispatch used to be gated on the queue being idle,
+    /// so the only click that could clear it never arrived and the player was
+    /// stuck the moment they picked the unit up.
+    #[test]
+    fn a_click_reaches_a_queue_that_is_waiting_for_one() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        if !root.is_dir() {
+            return;
+        }
+        let mut game = Game::new(&root).expect("extract/ is not a game");
+        // The opening film is already queued and holds on its own video wait,
+        // so anything pushed behind it is never reached.
+        game.skip_opening();
+        game.pending.clear();
+        game.pending.push(Effect::WaitForClick);
+
+        // First: prove the wait actually arms. Without this the assert below
+        // is vacuous -- it would pass against a game that was never waiting,
+        // which is how two earlier tests in this project protected nothing.
+        let mut idle = Scripted { frames: (0..8).map(|_| at(0, 0, false)).collect(), at: 0 };
+        run(&mut game, &mut idle, None, Vec::new(), true, 1, crate::scale::Filter::Nearest, None)
+            .expect("the loop failed");
+        assert!(game.waiting_for_click(), "the click wait never armed; the test proves nothing");
+
+        let mut host = Scripted {
+            frames: vec![
+                at(320, 240, false),
+                at(320, 240, true),
+                at(320, 240, false),
+                at(320, 240, false),
+            ],
+            at: 0,
+        };
+        run(
+            &mut game,
+            &mut host,
+            None,
+            Vec::new(),
+            true,
+            1,
+            crate::scale::Filter::Nearest,
+            None,
+        )
+        .expect("the loop failed");
+
+        assert!(
+            !game.waiting_for_click(),
+            "the queue is still holding for a click that was made"
+        );
+    }
+}

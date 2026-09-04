@@ -2978,6 +2978,155 @@ impl Game {
             .map(|h| (h.verb, h.bounds))
     }
 
+    /// The direction verbs this room offers now, each with a point that the
+    /// hit test actually resolves to it.
+    ///
+    /// For the on-screen pad. The point matters as much as the verb: hotspots
+    /// overlap and the first in the room's list wins, so the middle of a
+    /// region lying under a wider one belongs to the wider one -- and a pad
+    /// that clicked there would walk somewhere else entirely. Same reasoning
+    /// as the walkthrough's `click_point`, and the same failure it was written
+    /// for.
+    pub fn live_directions(&self) -> Vec<(Verb, (i32, i32))> {
+        let holding = self.state.item_in_use().is_some();
+        let state = &self.state;
+        let node = self.node();
+        let mut found: Vec<(Verb, (i32, i32))> = Vec::new();
+
+        for hotspot in &node.hotspots {
+            if hotspot.actions.is_empty() || !state.test(&hotspot.condition) {
+                continue;
+            }
+            if !matches!(
+                hotspot.verb,
+                Verb::Forward | Verb::Left | Verb::Right | Verb::Up | Verb::Down
+            ) {
+                continue;
+            }
+            // One button per direction: naming a verb takes the first live
+            // hotspot carrying it, which is what the pad should do too.
+            if found.iter().any(|(v, _)| *v == hotspot.verb) {
+                continue;
+            }
+            let b = &hotspot.bounds;
+            let (mx, my) = ((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+            let (qx, qy) = ((b.right - b.left) / 4, (b.bottom - b.top) / 4);
+            let candidates = [
+                (mx, my),
+                (mx - qx, my),
+                (mx + qx, my),
+                (mx, my - qy),
+                (mx, my + qy),
+            ];
+            for (px, py) in candidates {
+                if let Some(hit) = node.hit_test(px, py, holding, |c| state.test(c)) {
+                    if std::ptr::eq(hit, hotspot) {
+                        found.push((hotspot.verb, (px, py)));
+                        break;
+                    }
+                }
+            }
+        }
+        found
+    }
+
+    /// Whether the film now playing is one the player may cut short.
+    ///
+    /// The opening, and only the opening. Every other wait in the game is
+    /// `wait #videoStop`, which loops on the movie rate alone:
+    ///
+    /// ```text
+    /// repeat while the movieRate of sprite 44 > 0
+    ///   updateStage
+    /// end repeat
+    /// ```
+    ///
+    /// The opening's own loop is the one that also tests `not the mouseDown`.
+    /// So a haunt, a montage or a drive is meant to be watched, and offering a
+    /// button to cut one short would be inventing a feature the disc declines
+    /// to have -- as well as putting a button on screen that the player learns
+    /// means nothing.
+    pub fn can_skip(&self) -> bool {
+        self.intro_running && self.player.is_some()
+    }
+
+    /// Where to click to put down whatever is being held up, if anything.
+    ///
+    /// Amber has no close button: a book, the phone, an opened package and the
+    /// PeeK unit are all put away by clicking the part of the screen that is
+    /// not the thing itself. Entry 147 has the shape -- the way out is the
+    /// *last* hotspot in the room, a `#pointer` guarded `#always` covering the
+    /// whole frame, with the thing being read listed above it.
+    ///
+    /// That is fine with a mouse and close to unusable with a thumb, so the
+    /// front ends offer a button. Finding it here rather than in a front end
+    /// means the button clicks exactly what a player would have clicked.
+    pub fn way_out(&self) -> Option<(i32, i32)> {
+        // A queue holding for a click wants any click at all -- that is what
+        // modal means -- and the middle of the stage is as good as anywhere.
+        // This is also the only thing on screen that says the game is waiting:
+        // after the PeeK comes down or a switch is thrown, the queue holds and
+        // nothing else shows it.
+        if self.waiting_for_click() {
+            return Some((320, 240));
+        }
+
+        let holding = self.state.item_in_use().is_some();
+        let state = &self.state;
+        let node = self.node();
+
+        // Is something actually being held up? The signal is the data's own:
+        //
+        // A sprite with a transparent ink. Entry 96 found those are exactly
+        // "something held up in front of a room rather than part of it" -- the
+        // phone at the ear, the letter, the videotape, the BAR manual -- and
+        // eleven rooms carry one.
+        //
+        // A page that can be turned looked like a second signal and is not:
+        // `#nextPage` is used in Edwin's ice field for something that is not a
+        // book and has no way out to find, so it would have put a dead button
+        // on the screen.
+        //
+        // The rule this replaced was "no way to walk, and a frame-sized
+        // pointer", which fired in 137 of 1325 rooms: every close-up in the
+        // game, and the opening film. A button that is nearly always there
+        // says nothing.
+        let held_up = node
+            .sprites
+            .iter()
+            .any(|sprite| sprite.ink != 0 && state.test(&sprite.condition));
+        if !held_up {
+            return None;
+        }
+
+        // Last first: the way out is listed underneath the thing being read.
+        for hotspot in node.hotspots.iter().rev() {
+            if hotspot.actions.is_empty() || !state.test(&hotspot.condition) {
+                continue;
+            }
+            if !matches!(hotspot.verb, Verb::Pointer | Verb::Browse) {
+                continue;
+            }
+            let b = &hotspot.bounds;
+            // Frame-sized, which is what "everything that is not the thing"
+            // looks like. A small pointer region is a detail to touch, not an
+            // exit.
+            let area = (b.right - b.left) as i64 * (b.bottom - b.top) as i64;
+            if area < (640 * 480) / 2 {
+                continue;
+            }
+            // A corner: the middle belongs to whatever is being held up.
+            for (px, py) in [(b.left + 12, b.top + 12), (b.right - 12, b.bottom - 12)] {
+                if let Some(hit) = node.hit_test(px, py, holding, |c| state.test(c)) {
+                    if std::ptr::eq(hit, hotspot) {
+                        return Some((px, py));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Handles a click, moving the player if the hotspot says to.
     /// Whether the queue is holding for a click, so one dismisses it rather
     /// than reaching the room underneath.
@@ -4461,5 +4610,118 @@ pub fn update_ambience(game: &mut Game, audio: Option<&crate::audio::Audio>) {
                 a.play(Some(&name), Some(name.clone()), pcm, rate, channels, gain, true, true);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod way_out_tests {
+    use super::*;
+
+    fn opened() -> Option<Game> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        root.is_dir().then(|| Game::new(&root).expect("extract/ is not a game"))
+    }
+
+    fn go(game: &mut Game, name: &str) {
+        let i = game.world.resolve(name, Some("ROXY")).unwrap_or_else(|| panic!("no room {name}"));
+        game.seed_chapter("ROXY");
+        game.room = i;
+    }
+
+    /// CLOSE appears only where something is actually held up.
+    ///
+    /// The rule this replaced -- "nowhere to walk and a frame-sized pointer" --
+    /// fired in 137 of 1325 rooms: every close-up in the game, and the opening
+    /// film. A button that is nearly always there says nothing, so this asserts
+    /// the quiet cases as hard as the loud one.
+    #[test]
+    fn close_appears_only_when_something_is_held_up() {
+        let Some(mut game) = opened() else { return };
+
+        // Nothing is held up anywhere at the start -- including the opening
+        // film, which is where it was most obviously wrong.
+        let mut fires = 0;
+        for i in 0..game.world.nodes.len() {
+            let domain = game.world.nodes[i].domain.clone();
+            game.seed_chapter(&domain);
+            game.room = i;
+            if game.way_out().is_some() {
+                fires += 1;
+            }
+        }
+        assert_eq!(fires, 0, "{fires} rooms offered CLOSE with nothing held up");
+
+        // The phone, once it is at the ear, is held up: its sprite is one of
+        // the eleven the game draws with a transparent ink.
+        go(&mut game, "LivingRmPhoneCU");
+        assert!(game.way_out().is_none(), "the phone offered CLOSE before it was lifted");
+        game.state.set("playerIsExaminingPhone", lingo::Value::Int(1));
+        assert!(
+            game.way_out().is_some(),
+            "no way out of the phone with it held to the ear"
+        );
+    }
+
+    /// The rooms the rule covers are the ones something is held up in.
+    ///
+    /// The rule is only as good as the set it fires on, and that set cannot be
+    /// reached from a seeded state -- the sprites are guarded on flags a player
+    /// sets by picking things up. So this asserts the membership directly: if
+    /// a future change narrows the rule until it covers nothing, the phone and
+    /// the manual falling out of this list is what says so.
+    #[test]
+    fn the_held_up_rooms_are_the_ones_that_matter() {
+        let Some(game) = opened() else { return };
+        let rooms: Vec<String> = game
+            .world
+            .nodes
+            .iter()
+            .filter(|n| n.sprites.iter().any(|sp| sp.ink != 0))
+            .filter_map(|n| n.name.clone())
+            .collect();
+        for want in ["LivingRmPhoneCU", "LivingRmBookCU", "PorchMailboxCU2", "OfficeVideotapeCU"] {
+            assert!(
+                rooms.iter().any(|r| r.eq_ignore_ascii_case(want)),
+                "{want} is not among the rooms CLOSE can appear in: {rooms:?}"
+            );
+        }
+        // And it is a short list, not most of the game.
+        assert!(rooms.len() < 30, "CLOSE would appear in {} rooms", rooms.len());
+    }
+
+    /// SKIP is offered for the opening and for nothing else.
+    ///
+    /// It used to appear whenever any film was playing, so every haunt, drive
+    /// and montage carried a button offering to cut short something the disc
+    /// means you to watch.
+    #[test]
+    fn only_the_opening_can_be_skipped() {
+        let Some(mut game) = opened() else { return };
+        // The game opens on the intro, which is the one skippable film.
+        assert!(game.can_skip(), "the opening was not skippable");
+
+        // The haunt by the boathouse is a film and is not.
+        game.skip_opening();
+        game.pending.clear();
+        let i = game.world.resolve("Gbhs_B_S", Some("ROXY")).expect("no boathouse room");
+        game.jump_to(i);
+        game.start_room_video();
+        assert!(game.player.is_some(), "the ghost is not playing; this asserts nothing");
+        assert!(!game.can_skip(), "offered to skip the boathouse ghost");
+    }
+
+    /// A queue holding for a click always has a way out, because that is the
+    /// only thing that clears it -- and until this existed there was nothing
+    /// on screen saying the game was waiting.
+    #[test]
+    fn a_modal_wait_always_offers_a_way_out() {
+        let Some(mut game) = opened() else { return };
+        game.skip_opening();
+        game.pending.clear();
+        assert!(game.way_out().is_none(), "offered a way out with nothing held up");
+        game.pending.push(Effect::WaitForClick);
+        let _ = game.drain_ready();
+        assert!(game.waiting_for_click(), "the click wait never armed");
+        assert!(game.way_out().is_some(), "no way out of a queue waiting for a click");
     }
 }

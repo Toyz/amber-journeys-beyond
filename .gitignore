@@ -22,3 +22,13 @@
 
 # Replay logs from `--log`, which are large and per-run.
 *.walk.log
+
+# Android build output. The disc is copied in by build.rs and is not ours to
+# redistribute; the APK contains it.
+/crates/android/assets
+*.apk
+*.aab
+
+# APK signing artefacts. The keystore is a key and the idsig is build output.
+/crates/android/debug.keystore
+*.idsig

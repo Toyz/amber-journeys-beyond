@@ -647,14 +647,30 @@ impl Audio {
     /// had sound and reports what it would have played instead, and the web
     /// build supplies its own sink through `over`.
     pub fn open() -> Option<Audio> {
-        #[cfg(feature = "desktop")]
+        #[cfg(feature = "device")]
         {
             crate::audio_device::open()
         }
-        #[cfg(not(feature = "desktop"))]
+        #[cfg(not(feature = "device"))]
         {
             None
         }
+    }
+
+    /// Sets the output level, 0 to 1.
+    ///
+    /// This is the player's own volume and is the last thing applied, so it
+    /// scales the finished mix rather than any one voice. `suspendSounds`
+    /// still ducks the bed underneath it and the saturator still catches the
+    /// peaks -- both of those are the game's, and this is not.
+    pub fn set_master(&self, level: f32) {
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.master = level.clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn master(&self) -> f32 {
+        self.mixer.lock().map(|m| m.master).unwrap_or(1.0)
     }
 
     /// Builds a mixer and hands it to a sink, which starts pulling from it.

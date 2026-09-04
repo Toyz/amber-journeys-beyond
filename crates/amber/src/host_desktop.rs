@@ -60,10 +60,11 @@ impl Host for Desktop {
             }
         }
         if self.window.is_key_down(MKey::Escape) {
-            pressed.push(Key::Escape);
+            pressed.push(Key::Menu);
         }
 
         Input {
+            hover: true,
             pointer,
             down: self.window.get_mouse_down(MouseButton::Left),
             pressed,

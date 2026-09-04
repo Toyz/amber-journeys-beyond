@@ -225,7 +225,11 @@ impl Amber {
                 }
             }
             Key::Cut => self.show_cut(),
-            Key::Escape | Key::Hotspots => {}
+            // The pause menu is driven by `render::run`, and the web front
+            // end still has a loop of its own -- so it does not offer one yet.
+            // That is the same duplication entry 189 was about and it is the
+            // next thing to close.
+            Key::Menu | Key::Escape | Key::Hotspots => {}
         }
     }
 

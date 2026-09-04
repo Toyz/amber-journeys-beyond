@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/director", "crates/lingo", "crates/qt", "crates/amber", "crates/web"]
+members = ["crates/director", "crates/lingo", "crates/qt", "crates/amber", "crates/web", "crates/android"]
+# The Android crate is not built by default: its build.rs requires a game disc,
+# and `cargo build` at the root must keep working for anyone who has not
+# supplied one. `cargo build -p amber-android` is the way in, and that is where
+# the disc is demanded.
+default-members = ["crates/director", "crates/lingo", "crates/qt", "crates/amber", "crates/web"]
 
 [workspace.package]
 version = "0.1.0"

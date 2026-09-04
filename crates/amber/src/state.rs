@@ -242,6 +242,29 @@ impl State {
     }
 
     /// Every flag currently set, for inspection from the walkthrough.
+    /// Replaces the whole store, for a save being loaded.
+    ///
+    /// Not `set_all` in a loop: a flag the save does not mention must not
+    /// survive from the game that was running. And the inventory is put back
+    /// by slot rather than re-added item by item, because a slot is a position
+    /// on the bar and `place` would re-derive it -- which gives the same answer
+    /// only if the items happen to be handed back in the order they were first
+    /// picked up.
+    pub fn restore(
+        &mut self,
+        props: Vec<(String, Vec<Value>)>,
+        slots: [Option<String>; 7],
+        in_hand: Option<String>,
+    ) {
+        self.props = props
+            .into_iter()
+            .map(|(key, values)| (key.to_ascii_lowercase(), values))
+            .collect();
+        self.slots = slots;
+        self.inventory = self.slots.iter().flatten().cloned().collect();
+        self.item_in_use = in_hand;
+    }
+
     pub fn entries(&self) -> impl Iterator<Item = (&String, &[Value])> {
         self.props.iter().map(|(k, v)| (k, v.as_slice()))
     }

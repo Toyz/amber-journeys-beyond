@@ -27,11 +27,13 @@ pub mod inventory;
 pub mod iso;
 pub mod locations;
 pub mod markers;
+pub mod menu;
 pub mod media;
 pub mod natives;
 pub mod player;
 pub mod presentation;
 pub mod record;
+pub mod save;
 pub mod scale;
 pub mod schema;
 pub mod script;
@@ -39,13 +41,14 @@ pub mod sound;
 pub mod state;
 pub mod world;
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "device")]
 pub mod audio_device;
 #[cfg(feature = "desktop")]
 pub mod host_desktop;
-#[cfg(feature = "desktop")]
 pub mod render;
-#[cfg(feature = "desktop")]
+// The walkthrough is the replay dispatcher as well as a terminal, and the loop
+// drives recorded steps through it -- so it is not desktop-only. It names no
+// platform beyond stdin.
 pub mod walk;
 
 /// Extra game directories to fall back on, from `AMBER_FALLBACK`.

@@ -8,7 +8,10 @@ license.workspace = true
 default = ["desktop"]
 # The window and the audio device. Everything else in the crate is the game
 # and names no platform, so a build without this is what the web target uses.
-desktop = ["dep:cpal", "dep:minifb"]
+desktop = ["device", "dep:minifb"]
+# An audio device without a window. Android takes this and brings its own host;
+# CPAL speaks AAudio there, so `audio_device` is the same fifty lines either way.
+device = ["dep:cpal"]
 
 [dependencies]
 cpal = { version = "0.18.2", optional = true }

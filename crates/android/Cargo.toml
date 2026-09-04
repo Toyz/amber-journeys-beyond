@@ -1,0 +1,30 @@
+[package]
+name = "amber-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The engine, with an audio device but no window: CPAL speaks AAudio on
+# Android, so the sink is the same fifty lines the desktop uses. The host is
+# this crate.
+amber = { path = "../amber", default-features = false, features = ["device"] }
+android-activity = { version = "0.6", features = ["native-activity"] }
+ndk = "0.9"
+log = "0.4"
+android_logger = "0.14"
+
+[package.metadata.android]
+package = "ink.helba.amber"
+build_targets = ["aarch64-linux-android"]
+assets = "assets"
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 34
+
+[package.metadata.android.application]
+label = "Amber"

@@ -25,6 +25,8 @@ pub enum Key {
     Stage,
     /// Play the next piece of cut content this chapter carries.
     Cut,
+    /// Open or close the pause menu.
+    Menu,
 }
 
 /// What the platform saw this frame.
@@ -38,6 +40,13 @@ pub struct Input {
     pub pressed: Vec<Key>,
     /// Whether the window is still there.
     pub open: bool,
+    /// Whether `pointer` is a hover or only where a finger last was.
+    ///
+    /// A mouse hovers and the game's cursor follows it, which is how Amber
+    /// says what a click will do. A touchscreen has no hover at all, so the
+    /// cursor would sit wherever the last tap landed and mean nothing -- it is
+    /// drawn while a finger is down and not otherwise.
+    pub hover: bool,
 }
 
 /// Somewhere to show a frame and something to drive it.
