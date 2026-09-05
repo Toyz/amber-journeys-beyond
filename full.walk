@@ -421,6 +421,10 @@ click 315 295
 # clock -- `moveClock` is complete and has no caller anywhere on either
 # disc -- so this is the second and last thing the walk does by hand.
 # WORKLOG 145 has the whole chain.
+# Stands in for standing in the dining room until an
+# announcement finishes, which is what puts the living room
+# on the air. Only the window drives the radio programmes,
+# so a terminal replay can never hear one out.
 set tunedin livingRm
 # 
 # Tune up to the living room and step into it.
@@ -565,7 +569,6 @@ click 320 250
 # only the telephone sets, and answering the telephone trims itself out of
 # the haunt pool, so it rings once in the whole game. This is the third
 # thing the walk does by hand; WORKLOG 155 has the working.
-set AMBERVISION on
 # Up to the gazebo, and look up.
 click 275 203
 click 318 262
@@ -786,7 +789,6 @@ down
 # Coming home turned the Amber vision off again, so it goes back on the
 # same way it did before -- the fourth and last thing this walk does by
 # hand.
-set AMBERVISION on
 # The bottom level of the garage, behind a door that has to be pushed.
 click 320 231
 click 436 220

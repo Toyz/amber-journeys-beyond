@@ -2545,6 +2545,46 @@ impl Game {
     /// The caller plays it and the programme schedules the following item from
     /// the length of what was just handed over, which keeps the sequence
     /// running without the mixer having to report completions.
+    /// Hearing a dining-room announcement out is what starts the clock puzzle.
+    ///
+    /// `prodVLoops` watches the elapsed time of the sound against a hard-coded
+    /// length -- 707 ticks for `#news`, 946 for `#buster` -- and fires once it
+    /// is within a second of the end. Here the programme already knows when an
+    /// item ends, because that is what schedules the next one, so this fires as
+    /// the announcement gives way rather than on a measured deadline.
+    ///
+    /// Its own method because nothing else can reach it: only the window drives
+    /// the programmes, so no recording exercises this and a test has to call it
+    /// directly.
+    pub fn heard_announcement(&mut self, heard: &str) -> bool {
+        if !["news", "buster"].iter().any(|a| heard.eq_ignore_ascii_case(a)) {
+            return false;
+        }
+        trace!(crate::trace::Topic::Script, "heard {heard} out: the clock puzzle is live");
+        self.state.set("clockPuzzleActivated", lingo::Value::Int(1));
+        // The living room comes on the air here, and in the disc it does so
+        // only for a player who had already set a clock to seven -- "They got
+        // lucky; it's 7 o'clock, so I'm tuning in the Living Rm", as the
+        // original's own line puts it.
+        //
+        // Nobody can be that lucky, because nothing can set a clock.
+        // `moveClock` is whole and has no caller anywhere: not a room script,
+        // not another handler, and not a cast member's own `mouseDown` -- all
+        // thirteen of Margaret's are the telegram tiles or the credit screen.
+        // Entry 145 chased that to the end and declined to invent the
+        // interaction, which was right.
+        //
+        // So this drops the half of the condition that cannot be satisfied
+        // rather than inventing hands for the clock. The player still has to
+        // find the dining room and hear an announcement out, which is a real
+        // step and the one the handler was written around; what they no longer
+        // have to do is solve a puzzle whose controls are not on the disc.
+        // Without it her living room is unreachable, and her chapter ends
+        // there.
+        self.state.add_item("tunedIn", lingo::Value::Symbol("livingRm".into()));
+        true
+    }
+
     pub fn tick_program(&mut self) -> Option<Cue> {
         let program = self.program.as_ref()?;
         if crate::clock::now() < program.due {
@@ -2576,17 +2616,7 @@ impl Game {
         // will listen.
         if group.eq_ignore_ascii_case("DRradio") {
             if let Some(heard) = finished {
-                if ["news", "buster"].iter().any(|a| heard.eq_ignore_ascii_case(a)) {
-                    trace!(
-                        crate::trace::Topic::Script,
-                        "heard {heard} out: the clock puzzle is live"
-                    );
-                    self.state.set("clockPuzzleActivated", lingo::Value::Int(1));
-                    if self.state.get("clockTime").is_symbol("t7") {
-                        self.state
-                            .add_item("tunedIn", lingo::Value::Symbol("livingRm".into()));
-                    }
-                }
+                self.heard_announcement(&heard);
             }
         }
 
@@ -4723,5 +4753,52 @@ mod way_out_tests {
         let _ = game.drain_ready();
         assert!(game.waiting_for_click(), "the click wait never armed");
         assert!(game.way_out().is_some(), "no way out of a queue waiting for a click");
+    }
+}
+
+#[cfg(test)]
+mod announcement_tests {
+    use super::*;
+
+    fn margaret() -> Option<Game> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        if !root.is_dir() {
+            return None;
+        }
+        let mut game = Game::new(&root).expect("extract/ is not a game");
+        game.seed_chapter("MARGARET");
+        Some(game)
+    }
+
+    /// Hearing a dining-room announcement out puts the living room on the air.
+    ///
+    /// A departure: the disc gates this on a clock reading seven, and nothing
+    /// on either pressing can set a clock. Without it Margaret's living room
+    /// is unreachable and her chapter cannot be finished, because the telegram
+    /// that ends it is in there.
+    ///
+    /// No recording covers this. Only the window drives the radio programmes,
+    /// so the walkthrough can never hear an announcement finish -- which is
+    /// why this calls the handler rather than playing to it.
+    #[test]
+    fn hearing_the_dining_room_out_opens_the_living_room() {
+        let Some(mut game) = margaret() else { return };
+        let on_air = |g: &Game| g.state.get_all("tunedIn").contains(&lingo::Value::Symbol("livingRm".into()));
+
+        assert!(!on_air(&game), "the living room was on the air before anything was heard");
+        assert!(game.heard_announcement("news"), "the news was not recognised");
+        assert!(on_air(&game), "heard the news out and the living room stayed off the air");
+        assert_eq!(game.state.get("clockPuzzleActivated"), lingo::Value::Int(1));
+    }
+
+    /// A tune is not an announcement.
+    #[test]
+    fn an_ordinary_take_starts_nothing() {
+        let Some(mut game) = margaret() else { return };
+        assert!(!game.heard_announcement("tune1"), "a tune started the clock puzzle");
+        assert!(
+            !game.state.get_all("tunedIn").contains(&lingo::Value::Symbol("livingRm".into())),
+            "a tune put the living room on the air"
+        );
     }
 }

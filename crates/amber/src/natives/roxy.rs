@@ -892,6 +892,35 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.effects.push(Effect::SetTransition { kind: "slowMontage".into() });
             state.set("PeekDisplay", Value::Symbol("psionicFragment".into()));
             call("peekalert", &[], state, out);
+
+            // The Amber vision comes back on, which the shipped data never
+            // does. This is a departure and it is here because without it the
+            // game cannot be finished.
+            //
+            // `enterNewDomain` sets `#AMBERVISION` to `#off` and ends the
+            // `#amberHum` loop on the way *out* of Roxy's house, before it
+            // stashes her state -- so the state that comes back from the
+            // freezer has the vision off. Nothing turns it on again: the
+            // eleven room writes, both branches of `enterNewDomain` and this
+            // handler's own original have been read, and `#off` has no exit
+            // from the state machine at all. The way in is
+            // `#waitingForPlayer`, and the only thing that sets that is the
+            // telephone, which rings once in the whole game.
+            //
+            // So by the disc, entering one chapter spends the vision and the
+            // other two portals never open. That cannot be what was meant --
+            // the hint book says "you may enter these domains in any order" --
+            // and it leaves the player stranded in a house with nothing left
+            // to do. Mirroring the way out is the smallest restore that gets
+            // the stated design back: the headgear is still worn, so the
+            // vision it grants is still on.
+            if state.get("playerHasHeadgear").as_int() != Some(0) {
+                state.set("AMBERVISION", Value::Symbol("on".into()));
+                out.effects.push(Effect::StartLoop {
+                    name: "amberHum".into(),
+                    volume: Some(255),
+                });
+            }
             out.redraw = true;
         }
 
@@ -3841,5 +3870,67 @@ mod phone_tests {
         );
         assert_eq!(out.new_domain.as_deref(), Some("ROXY"));
         assert_eq!(out.new_domain_room, Some(12));
+    }
+}
+
+#[cfg(test)]
+mod homecoming_tests {
+    use super::*;
+
+    fn coming_home(has_headgear: bool) -> State {
+        let mut state = State::new();
+        state.set_all("ghostsRemaining", vec![
+            Value::Symbol("Margaret".into()),
+            Value::Symbol("Brice".into()),
+            Value::Symbol("Edwin".into()),
+        ]);
+        state.set_all("hauntsRemaining", vec![Value::Symbol("stairsGhost".into())]);
+        // The freezer hands back what the portal stashed, and the portal turns
+        // the vision off on the way through.
+        state.set_all("AMBERVISION", vec![
+            Value::Symbol("off".into()),
+            Value::Symbol("on".into()),
+        ]);
+        state.set(
+            "playerHasHeadgear",
+            if has_headgear { Value::Symbol("inUse".into()) } else { Value::Int(0) },
+        );
+        let mut out = Outcome::default();
+        call("closechapter", &[Value::Symbol("DarkUp_40sReentry".into())], &mut state, &mut out);
+        state
+    }
+
+    /// Coming home from a chapter leaves the vision on, so the other portals
+    /// can still be opened.
+    ///
+    /// A departure from the disc, which never turns it back on -- and without
+    /// which the game is unfinishable after the first chapter, because the
+    /// portals are guarded on the vision and the only thing that switches it
+    /// on is a telephone that rings once.
+    #[test]
+    fn the_vision_survives_a_chapter() {
+        let state = coming_home(true);
+        assert_eq!(
+            state.get("AMBERVISION"),
+            Value::Symbol("on".into()),
+            "came home from a chapter with the vision off and no way to turn it on"
+        );
+        // And the chapter really was closed out, so this is not passing on a
+        // handler that did nothing at all.
+        assert!(
+            !state.get_all("ghostsRemaining").contains(&Value::Symbol("Margaret".into())),
+            "the ghost was not retired; the handler did not run"
+        );
+    }
+
+    /// Without the headgear there is no vision to restore.
+    #[test]
+    fn the_vision_needs_the_headgear() {
+        let state = coming_home(false);
+        assert_eq!(
+            state.get("AMBERVISION"),
+            Value::Symbol("off".into()),
+            "the vision came on without the headgear"
+        );
     }
 }
