@@ -95,6 +95,10 @@ impl CastTables {
                     }
                     _ => continue,
                 };
+                let mut rows = rows;
+                if name.eq_ignore_ascii_case("BarManual") {
+                    Self::rekey_bar_manual(&mut rows);
+                }
                 tables.insert(name.to_ascii_lowercase(), rows);
             }
         }
@@ -106,6 +110,34 @@ impl CastTables {
     /// Keys are written as symbols in some tables and as bare integers in
     /// others -- the lock wheels use `1:` through `0:`, the clocks use `#t1.15`
     /// -- so the state value is matched against the key's text either way.
+    /// Re-keys the BAR manual's page table, which shipped mis-authored.
+    ///
+    /// The two books in Roxy's house are written differently. `#Realms` is a
+    /// property list keyed by page -- two `#ignoreMe` entries for the frame and
+    /// the shadow, then `0: contents, 1: page 1, 3: page 2-3, ...` -- and its
+    /// page flag starts at 0, so page zero is the contents page.
+    ///
+    /// `#BarManual` holds the same shape of thing in the same order, and was
+    /// written as a plain list: frame, shadow, contents, P1..P5. Its page flag
+    /// also starts at 0. So every lookup misses -- there is no key 0 -- and the
+    /// manual can only ever show whatever its sprite names outright.
+    ///
+    /// This gives it the keys it was meant to have: skip the frame and the
+    /// shadow, then number from zero. Both pressings ship it the same way, so
+    /// this is repairing the disc rather than the port.
+    fn rekey_bar_manual(rows: &mut Vec<(String, u32)>) {
+        if rows.len() < 3 || rows.iter().any(|(k, _)| k == "0") {
+            return;
+        }
+        let pages: Vec<(String, u32)> = rows
+            .iter()
+            .skip(2)
+            .enumerate()
+            .map(|(i, (_, cast))| (i.to_string(), *cast))
+            .collect();
+        *rows = pages;
+    }
+
     pub fn lookup(&self, table: &str, key: &Value) -> Option<u32> {
         let rows = self.tables.get(&table.to_ascii_lowercase())?;
         let wanted = match key {
@@ -121,3 +153,4 @@ impl CastTables {
     }
 
 }
+

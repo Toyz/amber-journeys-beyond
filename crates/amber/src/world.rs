@@ -215,6 +215,39 @@ pub struct Sprite {
     pub volume: Option<i32>,
 }
 
+/// Repairs a sprite the disc mis-authored.
+///
+/// `OfficeDrawersCU` draws the BAR manual, and it carries two identical
+/// sprites: channels 6 and 7 both name cast 1573, the contents page, at the
+/// same point. The second was meant to be the page being read -- keyed on
+/// `#currentPageInBarManual` through the `#BarManual` table, exactly as the
+/// other book in the house keys `#currentPageInRealms` through `#Realms`.
+///
+/// As shipped the manual can only ever show its contents. Turning a page moves
+/// the flag and changes nothing on screen, so the settings the machine wants --
+/// Level 6 on page 2, Freq Mod 8 on page 4 -- cannot be read in the game at
+/// all. Both pressings do this, so it is the disc and not the port.
+///
+/// Keyed here rather than special-cased at draw time, so everything downstream
+/// -- the compositor, `verify`'s dangling-reference check, a screenshot -- sees
+/// an ordinary state-indexed sprite.
+fn repair_sprites(name: Option<&str>, sprites: &mut [Sprite]) {
+    if !name.is_some_and(|n| n.eq_ignore_ascii_case("OfficeDrawersCU")) {
+        return;
+    }
+    if let Some(page) = sprites
+        .iter_mut()
+        .filter(|s| s.cast_number == 1573)
+        .nth(1)
+    {
+        // The number goes with it: a keyed sprite is one whose `castNum` was
+        // a list rather than a number, so it reads as zero, and every reader
+        // matches on that to decide which of the two to believe.
+        page.cast_number = 0;
+        page.cast_lookup = Some(("currentPageInBarManual".into(), "BarManual".into()));
+    }
+}
+
 /// One navigable room.
 #[derive(Clone, Debug, Default)]
 pub struct Node {
@@ -556,6 +589,11 @@ impl World {
                     let index = nodes.len();
                     let mut node = Node::from_value(index - start, dir, &value);
                     node.name = Some(room.clone());
+                    // Names arrive from the location table, after the sprites
+                    // were parsed -- so the one sprite the disc left unkeyed is
+                    // repaired here, where the room can be told apart.
+                    let name = node.name.clone();
+                    repair_sprites(name.as_deref(), &mut node.sprites);
                     // An embedded room does not repeat its own address, because
                     // it is the cast member that address points at.
                     node.storage_cast.get_or_insert((number, 0, text.len() as u32));
@@ -876,5 +914,49 @@ mod tests {
         // right and bottom edges are exclusive
         assert!(n.hit_test(10, 5, false, |_| true).is_none());
         assert!(n.hit_test(9, 9, false, |_| true).is_some());
+    }
+}
+
+#[cfg(test)]
+mod repair_tests {
+
+    /// The BAR manual turns its pages.
+    ///
+    /// As shipped it cannot: `OfficeDrawersCU` carries two identical sprites
+    /// naming the contents page, and the second was meant to be keyed on
+    /// `#currentPageInBarManual` the way the other book in the house is keyed
+    /// on `#currentPageInRealms`. Turning a page moved the flag and changed
+    /// nothing, so Level 6 on page 2 and Freq Mod 8 on page 4 -- the settings
+    /// the machine wants -- could not be read in the game at all.
+    #[test]
+    fn the_bar_manual_shows_more_than_its_contents() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        if !root.is_dir() {
+            return;
+        }
+        let mut game = crate::game::Game::new(&root).expect("extract/ is not a game");
+        game.seed_chapter("ROXY");
+
+        let drawer = game
+            .world
+            .resolve("OfficeDrawersCU", Some("ROXY"))
+            .expect("no OfficeDrawersCU");
+        let keyed: Vec<_> = game.world.nodes[drawer]
+            .sprites
+            .iter()
+            .filter(|s| s.cast_lookup.is_some())
+            .collect();
+        assert_eq!(keyed.len(), 1, "the manual's page sprite was not keyed");
+
+        // Every page resolves, and to something different -- one art per page
+        // rather than the contents six times over.
+        let mut seen = std::collections::BTreeSet::new();
+        for page in 0..6 {
+            let cast = game
+                .cast_lookup("BarManual", &lingo::Value::Int(page))
+                .unwrap_or_else(|| panic!("page {page} of the manual resolves to nothing"));
+            seen.insert(cast);
+        }
+        assert_eq!(seen.len(), 6, "the manual's pages are not six distinct plates");
     }
 }
