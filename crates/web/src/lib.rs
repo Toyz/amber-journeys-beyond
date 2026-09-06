@@ -229,7 +229,11 @@ impl Amber {
             // end still has a loop of its own -- so it does not offer one yet.
             // That is the same duplication entry 189 was about and it is the
             // next thing to close.
-            Key::Menu | Key::Escape | Key::Hotspots => {}
+            // The laptop's keyboard, like the pause menu, is drawn by
+            // `render::run`, and the web front end still has a loop of its
+            // own -- so it does not offer either yet. That is the same
+            // duplication entry 189 was about.
+            Key::Menu | Key::Escape | Key::Hotspots | Key::Typed(_) => {}
         }
     }
 

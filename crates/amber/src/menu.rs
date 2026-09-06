@@ -165,6 +165,29 @@ fn text(out: &mut [u32], w: usize, h: usize, x: i32, y: i32, s: &str, scale: i32
     }
 }
 
+/// How wide a string is drawn, for anything laying out its own buttons.
+pub fn text_width(s: &str, scale: i32) -> i32 {
+    width(s, scale)
+}
+
+/// Draws a string, for the same.
+#[allow(clippy::too_many_arguments)]
+pub fn label(out: &mut [u32], w: usize, h: usize, x: i32, y: i32, s: &str, scale: i32, rgb: u32) {
+    text(out, w, h, x, y, s, scale, rgb);
+}
+
+/// Darkens a band of the frame, so something drawn over the scene can be read
+/// against it.
+pub fn shade(out: &mut [u32], w: usize, h: usize, x0: i32, y0: i32, x1: i32, y1: i32) {
+    for y in y0.max(0)..y1.min(h as i32) {
+        for x in x0.max(0)..x1.min(w as i32) {
+            let p = &mut out[y as usize * w + x as usize];
+            let (r, g, b) = (*p >> 16 & 0xff, *p >> 8 & 0xff, *p & 0xff);
+            *p = (r / 5) << 16 | (g / 5) << 8 | (b / 5);
+        }
+    }
+}
+
 fn width(s: &str, scale: i32) -> i32 {
     s.chars().count() as i32 * (GW as i32 + 1) * scale
 }
@@ -302,7 +325,7 @@ fn row_rect(i: usize, rows: usize, w: usize, h: usize) -> (i32, i32, i32, i32) {
 
 /// A filled rectangle, clipped to the frame.
 #[allow(clippy::too_many_arguments)]
-fn fill(out: &mut [u32], w: usize, h: usize, x0: i32, y0: i32, x1: i32, y1: i32, rgb: u32) {
+pub fn fill(out: &mut [u32], w: usize, h: usize, x0: i32, y0: i32, x1: i32, y1: i32, rgb: u32) {
     for y in y0.max(0)..y1.min(h as i32) {
         for x in x0.max(0)..x1.min(w as i32) {
             out[y as usize * w + x as usize] = rgb;

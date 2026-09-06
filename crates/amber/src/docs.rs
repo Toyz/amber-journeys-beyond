@@ -316,7 +316,7 @@ fn cp1252(byte: u8) -> Option<char> {
         // Control characters are structure, not text. The hints file ends
         // with a stray NUL, and a document with an unprintable in it draws a
         // hole in the middle of a word.
-        0x00..=0x08 | 0x0b..=0x1f | 0x7f => return None,
+        0x00..=0x08 | 0x0b | 0x0c | 0x0e..=0x1f | 0x7f => return None,
         0x09 | 0x0a | 0x0d => byte as char,
         0x20..=0x7e => byte as char,
         _ => ' ',

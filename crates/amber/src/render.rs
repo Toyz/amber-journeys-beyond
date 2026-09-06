@@ -214,11 +214,22 @@ pub fn run(
     let mut quit = false;
     while input.open && !quit {
         input = host.poll(STAGE);
+        // Whether the office laptop is asking for its password, which is the
+        // only moment in the game that any key means anything.
+        let typing = crate::keypad::showing(&game.state);
 
         // The pause menu sits over everything. While it is up the game sees no
         // input at all, which is the whole of what "paused" means here -- and
         // it is drawn by the engine rather than by a front end, because two
         // front ends with a menu each is two menus that will disagree.
+        // S and C are "stage" and "cut" every other moment of the game, and
+        // two of the letters someone types at the laptop. While it is asking,
+        // the letters win.
+        if typing {
+            input.pressed.retain(|k| {
+                matches!(k, crate::host::Key::Typed(_) | crate::host::Key::Menu)
+            });
+        }
         if input.pressed.contains(&crate::host::Key::Menu) {
             menu = match menu {
                 // Back steps out a page at a time rather than closing the
@@ -710,6 +721,46 @@ pub fn run(
         // -- which the replay path could not show, because it had already been
         // taught this and the live path had not. Third time a wait has lived in
         // two places and only one of them learned something.
+        // The laptop's keyboard takes the click before the room does. A tap
+        // that misses a key by two pixels must not fall through to the room's
+        // own hotspots -- the one under it backs the player out of the
+        // laptop, which would lose whatever they had typed.
+        if typing && was_down && !down {
+            if let Some((x, y)) = pos {
+                if crate::keypad::covers(x, y, STAGE_W) {
+                    if let Some(key) = crate::keypad::hit(x, y, STAGE_W) {
+                        if crate::record::active() {
+                            crate::record::step(&format!("type {key}"));
+                        }
+                        game.type_at_laptop(&key);
+                    }
+                    dirty = true;
+                    was_down = down;
+                    continue;
+                }
+            }
+        }
+        // A real keyboard, where there is one, reaches the same handler. The
+        // special keys are named rather than sent as themselves: a carriage
+        // return does not survive being written down as a Lingo value, and
+        // the recording format is a line of text.
+        if typing {
+            for key in &input.pressed {
+                if let crate::host::Key::Typed(c) = key {
+                    let named = match c {
+                        '\r' => "return".to_string(),
+                        '\u{8}' => "backspace".to_string(),
+                        other => other.to_string(),
+                    };
+                    if crate::record::active() {
+                        crate::record::step(&format!("type {named}"));
+                    }
+                    game.type_at_laptop(&named);
+                    dirty = true;
+                }
+            }
+        }
+
         let modal = game.waiting_for_click();
         if (!game.effects_busy() || modal) && was_down && !down {
             if let Some((x, y)) = close_at.take().or(pad_target).or(pos) {
@@ -792,8 +843,21 @@ pub fn run(
                 cursor::draw(&mut out, STAGE_W as i32, STAGE_H as i32, mx, my, verb);
             }
         }
+        // The keyboard replaces the pad while the laptop wants typing: both
+        // want the bottom of the stage, and an arrow that walks the player
+        // out of the room mid-password is not what the pad is for.
         if menu.is_none() {
-            crate::menu::draw_pad(&mut out, STAGE_W, STAGE_H, &dirs, pos);
+            if typing {
+                crate::keypad::draw(
+                    &mut out,
+                    STAGE_W,
+                    STAGE_H,
+                    game.state.get_all("passwordAttempt").len(),
+                    pos,
+                );
+            } else {
+                crate::menu::draw_pad(&mut out, STAGE_W, STAGE_H, &dirs, pos);
+            }
         }
         crate::menu::draw_hud(&mut out, STAGE_W, STAGE_H, game.can_skip(), way_out.is_some(), pos);
         if let Some(open) = &menu {

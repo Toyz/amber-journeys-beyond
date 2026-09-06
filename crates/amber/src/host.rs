@@ -27,6 +27,12 @@ pub enum Key {
     Cut,
     /// Open or close the pause menu.
     Menu,
+    /// A character the player typed.
+    ///
+    /// Only the office laptop reads these, and only while it is asking for
+    /// its password. A front end with no keyboard -- a phone -- never sends
+    /// one and does not have to: the engine draws a keyboard of its own.
+    Typed(char),
 }
 
 /// What the platform saw this frame.

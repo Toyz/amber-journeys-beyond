@@ -303,8 +303,15 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
 
             // Only a state it recognises is written; anything else leaves the
             // machine where it was.
-            const STATES: [&str; 7] = [
+            //
+            // `#password` was missing from this list, which made it the one
+            // state the machine could be asked for and never reach: the
+            // inventory froze and nothing else happened. Nothing noticed,
+            // because the only thing that asks for it is the key handler, and
+            // until there was a keyboard to type at there was no key handler.
+            const STATES: [&str; 8] = [
                 "prompting",
+                "password",
                 "crashing",
                 "crashed",
                 "restart",
@@ -373,6 +380,154 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             out.transition = Some(transition.to_string());
         }
 
+
+        // on keyDown                                  -- the laptop's own
+        //   passwordState = getState( #PlayerIsUsingLaptop )
+        //   frameStack    = getProp( oPuppeteer.frames, #passwordEntry )
+        //   alphaNum      = oUtility( #mIsAlphaNum, the key )
+        //   if passwordState = #prompting then
+        //     killVideo
+        //     if alphaNum = 1 then setState( #PlayerIsUsingLaptop, #password )
+        //                    else setState( #PlayerIsUsingLaptop, 0 ) : updateDisplay
+        //   if passwordState = #password then
+        //     lsAttempt = getProp( states, #passwordAttempt )
+        //     repeat with i = 10 to 48
+        //       if getPos( frameStack, the castNum of sprite i ) then msgSprite = i
+        //     if the key = RETURN then
+        //       if count( lsAttempt ) = count( ["W","I","S","D","O","M"] ) then
+        //         repeat with i = 1 to count( lsAttempt )
+        //           testChar = getAt( lsAttempt, i )
+        //           if getAt( ["W".."M"], i ) = testChar
+        //              or getAt( ["w".."m"], i ) = testChar then rightAnswer = 1
+        //           else rightAnswer = 0 : exit repeat
+        //       if rightAnswer then
+        //         cursorOff : setState( #PlayerIsUsingLaptop, #startup )
+        //         updateDisplay : pushVideo : wait #videoStop : killVideo
+        //         if getProp( states, #ghostsRemaining ) = [] then
+        //           setState( #PlayerIsUsingLaptop, 0 ) : setState( #showMontage, 0 )
+        //           goTo #OfficeMonitor_PTsuite : wait 90
+        //           pushVideo : wait #videoStop : killVideo
+        //           loadMultiframes #BT_checkBox .. #BT_psionFrames
+        //           setState( #BT_fragStatus, #spinningNow )
+        //           goTo #OfficeMonitor_alignment
+        //         else
+        //           setState( #PlayerIsUsingLaptop, #crashing )
+        //           updateDisplay #fastVideo : wait #videoStop
+        //           setState( #PlayerIsUsingLaptop, #crashed ) : updateDisplay
+        //       else
+        //         set the castNum of sprite msgSprite to getAt( frameStack, count( frameStack ) )
+        //         updateStage : wait 60
+        //         setState( #PlayerIsUsingLaptop, 0 ) : updateDisplay : wait 15
+        //         setState( #PlayerIsUsingLaptop, #prompting ) : updateDisplay
+        //         frustration = getState( #passwordFrustration )
+        //         if integerp( frustration ) then
+        //           frustration = frustration + 1
+        //           setProp( states, #passwordFrustration, frustration )
+        //           if frustration mod 5 = 0 then soundEffect #bigHint
+        //     else if the key = BACKSPACE then deleteAt( lsAttempt, count( lsAttempt ) )
+        //     else append( lsAttempt, the key )
+        //     set the castNum of sprite msgSprite to getAt( frameStack, count( lsAttempt ) + 1 )
+        //     updateStage
+        //
+        // Roxy's laptop wants a password typed at it, and the password is
+        // WISDOM. This is the only place in the game that reads the keyboard,
+        // which is why it was never ported: there is no keyboard on a phone
+        // and this engine had no text input on any front end, so the laptop
+        // was a dead end on all three. The keys now come from
+        // [`crate::keypad`], which draws one on the stage; a desktop's real
+        // keyboard arrives here by the same route.
+        //
+        // The password alone is not enough, and that is the point of the hint
+        // book's "when the time is right, the password will be given to you":
+        // typing it correctly opens the PT suite only once `#ghostsRemaining`
+        // is empty. Before then the right password crashes the machine, which
+        // is a different film from the wrong one and is the game telling the
+        // player they are early rather than wrong.
+        //
+        // `#passwordEntry` is a plain positional list of casts:
+        //
+        //   [1642 O_PASSWORD_DASH, 1644 LTR1 ... 1649 LTR6, 1641]
+        //
+        // so the prompt shows how many characters have been typed -- not what
+        // they were -- and the last entry is what a refused password shows.
+        //
+        // One departure. `#passwordFrustration` is meant to count wrong
+        // attempts and play `#bigHint` at every fifth, which is the game
+        // giving the password away to a player who is stuck. The schema seeds
+        // it as `#notYet`, a symbol, and the handler only counts when
+        // `integerp` says it is a number -- so it is never a number, never
+        // counts, and `#bigHint` cannot play. Three and a half seconds of
+        // recorded speech that no one has ever heard in play. A non-integer
+        // is taken as zero here so the counter starts, which is plainly what
+        // was meant and is the difference between a stuck player being helped
+        // and not.
+        "laptopkey" => {
+            const PASSWORD: &str = "WISDOM";
+            let Some(key) = args.first().and_then(Value::as_str).and_then(|s| {
+                // A symbol or a one-character string; the special keys arrive
+                // by name because `\r` and `\b` do not survive the round trip
+                // through a Lingo value.
+                match s.trim_start_matches('#') {
+                    "return" | "enter" => Some('\r'),
+                    "backspace" | "delete" => Some('\u{8}'),
+                    other => other.chars().next(),
+                }
+            }) else {
+                return true;
+            };
+
+            let mut screen = state
+                .get("playerIsUsingLaptop")
+                .as_str()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+
+            // The first key wakes the prompt, or switches the machine off.
+            if screen == "prompting" {
+                out.effects.push(Effect::StopVideo);
+                let next = if key.is_ascii_alphanumeric() { "password" } else { "0" };
+                if next == "password" {
+                    call("setplayerisusinglaptop", &[Value::Symbol("password".into())], state, out);
+                    screen = "password".into();
+                } else {
+                    call("setplayerisusinglaptop", &[Value::Int(0)], state, out);
+                    out.redraw = true;
+                    return true;
+                }
+            }
+            if screen != "password" {
+                return true;
+            }
+
+            let mut typed = state.get_all("passwordAttempt").to_vec();
+            match key {
+                '\r' => {
+                    let attempt: String = typed
+                        .iter()
+                        .filter_map(|v| v.as_str().and_then(|s| s.chars().next()))
+                        .collect();
+                    let right = attempt.eq_ignore_ascii_case(PASSWORD);
+                    let ready = state.get_all("ghostsRemaining").is_empty();
+                    laptop_answer(right, ready, state, out);
+                    return true;
+                }
+                '\u{8}' => {
+                    typed.pop();
+                }
+                // The original takes whatever the key was; only alphanumerics
+                // get this far, because a non-alphanumeric first key switched
+                // the machine off and the prompt is gone by the second.
+                c if c.is_ascii_alphanumeric() => {
+                    if typed.len() < PASSWORD.len() {
+                        typed.push(Value::String(c.to_ascii_uppercase().to_string()));
+                    }
+                }
+                _ => return true,
+            }
+            let shown = typed.len();
+            state.set_all("passwordAttempt", typed);
+            show_password_entry(shown + 1, out);
+        }
 
         // on backAwayFromLaptop
         //   currentScreen = getState(oStoryteller, #BT_fragStatus)
@@ -2505,6 +2660,110 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
     true
 }
 
+/// The prompt sprite, showing `frame` of `#passwordEntry`.
+///
+/// One above the room's own five sprites, for the reason the pyramid's plate
+/// is: Director rebuilds the score on every `updateDisplay` and this engine
+/// does not, so the only thing that clears a puppet is `ParkSpareSprites` --
+/// and it only reaches above the last sprite the room placed. Backing out of
+/// the laptop takes the prompt with it.
+fn show_password_entry(frame: usize, out: &mut Outcome) {
+    const PROMPT: u8 = 18;
+    out.effects.push(Effect::PuppetSprite { channel: PROMPT, on: true });
+    out.effects.push(Effect::SpriteCastFromTable {
+        channel: PROMPT,
+        table: "passwordEntry".into(),
+        key: frame.to_string(),
+    });
+    // Where the room draws `O_PASSWORD_DASH`, which this replaces.
+    out.effects.push(Effect::SpriteLoc { channel: PROMPT, x: 331, y: 220 });
+    out.redraw = true;
+}
+
+/// What the machine does when RETURN is pressed.
+///
+/// Three outcomes, not two. A wrong password is refused and the prompt comes
+/// back; a right one before the three chapters are done crashes the machine;
+/// a right one after them opens the PT suite. The middle case is the one that
+/// makes the hint book's "when the time is right" mean something.
+fn laptop_answer(right: bool, ready: bool, state: &mut State, out: &mut Outcome) {
+    if !right {
+        // The last frame of the table, which is the refusal.
+        let frames = state.get_all("passwordAttempt").len();
+        let _ = frames;
+        show_password_entry(REFUSED, out);
+        out.effects.push(Effect::WaitTicks(60));
+        out.effects.push(Effect::SetState {
+            key: "playerIsUsingLaptop".into(),
+            value: Value::Int(0),
+        });
+        out.effects.push(Effect::WaitTicks(15));
+        out.effects.push(Effect::SetState {
+            key: "playerIsUsingLaptop".into(),
+            value: Value::Symbol("prompting".into()),
+        });
+        state.set_all("passwordAttempt", Vec::new());
+
+        // The counter the original could never start; see the note above.
+        let so_far = state.get("passwordFrustration").as_int().unwrap_or(0) + 1;
+        state.set("passwordFrustration", Value::Int(so_far));
+        if so_far % 5 == 0 {
+            out.effects.push(Effect::PlaySound {
+                name: "bigHint".into(),
+                loudness: None,
+            });
+        }
+        out.redraw = true;
+        return;
+    }
+
+    out.effects.push(Effect::CursorOff);
+    state.set("playerIsUsingLaptop", Value::Symbol("startup".into()));
+    out.redraw = true;
+    out.effects.push(Effect::PlayVideo(None));
+    out.effects.push(Effect::WaitForVideo);
+    out.effects.push(Effect::StopVideo);
+
+    if !ready {
+        // Right password, wrong hour. The machine falls over rather than
+        // refusing, which is how the player is told they are early.
+        out.effects.push(Effect::SetState {
+            key: "playerIsUsingLaptop".into(),
+            value: Value::Symbol("crashing".into()),
+        });
+        out.effects.push(Effect::WaitForVideo);
+        out.effects.push(Effect::SetState {
+            key: "playerIsUsingLaptop".into(),
+            value: Value::Symbol("crashed".into()),
+        });
+        state.set_all("passwordAttempt", Vec::new());
+        return;
+    }
+
+    state.set("playerIsUsingLaptop", Value::Int(0));
+    state.set("showMontage", Value::Int(0));
+    state.set_all("passwordAttempt", Vec::new());
+    out.effects.push(Effect::GoToRoom {
+        room: "OfficeMonitor_PTsuite".into(),
+        transition: None,
+    });
+    out.effects.push(Effect::WaitTicks(90));
+    out.effects.push(Effect::PlayVideo(None));
+    out.effects.push(Effect::WaitForVideo);
+    out.effects.push(Effect::StopVideo);
+    out.effects.push(Effect::SetState {
+        key: "BT_fragStatus".into(),
+        value: Value::Symbol("spinningNow".into()),
+    });
+    out.effects.push(Effect::GoToRoom {
+        room: "OfficeMonitor_alignment".into(),
+        transition: None,
+    });
+}
+
+/// The frame `#passwordEntry` ends with, which a refused password shows.
+const REFUSED: usize = 8;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3693,6 +3952,154 @@ mod phone_tests {
                 "answered off the table: {again}"
             );
         }
+    }
+
+    /// The laptop takes a password, one key at a time.
+    ///
+    /// The prompt shows how many characters have been typed, not what they
+    /// were: `#passwordEntry` is [dash, LTR1..LTR6, refused] and the frame is
+    /// the count plus one, because the first entry is the empty prompt.
+    #[test]
+    fn typing_at_the_laptop_fills_the_prompt() {
+        let mut s = State::new();
+        s.set("playerIsUsingLaptop", Value::Symbol("prompting".into()));
+
+        let frame = |s: &mut State, key: &str| -> Option<String> {
+            let mut out = Outcome::default();
+            assert!(call("laptopkey", &[Value::String(key.into())], s, &mut out));
+            out.effects.iter().find_map(|e| match e {
+                Effect::SpriteCastFromTable { table, key, .. } if table == "passwordEntry" => {
+                    Some(key.clone())
+                }
+                _ => None,
+            })
+        };
+
+        // The first key wakes the prompt as well as being typed.
+        assert_eq!(frame(&mut s, "W").as_deref(), Some("2"));
+        assert!(
+            s.get("playerIsUsingLaptop").is_symbol("password"),
+            "the first key did not put the machine into #password"
+        );
+        assert_eq!(frame(&mut s, "I").as_deref(), Some("3"));
+        assert_eq!(frame(&mut s, "S").as_deref(), Some("4"));
+        assert_eq!(frame(&mut s, "backspace").as_deref(), Some("3"));
+        assert_eq!(s.get_all("passwordAttempt").len(), 2);
+
+        // And no further than the password is long, so the prompt cannot be
+        // asked for a frame the table does not have.
+        for _ in 0..12 {
+            frame(&mut s, "X");
+        }
+        assert_eq!(s.get_all("passwordAttempt").len(), 6);
+    }
+
+    /// A non-alphanumeric first key switches the machine off, as the original
+    /// does -- it is how a stray keypress backs out of the prompt.
+    #[test]
+    fn a_stray_key_switches_the_laptop_off() {
+        let mut s = State::new();
+        s.set("playerIsUsingLaptop", Value::Symbol("prompting".into()));
+        let mut out = Outcome::default();
+        call("laptopkey", &[Value::String("-".into())], &mut s, &mut out);
+        assert_eq!(s.get("playerIsUsingLaptop").as_int(), Some(0));
+    }
+
+    /// A wrong password is refused, and the fifth one gives the game away.
+    ///
+    /// `#bigHint` is three and a half seconds of recorded speech that the
+    /// shipped game can never play: `#passwordFrustration` starts as the
+    /// symbol `#notYet` and the counter only runs when `integerp` says it is
+    /// a number. Taking a non-integer as zero is the departure, and this is
+    /// the assertion that says what it buys.
+    #[test]
+    fn the_fifth_wrong_password_gives_the_hint() {
+        let mut s = State::new();
+        s.set_all("ghostsRemaining", vec![Value::Symbol("Edwin".into())]);
+        let attempt = |s: &mut State| -> Outcome {
+            let mut out = Outcome::default();
+            s.set("playerIsUsingLaptop", Value::Symbol("password".into()));
+            for c in "BANANA".chars() {
+                call("laptopkey", &[Value::String(c.to_string())], s, &mut out);
+            }
+            let mut answer = Outcome::default();
+            call("laptopkey", &[Value::String("return".into())], s, &mut answer);
+            answer
+        };
+        let hinted = |out: &Outcome| {
+            out.effects.iter().any(|e| matches!(e, Effect::PlaySound { name, .. } if name == "bigHint"))
+        };
+
+        for n in 1..=4 {
+            let out = attempt(&mut s);
+            assert!(!hinted(&out), "hinted on attempt {n}");
+            assert_eq!(s.get("passwordFrustration").as_int(), Some(n));
+            // And the prompt comes back rather than the machine staying dead.
+            assert!(out.effects.iter().any(|e| matches!(
+                e,
+                Effect::SetState { key, value } if key == "playerIsUsingLaptop" && value.is_symbol("prompting")
+            )));
+            // Nothing typed survives a refusal.
+            assert!(s.get_all("passwordAttempt").is_empty());
+        }
+        assert!(hinted(&attempt(&mut s)), "the fifth wrong password said nothing");
+    }
+
+    /// The right password before the three chapters are done crashes the
+    /// machine rather than opening it.
+    ///
+    /// This is what the hint book's "when the time is right, the password
+    /// will be given to you" is about -- knowing WISDOM early is not enough,
+    /// and the crash is the game saying so.
+    #[test]
+    fn the_right_password_is_early_until_the_ghosts_are_done() {
+        let typed = |s: &mut State| {
+            let mut out = Outcome::default();
+            s.set("playerIsUsingLaptop", Value::Symbol("password".into()));
+            for c in "wisdom".chars() {
+                call("laptopkey", &[Value::String(c.to_string())], s, &mut out);
+            }
+            let mut answer = Outcome::default();
+            call("laptopkey", &[Value::String("return".into())], s, &mut answer);
+            answer
+        };
+
+        let mut early = State::new();
+        early.set_all(
+            "ghostsRemaining",
+            vec![Value::Symbol("Margaret".into()), Value::Symbol("Brice".into())],
+        );
+        let out = typed(&mut early);
+        assert!(
+            out.effects.iter().any(|e| matches!(
+                e,
+                Effect::SetState { key, value } if key == "playerIsUsingLaptop" && value.is_symbol("crashing")
+            )),
+            "an early password did not crash the machine"
+        );
+        assert!(
+            !out.effects.iter().any(|e| matches!(e, Effect::GoToRoom { .. })),
+            "an early password opened the suite anyway"
+        );
+
+        // And once they are all done it opens, in lower case, which the
+        // original accepts too.
+        let mut ready = State::new();
+        ready.set_all("ghostsRemaining", Vec::new());
+        let out = typed(&mut ready);
+        let rooms: Vec<&str> = out
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::GoToRoom { room, .. } => Some(room.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rooms, ["OfficeMonitor_PTsuite", "OfficeMonitor_alignment"]);
+        assert!(out.effects.iter().any(|e| matches!(
+            e,
+            Effect::SetState { key, value } if key == "BT_fragStatus" && value.is_symbol("spinningNow")
+        )));
     }
 
     #[test]

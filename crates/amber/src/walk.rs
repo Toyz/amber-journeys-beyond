@@ -57,7 +57,8 @@ pub fn walk(root: &Path, script_steps: &[String]) -> Result<(), Box<dyn std::err
     if interactive {
         println!("\ncommands: a verb (forward, left, right, up, down, examine, pointer),");
         println!("          a room name, `state [filter]`, `blocked`,");
-        println!("          `give <item>`, `use <item>`, `set <flag> <value>`,");
+        println!("          `give <item>`, `use <item>`, `set <flag> <value>`,
+          `type <word>` (the office laptop's password),");
         println!("          `click x y`, `inv x y`,");
         println!("          `wait <ticks>`, `look`, `stage`, `skip`, `quit`");
     }
@@ -334,6 +335,24 @@ pub(crate) fn command(game: &mut Game, cmd: &str, drain: bool) -> Step {
     if let Some(item) = cmd.strip_prefix("give ") {
         game.state.add_inventory(item.trim());
         println!("  carrying: {}", game.state.inventory().join(", "));
+        return Step::Done;
+    }
+    // The office laptop is the one thing in the game that reads keys, and the
+    // terminal is where the password chain is easiest to drive: `type WISDOM`
+    // sends the letters and then RETURN, exactly as the on-screen keyboard
+    // would.
+    if let Some(word) = cmd.strip_prefix("type ") {
+        for key in word.trim().chars() {
+            game.type_at_laptop(&key.to_string());
+        }
+        game.type_at_laptop("return");
+        println!(
+            "  typed {}, the laptop is {:?}",
+            word.trim(),
+            game.state.get("playerIsUsingLaptop")
+        );
+        settle(game);
+        show(game);
         return Step::Done;
     }
     if let Some(item) = cmd.strip_prefix("use ") {

@@ -63,6 +63,32 @@ impl Host for Desktop {
             pressed.push(Key::Menu);
         }
 
+        // Letters, for the one thing in the game that reads them: the office
+        // laptop's password. Sent unconditionally because the host does not
+        // know what the game is doing; `render::run` ignores them unless the
+        // laptop is asking, which is also what keeps S and C meaning "stage"
+        // and "cut" the rest of the time.
+        const LETTERS: [(MKey, char); 26] = [
+            (MKey::A, 'A'), (MKey::B, 'B'), (MKey::C, 'C'), (MKey::D, 'D'),
+            (MKey::E, 'E'), (MKey::F, 'F'), (MKey::G, 'G'), (MKey::H, 'H'),
+            (MKey::I, 'I'), (MKey::J, 'J'), (MKey::K, 'K'), (MKey::L, 'L'),
+            (MKey::M, 'M'), (MKey::N, 'N'), (MKey::O, 'O'), (MKey::P, 'P'),
+            (MKey::Q, 'Q'), (MKey::R, 'R'), (MKey::S, 'S'), (MKey::T, 'T'),
+            (MKey::U, 'U'), (MKey::V, 'V'), (MKey::W, 'W'), (MKey::X, 'X'),
+            (MKey::Y, 'Y'), (MKey::Z, 'Z'),
+        ];
+        for (theirs, c) in LETTERS {
+            if self.window.is_key_pressed(theirs, minifb::KeyRepeat::No) {
+                pressed.push(Key::Typed(c));
+            }
+        }
+        if self.window.is_key_pressed(MKey::Backspace, minifb::KeyRepeat::No) {
+            pressed.push(Key::Typed('\u{8}'));
+        }
+        if self.window.is_key_pressed(MKey::Enter, minifb::KeyRepeat::No) {
+            pressed.push(Key::Typed('\r'));
+        }
+
         Input {
             hover: true,
             pointer,

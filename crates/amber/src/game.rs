@@ -3178,6 +3178,24 @@ impl Game {
         matches!(self.effect_wait, Some(Wait::Click)) || matches!(self.waiting, Some(Wait::Click))
     }
 
+    /// Sends one key to the office laptop.
+    ///
+    /// The only thing in the game that reads the keyboard. It goes through
+    /// the same native whether the key came from a tap on the engine's own
+    /// keyboard or from a real one, so there is one implementation of the
+    /// password and not two.
+    pub fn type_at_laptop(&mut self, key: &str) -> Outcome {
+        let mut out = Outcome::default();
+        crate::natives::call(
+            "laptopkey",
+            &[lingo::Value::String(key.to_string())],
+            &mut self.state,
+            &mut out,
+        );
+        self.apply(&out);
+        out
+    }
+
     pub fn click(&mut self, x: i32, y: i32) -> Option<Outcome> {
         // A member's own script comes first -- before the modal dismissal
         // below, because Director runs a sprite's script before the frame

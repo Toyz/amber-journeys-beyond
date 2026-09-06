@@ -26,6 +26,7 @@ pub mod game;
 pub mod host;
 pub mod inventory;
 pub mod iso;
+pub mod keypad;
 pub mod locations;
 pub mod markers;
 pub mod menu;
