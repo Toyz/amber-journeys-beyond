@@ -19,6 +19,7 @@ use android_activity::input::{InputEvent, KeyAction, Keycode, MotionAction};
 use android_activity::{AndroidApp, InputStatus, MainEvent, PollEvent};
 use ndk::hardware_buffer_format::HardwareBufferFormat;
 
+use amber::audio::Gain;
 use amber::host::{Host, Input, Key};
 use amber::iso::{Iso, ReadAt};
 
@@ -47,11 +48,49 @@ struct Android {
     down: bool,
 
     open: bool,
+    /// Whether Android has taken the app off the screen.
+    away: bool,
+    /// The master gain, and what it was before the app went away.
+    gain: Option<Gain>,
+    level: f32,
 }
 
 impl Android {
-    fn new(app: AndroidApp) -> Android {
-        Android { app, pointer: None, down: false, open: true }
+    fn new(app: AndroidApp, gain: Option<Gain>) -> Android {
+        Android { app, pointer: None, down: false, open: true, away: false, gain, level: 1.0 }
+    }
+
+    /// Takes the game away, or gives it back.
+    ///
+    /// Two things stop, and they are separate faults with the same cause. The
+    /// sound stops because an app that is not on the screen has no business
+    /// making any -- the player switched away, and a game still humming behind
+    /// their podcast is a bug they will fix by uninstalling it. The clock
+    /// stops because the engine measures a film from the moment it was opened,
+    /// so time that passes while nobody is watching is time the film has
+    /// silently played through: come back from a two minute call and the scene
+    /// is over, the wait it was holding on has expired, and the ghosts that
+    /// were due have already called.
+    ///
+    /// The gain is saved rather than assumed, because the settings menu may
+    /// have moved it.
+    fn attend(&mut self, away: bool) {
+        if away == self.away {
+            return;
+        }
+        self.away = away;
+        amber::clock::hold(away);
+        // Whatever the finger was doing, it is not doing it now: a press held
+        // across a pause would otherwise arrive as a release the moment the
+        // player came back, in whatever room they had walked into.
+        self.down = false;
+        let Some(gain) = self.gain.clone() else { return };
+        if away {
+            self.level = gain.get();
+            gain.set(0.0);
+        } else {
+            gain.set(self.level);
+        }
     }
 }
 
@@ -59,14 +98,36 @@ impl Host for Android {
     fn poll(&mut self, _stage: (usize, usize)) -> Input {
         let app = self.app.clone();
 
-        let mut closed = false;
-        app.poll_events(Some(Duration::ZERO), |event| {
-            if let PollEvent::Main(MainEvent::Destroy) = event {
-                closed = true;
+        // The lifecycle first, and it is a loop rather than a poll: while the
+        // app is away this blocks in `ALooper_pollOnce` with no timeout
+        // instead of spinning a frame at a time against a surface that is not
+        // there. That is the difference between a game the player switched
+        // away from and a game quietly eating their battery in the background.
+        loop {
+            let waiting = self.away && self.open;
+            let mut want = None;
+            let mut closed = false;
+            // `app` is a clone rather than a borrow of `self.app`, so the
+            // closure is free to be told about `self` afterwards.
+            app.poll_events(if waiting { None } else { Some(Duration::ZERO) }, |event| {
+                match event {
+                    PollEvent::Main(MainEvent::Pause) => want = Some(true),
+                    PollEvent::Main(MainEvent::Resume { .. }) => want = Some(false),
+                    PollEvent::Main(MainEvent::Destroy) => closed = true,
+                    _ => {}
+                }
+            });
+            if closed {
+                self.open = false;
             }
-        });
-        if closed {
-            self.open = false;
+            // The last of the batch, which is the state Android has left the
+            // app in however many times it changed its mind on the way.
+            if let Some(away) = want {
+                self.attend(away);
+            }
+            if !self.away || !self.open {
+                break;
+            }
         }
 
         // The surface size is read once, so the mapping below is arithmetic
@@ -246,7 +307,8 @@ fn play(app: AndroidApp) -> Result<(), Box<dyn std::error::Error>> {
     // the app is uninstalled, which is the right lifetime for a save.
     let saves = app.internal_data_path().map(|dir| dir.join("amber.save"));
     log::info!("saves at {saves:?}");
-    let mut host = Android::new(app);
+    let gain = audio.as_ref().map(amber::audio::Audio::gain);
+    let mut host = Android::new(app, gain);
     amber::render::run(
         &mut game,
         &mut host,

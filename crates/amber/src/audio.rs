@@ -554,6 +554,32 @@ mod tests {
 /// what keeps it running. Dropping it stops the sound.
 pub trait Sink: Send {}
 
+/// The master gain, held apart from the `Audio` that owns the sink.
+///
+/// `Audio` is not `Clone` -- it holds the sink, and there is one of those --
+/// but a host may need the volume without owning the mixer. Android is the
+/// case: an app that is not on the screen must make no sound, and the only
+/// thing that knows the app went away is the host, which by then has handed
+/// `Audio` to the loop.
+///
+/// Deliberately not `suspendSounds`. That one is the game's, and a chapter
+/// that suspended its ambient bed before the player took a phone call must
+/// find it still suspended when they come back.
+#[derive(Clone)]
+pub struct Gain(Arc<Mutex<Mixer>>);
+
+impl Gain {
+    pub fn set(&self, level: f32) {
+        if let Ok(mut mixer) = self.0.lock() {
+            mixer.master = level.clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn get(&self) -> f32 {
+        self.0.lock().map(|m| m.master).unwrap_or(1.0)
+    }
+}
+
 pub struct Audio {
     mixer: Arc<Mutex<Mixer>>,
     // Held to keep the sink alive; dropping it stops playback. A silent mixer
@@ -671,6 +697,11 @@ impl Audio {
 
     pub fn master(&self) -> f32 {
         self.mixer.lock().map(|m| m.master).unwrap_or(1.0)
+    }
+
+    /// A share of the master gain, for something outside the loop.
+    pub fn gain(&self) -> Gain {
+        Gain(Arc::clone(&self.mixer))
     }
 
     /// Builds a mixer and hands it to a sink, which starts pulling from it.

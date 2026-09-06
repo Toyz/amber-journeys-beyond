@@ -1736,36 +1736,93 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
         //     else
         //       msgPosition = random( count( remainingMessages ) )
         //       myAnswer = getAt( remainingMessages, msgPosition )
-        //       ...
+        //       deleteAt( remainingMessages, msgPosition )
+        //       if count( remainingMessages ) = 0 then append( remainingMessages, #helpMe )
+        //     end if
+        //   else
+        //     myAnswer = random( 5 )
+        //     if myAnswer = 5 then if random( 3 ) = 3 then myAnswer = 6
+        //   end if
+        //   repeat with i = 10 to 48
+        //     if getPos( messagesStack, the castNum of sprite i ) then msgSprite = i
+        //   end repeat
+        //   set the castNum of sprite msgSprite to getAt( messagesStack, myAnswer + 1 )
+        //   puppetTransition <fadeIn> : soundEffect #pyramidGurgle : wait 25 : updateStage
         //
-        // The pyramid answers. `#helpMe` is always first and always taken from
-        // the front -- it is the one thing it says before it will say anything
-        // else -- and after that it picks from what is left at random, so two
-        // players get the same first answer and a different second.
+        // The desk pyramid is a Magic 8-Ball, and this is the shake. Five
+        // answers sit in `#pyramidMessagesRemaining` as the integers 1 to 5;
+        // one is drawn at random and thrown away, so the pyramid never repeats
+        // itself until it has said all five.
         //
-        // Nothing is said once the list is empty.
+        // `#helpMe` is the reward for asking six times: it is *appended* when
+        // the last answer is taken, sits at the head on the next shake, and is
+        // recognised there by name rather than drawn at random. So it is the
+        // bottom of the pile and not, as this once had it, the lid. After that
+        // the list stays empty and the pyramid repeats forever -- with a one in
+        // fifteen chance of saying `#helpMe` again, which is the `random(3)`
+        // hung off answer five.
+        //
+        // `myAnswer` indexes `#PyramidMsg` one late, because that table's first
+        // entry is the empty plate the room already draws:
+        //
+        //   [1 O-PYRAMID.frame, 2 O-PYRA-AS, 3 O-PYRA-MY REPLY,
+        //    4 O-PYRA-OUTLOOK, 5 O-PYRA-SIGNS, 6 O-PYRA-ASK, 7 O-PYRA-HELP]
+        //
+        // which is also how the original finds the sprite to write to: it
+        // sweeps channels 10 to 48 for one already showing something out of
+        // that table, and at rest the only such sprite is the frame.
+        //
+        // None of this ran before. The list holds integers, and the port read
+        // them as symbols to play as sounds -- `as_str` on an `Int` is `None`,
+        // so nothing played, nothing was drawn, and the pyramid was mute.
         "pyramidspeaks" => {
             out.effects.push(Effect::CursorOff);
-            let left = state.get_all("pyramidMessagesRemaining").to_vec();
-            if left.is_empty() {
-                return true;
-            }
-            // The first message is not drawn from the pile; it is the pile's lid.
-            let at = if left[0].is_symbol("helpMe") {
-                0
+
+            let mut left = state.get_all("pyramidMessagesRemaining").to_vec();
+            let answer = if let Some(head) = left.first().cloned() {
+                if head.is_symbol("helpMe") {
+                    left.remove(0);
+                    6
+                } else {
+                    let at = (roll(state, left.len() as i32) - 1) as usize;
+                    let picked = left.remove(at.min(left.len() - 1));
+                    if left.is_empty() {
+                        left.push(Value::Symbol("helpMe".into()));
+                    }
+                    picked.as_int().unwrap_or(1)
+                }
             } else {
-                (roll(state, left.len() as i32) - 1).max(0) as usize
+                // The pile is spent, so it answers off the cuff from now on.
+                let first = roll(state, 5);
+                if first == 5 && roll(state, 3) == 3 { 6 } else { first }
             };
-            let Some(said) = left.get(at).cloned() else {
-                return true;
-            };
-            state.trim_item("pyramidMessagesRemaining", &said);
-            if let Some(name) = said.as_str() {
-                out.effects.push(Effect::PlaySound {
-                    name: name.trim_start_matches('#').into(),
-                    loudness: None,
-                });
-            }
+            state.set_all("pyramidMessagesRemaining", left);
+
+            // Just above the room's own four sprites. The original writes the
+            // frame's channel directly, because Director rebuilds the score
+            // from the room record on every `updateDisplay` and the write is
+            // undone for free. Puppets here are sticky, and the only thing
+            // that clears them is `ParkSpareSprites` -- which sweeps channels
+            // above the last one the room placed. So the plate goes one above
+            // that and the click that stops examining takes it away, which is
+            // what the original's rebuild did.
+            const PLATE: u8 = 17;
+            out.effects.push(Effect::PuppetSprite { channel: PLATE, on: true });
+            out.effects.push(Effect::SpriteCastFromTable {
+                channel: PLATE,
+                table: "PyramidMsg".into(),
+                key: (answer + 1).to_string(),
+            });
+            // The frame's own place and ink, because the plate replaces it
+            // rather than joining it: both are 102 by 100 and keyed.
+            out.effects.push(Effect::SpriteLoc { channel: PLATE, x: 314, y: 208 });
+            out.effects.push(Effect::SpriteInk { channel: PLATE, ink: 36 });
+            out.effects.push(Effect::SetTransition { kind: "fadeIn".into() });
+            out.effects.push(Effect::PlaySound {
+                name: "pyramidGurgle".into(),
+                loudness: None,
+            });
+            out.effects.push(Effect::WaitTicks(25));
             out.redraw = true;
         }
 
@@ -3579,35 +3636,63 @@ mod phone_tests {
         assert_eq!(s.get("playerIsUsingLaptop"), Value::Symbol("warmingUp".into()));
     }
 
+    /// The pyramid says all five answers before it repeats, and `#helpMe`
+    /// comes at the end.
+    ///
+    /// This test used to assert the opposite -- that `#helpMe` was the first
+    /// thing said -- and passed, because the port it was written against did
+    /// nothing at all: `#pyramidMessagesRemaining` holds the integers 1 to 5,
+    /// the port read them as symbols to play as sounds, and `as_str` on an
+    /// `Int` is `None`. Both the assertion and the code were reading the same
+    /// handler wrongly, so they agreed.
+    ///
+    /// `#helpMe` is *appended* when the last of the five is taken, which is
+    /// why it is at the head on the sixth shake and recognised by name there.
     #[test]
-    fn the_pyramid_says_help_me_before_it_says_anything_else() {
+    fn the_pyramid_says_every_answer_once_and_helps_last() {
         let mut s = State::new();
         s.set_all("gChapter", vec![Value::Symbol("ROXY".into())]);
         s.set_all("gRandomSeed", vec![Value::Int(7)]);
         s.set_all(
             "pyramidMessagesRemaining",
-            vec![
-                Value::Symbol("helpMe".into()),
-                Value::Symbol("aMessage".into()),
-                Value::Symbol("another".into()),
-            ],
+            (1..=5).map(Value::Int).collect(),
         );
-        let said = |s: &mut State| {
+
+        let plate = |s: &mut State| {
             let mut out = Outcome::default();
             assert!(call("pyramidspeaks", &[], s, &mut out));
             out.effects.iter().find_map(|e| match e {
-                Effect::PlaySound { name, .. } => Some(name.clone()),
+                Effect::SpriteCastFromTable { table, key, .. } if table == "PyramidMsg" => {
+                    Some(key.clone())
+                }
                 _ => None,
             })
         };
-        assert_eq!(said(&mut s), Some("helpMe".to_string()));
-        // And what it says next is one of the rest, taken out as it goes.
-        let second = said(&mut s).expect("a second message");
-        assert!(["aMessage", "another"].contains(&second.as_str()));
-        let third = said(&mut s).expect("a third message");
-        assert_ne!(second, third);
-        // Then it has nothing left to say.
-        assert_eq!(said(&mut s), None);
+
+        // The five answers are `#PyramidMsg` entries 2 to 6 -- one late,
+        // because entry one is the empty plate the room already draws.
+        let mut said: Vec<String> = (0..5).map(|_| plate(&mut s).expect("a plate")).collect();
+        said.sort();
+        assert_eq!(said, ["2", "3", "4", "5", "6"], "the five answers did not each come once");
+        assert_eq!(
+            s.get_all("pyramidMessagesRemaining"),
+            [Value::Symbol("helpMe".into())],
+            "`#helpMe` was not left at the bottom of the pile"
+        );
+
+        // The sixth is the one it was saving.
+        assert_eq!(plate(&mut s).as_deref(), Some("7"), "the help plate did not come sixth");
+        assert!(s.get_all("pyramidMessagesRemaining").is_empty());
+
+        // And it goes on answering rather than falling silent, which is what
+        // the `random(5)` in the empty branch is for.
+        for _ in 0..8 {
+            let again = plate(&mut s).expect("the pyramid fell silent");
+            assert!(
+                ["2", "3", "4", "5", "6", "7"].contains(&again.as_str()),
+                "answered off the table: {again}"
+            );
+        }
     }
 
     #[test]
