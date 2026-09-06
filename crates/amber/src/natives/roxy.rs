@@ -300,6 +300,13 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
             if is("password") {
                 call("freezeinventory", &[], state, out);
             }
+            // Every state but the two that are typed at. The original purges
+            // on `0` and `#startUp` alone and lets the score rebuild hide it
+            // the rest of the time; there is no rebuild here, so the prompt
+            // has to be taken away wherever it stops being wanted.
+            if !is("prompting") && !is("password") {
+                hide_password_entry(out);
+            }
 
             // Only a state it recognises is written; anything else leaves the
             // machine where it was.
@@ -2660,6 +2667,11 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
     true
 }
 
+/// Where the laptop's password prompt is drawn.
+///
+/// One above the office monitor's own five sprites; see [`show_password_entry`].
+const PROMPT: u8 = 18;
+
 /// The prompt sprite, showing `frame` of `#passwordEntry`.
 ///
 /// One above the room's own five sprites, for the reason the pyramid's plate
@@ -2668,7 +2680,6 @@ pub fn call(name: &str, args: &[Value], state: &mut State, out: &mut Outcome) ->
 /// and it only reaches above the last sprite the room placed. Backing out of
 /// the laptop takes the prompt with it.
 fn show_password_entry(frame: usize, out: &mut Outcome) {
-    const PROMPT: u8 = 18;
     out.effects.push(Effect::PuppetSprite { channel: PROMPT, on: true });
     out.effects.push(Effect::SpriteCastFromTable {
         channel: PROMPT,
@@ -2677,6 +2688,20 @@ fn show_password_entry(frame: usize, out: &mut Outcome) {
     });
     // Where the room draws `O_PASSWORD_DASH`, which this replaces.
     out.effects.push(Effect::SpriteLoc { channel: PROMPT, x: 331, y: 220 });
+    out.redraw = true;
+}
+
+/// Takes the password prompt off the screen.
+///
+/// The original's `purgeMultiframes #passwordEntry`, which it calls when the
+/// machine is switched off or finishes starting up. It has to be called more
+/// often here than there: Director rebuilds the score on every
+/// `updateDisplay`, so a sprite whose guard has stopped holding simply stops
+/// being drawn, while a puppet in this engine stays where it was put. Left
+/// behind, the six-character prompt sits over the fragment alignment screen
+/// for the rest of the game -- which is what it did.
+fn hide_password_entry(out: &mut Outcome) {
+    out.effects.push(Effect::PuppetSprite { channel: PROMPT, on: false });
     out.redraw = true;
 }
 
@@ -2718,8 +2743,15 @@ fn laptop_answer(right: bool, ready: bool, state: &mut State, out: &mut Outcome)
     }
 
     out.effects.push(Effect::CursorOff);
-    state.set("playerIsUsingLaptop", Value::Symbol("startup".into()));
-    out.redraw = true;
+    // Queued rather than written, so the machine is still showing `#startUp`
+    // when the film of it starting up is asked for. Written here it would be
+    // `0` by then and the film would be whatever the room shows at rest --
+    // which is to say the password prompt the player has just left.
+    out.effects.push(Effect::SetState {
+        key: "playerIsUsingLaptop".into(),
+        value: Value::Symbol("startup".into()),
+    });
+    hide_password_entry(out);
     out.effects.push(Effect::PlayVideo(None));
     out.effects.push(Effect::WaitForVideo);
     out.effects.push(Effect::StopVideo);
@@ -2737,12 +2769,19 @@ fn laptop_answer(right: bool, ready: bool, state: &mut State, out: &mut Outcome)
             value: Value::Symbol("crashed".into()),
         });
         state.set_all("passwordAttempt", Vec::new());
+        hide_password_entry(out);
         return;
     }
 
-    state.set("playerIsUsingLaptop", Value::Int(0));
-    state.set("showMontage", Value::Int(0));
     state.set_all("passwordAttempt", Vec::new());
+    out.effects.push(Effect::SetState {
+        key: "playerIsUsingLaptop".into(),
+        value: Value::Int(0),
+    });
+    out.effects.push(Effect::SetState {
+        key: "showMontage".into(),
+        value: Value::Int(0),
+    });
     out.effects.push(Effect::GoToRoom {
         room: "OfficeMonitor_PTsuite".into(),
         transition: None,
@@ -4043,6 +4082,58 @@ mod phone_tests {
             assert!(s.get_all("passwordAttempt").is_empty());
         }
         assert!(hinted(&attempt(&mut s)), "the fifth wrong password said nothing");
+    }
+
+    /// The password prompt is taken off the screen when the machine stops
+    /// asking for it.
+    ///
+    /// Both ways out: opened, and crashed. Left behind, the six-character
+    /// prompt sits at (331, 220) over whatever comes next -- which on the way
+    /// through is the fragment alignment screen, and it stayed there for the
+    /// rest of the game.
+    #[test]
+    fn the_prompt_does_not_follow_the_player_out_of_the_laptop() {
+        let purged = |out: &Outcome| {
+            out.effects.iter().any(|e| matches!(
+                e,
+                Effect::PuppetSprite { channel: 18, on: false }
+            ))
+        };
+        let answer = |remaining: Vec<Value>| -> Outcome {
+            let mut s = State::new();
+            s.set_all("ghostsRemaining", remaining);
+            s.set("playerIsUsingLaptop", Value::Symbol("password".into()));
+            let mut out = Outcome::default();
+            for c in "WISDOM".chars() {
+                call("laptopkey", &[Value::String(c.to_string())], &mut s, &mut out);
+            }
+            let mut answer = Outcome::default();
+            call("laptopkey", &[Value::String("return".into())], &mut s, &mut answer);
+            answer
+        };
+
+        assert!(purged(&answer(Vec::new())), "opened and left the prompt up");
+        assert!(
+            purged(&answer(vec![Value::Symbol("Edwin".into())])),
+            "crashed and left the prompt up"
+        );
+
+        // And switching the machine off, which is the other way out: the
+        // original's `purgeMultiframes #passwordEntry`.
+        let mut s = State::new();
+        let mut out = Outcome::default();
+        call("setplayerisusinglaptop", &[Value::Int(0)], &mut s, &mut out);
+        assert!(purged(&out), "switched off and left the prompt up");
+
+        // But not while it is still being typed at.
+        let mut out = Outcome::default();
+        call(
+            "setplayerisusinglaptop",
+            &[Value::Symbol("prompting".into())],
+            &mut s,
+            &mut out,
+        );
+        assert!(!purged(&out), "cleared the prompt while still asking for it");
     }
 
     /// The right password before the three chapters are done crashes the

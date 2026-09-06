@@ -53,11 +53,13 @@ struct Android {
     /// The master gain, and what it was before the app went away.
     gain: Option<Gain>,
     level: f32,
+    /// The buffer's size, reported when it changes.
+    geometry: Option<(usize, usize)>,
 }
 
 impl Android {
     fn new(app: AndroidApp, gain: Option<Gain>) -> Android {
-        Android { app, pointer: None, down: false, open: true, away: false, gain, level: 1.0 }
+        Android { app, pointer: None, down: false, open: true, away: false, gain, level: 1.0, geometry: None }
     }
 
     /// Takes the game away, or gives it back.
@@ -135,7 +137,15 @@ impl Host for Android {
         // letterboxed into whatever the device is -- the same sum the desktop
         // does for a resized window, and it lives in the host because the host
         // is the only thing that knows how it scaled.
-        let surface = app.native_window().map(|w| (w.width() as f32, w.height() as f32));
+        // The size the last frame was actually drawn into, not what the window
+        // says now. These are the same number in the steady state, and they
+        // are not the same number in the frame after a fold: touch has to
+        // agree with the picture the player is looking at, which is the one
+        // already on screen.
+        let surface = self
+            .geometry
+            .map(|(w, h)| (w as f32, h as f32))
+            .or_else(|| app.native_window().map(|w| (w.width() as f32, w.height() as f32)));
         let (mut pointer, mut down) = (self.pointer, self.down);
         let mut pressed = Vec::new();
 
@@ -205,16 +215,25 @@ impl Host for Android {
         // stretches to fill, which on a 2.17:1 phone squashes a 4:3 game and,
         // worse, puts every touch somewhere other than where `to_stage`
         // thinks it is.
-        let (sw, sh) = (window.width() as usize, window.height() as usize);
-        let _ = window.set_buffers_geometry(
-            sw as i32,
-            sh as i32,
-            Some(HardwareBufferFormat::R8G8B8X8_UNORM),
-        );
+        // Zero for both dimensions means "the window's own default", which is
+        // what is wanted: the format has to be asked for, the size does not.
+        //
+        // Asking for `window.width()` by `window.height()` instead looks like
+        // the same thing and is not quite. Those report the *buffer's* size,
+        // which is whatever geometry was last set -- so they feed themselves,
+        // and a surface that changed underneath, as it does when this phone is
+        // folded, would be drawn at the old size and stretched to the new one.
+        // Nothing has been seen doing that; it is simply a value not worth
+        // passing when the platform already knows it.
+        let _ = window.set_buffers_geometry(0, 0, Some(HardwareBufferFormat::R8G8B8X8_UNORM));
 
         let Ok(mut buffer) = window.lock(None) else { return Ok(()) };
         let stride = buffer.stride();
         let (bw, bh) = (buffer.width(), buffer.height());
+        if self.geometry != Some((bw, bh)) {
+            self.geometry = Some((bw, bh));
+            log::info!("surface {bw}x{bh}, stride {stride}");
+        }
         let rows = bh;
         let bits = buffer.bits();
 

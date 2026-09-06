@@ -2314,8 +2314,24 @@ impl Game {
         if self.player.is_some() && !overlay_owns_video {
             stage.push((MOVIE_CHANNEL as u16, Layer::Movie));
         }
+        // A film a script put on a channel is hidden by the same
+        // `set the visible of sprite N` that hides art on one. The two live in
+        // different places here -- art is a puppet, a film is the overlay --
+        // and only the puppet was being asked.
+        //
+        // The camcorder is where that showed. `camLogInit` parks `rewind.mov`
+        // on channel 45 and immediately hides it, ready for the rewind button
+        // to reveal; the film was drawn anyway, on a channel above the tape's
+        // own, so the whole time a player watched the tape they were watching
+        // the rewind film over the top of it.
+        let overlay_hidden = self
+            .overlay
+            .as_ref()
+            .is_some_and(|o| self.puppets.get(&o.channel).is_some_and(|p| p.hidden));
         if let Some(o) = &self.overlay {
-            stage.push((o.channel as u16, Layer::Overlay));
+            if !overlay_hidden {
+                stage.push((o.channel as u16, Layer::Overlay));
+            }
         }
         // The bar is drawn with everything else rather than painted over the
         // finished picture. It sits below the rooms and far below the channels
@@ -3889,6 +3905,62 @@ fn blit(
             let (r, g, b) = (px[0] as u32, px[1] as u32, px[2] as u32);
             dst[(ty as u32 * dst_w + tx as u32) as usize] = 0xff00_0000 | (r << 16) | (g << 8) | b;
         }
+    }
+}
+
+#[cfg(test)]
+mod overlay_visibility_tests {
+    use crate::script::Effect;
+
+    fn game() -> Option<crate::game::Game> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        root.is_dir().then(|| crate::game::Game::new(&root).expect("extract/ is not a game"))
+    }
+
+    /// A film on a hidden channel is not drawn.
+    ///
+    /// `camLogInit` is the case: it parks `rewind.mov` on channel 45 and hides
+    /// it, waiting for the rewind button. Hiding it only reached the puppet
+    /// table, and a film is not in the puppet table -- so the rewind film was
+    /// drawn over the tape the player was trying to watch, on a channel above
+    /// it, for as long as they sat at the camcorder.
+    #[test]
+    fn a_hidden_channel_hides_its_film_as_well_as_its_art() {
+        let Some(mut game) = game() else { return };
+        let Some(room) = game.world.resolve("DiningRmUsingCamcorder", Some("ROXY")) else {
+            return;
+        };
+        game.room = room;
+        game.state.set("videoTapePosition", lingo::Value::Symbol("top".into()));
+        game.start_room_video();
+
+        // What the camcorder looks like with the tape playing and nothing else.
+        let (w, h) = (640u32, 480u32);
+        let mut alone = vec![0u32; (w * h) as usize];
+        game.draw(&mut alone, w, h);
+
+        // Sitting down at it, which is what puts the rewind film on 45.
+        let mut out = crate::script::Outcome::default();
+        crate::natives::call("camloginit", &[], &mut game.state, &mut out);
+        for effect in &out.effects {
+            game.apply_puppet(effect);
+        }
+        assert!(
+            out.effects.iter().any(|e| matches!(
+                e,
+                Effect::SpriteVisible { channel: 45, visible: false }
+            )),
+            "camLogInit no longer hides channel 45; this test is about that"
+        );
+
+        let mut after = vec![0u32; (w * h) as usize];
+        game.draw(&mut after, w, h);
+
+        let changed = alone.iter().zip(&after).filter(|(a, b)| a != b).count();
+        assert_eq!(
+            changed, 0,
+            "{changed} pixels changed: something hidden was drawn over the tape"
+        );
     }
 }
 
