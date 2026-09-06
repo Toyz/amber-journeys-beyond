@@ -21,6 +21,7 @@ pub mod casttable;
 pub mod clock;
 pub mod content;
 pub mod cursor;
+pub mod docs;
 pub mod game;
 pub mod host;
 pub mod inventory;

@@ -203,6 +203,15 @@ impl Game {
         Game::from_content(crate::iso::open(root)?)
     }
 
+    /// The disc, for the few things that read it directly.
+    ///
+    /// The documents beside the game are the case: `HINTS.WRI` and the other
+    /// two are files on the disc rather than cast members, and the menu shows
+    /// them.
+    pub fn content(&self) -> &dyn crate::content::Content {
+        self.content.as_ref()
+    }
+
     /// Opens the game over any source of content: a directory, an ISO, a
     /// bundle. Nothing below this point knows which it is.
     pub fn from_content(content: Box<dyn crate::content::Content>) -> std::io::Result<Game> {

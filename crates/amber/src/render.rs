@@ -202,6 +202,10 @@ pub fn run(
     let mut cut_next = 0usize;
     let mut last_frame = std::time::Instant::now();
     let mut menu: Option<crate::menu::Menu> = None;
+    // The three documents beside the game, read once. On a phone there is
+    // nowhere else to open them at all, and the hints file is the only thing
+    // that talks a stuck player through the first hour.
+    let documents = crate::docs::load(game.content(), crate::menu::READ_COLUMNS);
     // The picture filter starts where the command line put it and is the
     // player's from then on.
     let mut settings = crate::menu::Settings { filter, ..Default::default() };
@@ -217,11 +221,17 @@ pub fn run(
         // front ends with a menu each is two menus that will disagree.
         if input.pressed.contains(&crate::host::Key::Menu) {
             menu = match menu {
-                Some(_) => None,
-                None => Some(crate::menu::Menu::new(
-                    settings,
-                    saves.as_deref().map(crate::save::slots).unwrap_or_default(),
-                )),
+                // Back steps out a page at a time rather than closing the
+                // whole menu: someone on page forty of the manual pressed it
+                // to leave the manual, not to leave the menu.
+                Some(mut open) => (!open.back()).then_some(open),
+                None => Some(
+                    crate::menu::Menu::new(
+                        settings,
+                        saves.as_deref().map(crate::save::slots).unwrap_or_default(),
+                    )
+                    .with_docs(documents.clone()),
+                ),
             };
             dirty = true;
         }
@@ -320,10 +330,16 @@ pub fn run(
                     if hud_was_down && !input.down {
                         match tap {
                             crate::menu::Tap::Menu => {
-                                menu = Some(crate::menu::Menu::new(
-                                    settings,
-                                    saves.as_deref().map(crate::save::slots).unwrap_or_default(),
-                                ));
+                                menu = Some(
+                                    crate::menu::Menu::new(
+                                        settings,
+                                        saves
+                                            .as_deref()
+                                            .map(crate::save::slots)
+                                            .unwrap_or_default(),
+                                    )
+                                    .with_docs(documents.clone()),
+                                );
                             }
                             // Closing is the click a player would have made
                             // on the part of the screen that is not the thing.

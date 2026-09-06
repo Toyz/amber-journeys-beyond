@@ -51,14 +51,90 @@ const GLYPHS: &[(char, &str)] = &[
     ('8', ".###.#...##...#.###.#...##...#.###."),
     ('9', ".###.#...##...#.####....#...#..##.."),
     (' ', "..................................."),
+
+    // Lower case and punctuation, added when the menu grew a reader for the
+    // three documents that shipped on the disc. A ninety kilobyte manual set
+    // in capitals is a manual nobody reads, and the hints file is the one
+    // thing in this game that talks a stuck player through the first hour.
+    //
+    // Seven rows leave no room below the baseline, so the descenders on g, j,
+    // p, q and y are drawn a row high with the body lifted to match. Every
+    // 5 by 7 font of this vintage does the same thing.
+    ('a', "...........###.....#.#####...#.####"),
+    ('b', "#....#....####.#...##...##...#####."),
+    ('c', "...........###.#....#....#.....###."),
+    ('d', "....#....#.#####...##...##...#.####"),
+    ('e', "...........###.#...#######.....###."),
+    ('f', "..##..#..#.#...###...#....#....#..."),
+    ('g', "...........#####...#.####....#####."),
+    ('h', "#....#....####.#...##...##...##...#"),
+    ('i', "..#........##....#....#....#...###."),
+    ('j', "...#........##....#....#.#..#..##.."),
+    ('k', "#....#....#..#.#.#..##...#.#..#..#."),
+    ('l', ".##....#....#....#....#....#...###."),
+    ('m', "..........##.#.#.#.##.#.##...##...#"),
+    ('n', "..........####.#...##...##...##...#"),
+    ('o', "...........###.#...##...##...#.###."),
+    ('p', "..........####.#...#####.#....#...."),
+    ('q', "...........#####...#.####....#....#"),
+    ('r', "..........#.##.##..##....#....#...."),
+    ('s', "...........#####.....###.....#####."),
+    ('t', "..#....#..#####..#....#....#.#...#."),
+    ('u', "..........#...##...##...##..##.##.#"),
+    ('v', "..........#...##...##...#.#.#...#.."),
+    ('w', "..........#...##...##.#.##.#.#.#.#."),
+    ('x', "..........#...#.#.#...#...#.#.#...#"),
+    ('y', "..........#...##...#.####....#.###."),
+    ('z', "..........#####...#...#...#...#####"),
+    ('.', "................................#.."),
+    (',', "...........................#...#..."),
+    (':', "............#..............#......."),
+    (';', "............#..............#...#..."),
+    ('\'', "..#....#...#......................."),
+    ('"', ".#.#..#.#.........................."),
+    ('!', "..#....#....#....#....#.........#.."),
+    ('?', ".###.#...#....#...#...#.........#.."),
+    ('(', "...#...#...#....#....#.....#.....#."),
+    (')', ".#.....#.....#....#....#...#...#..."),
+    ('[', ".###..#....#....#....#....#....###."),
+    (']', ".###....#....#....#....#....#..###."),
+    ('-', "................###................"),
+    ('_', "..............................#####"),
+    ('/', "....#....#...#...#...#...#....#...."),
+    ('&', ".##..#..#.#.#...#...#.#.##..#..##.#"),
+    ('%', "##..###.#...#....#...#...#.##.#..##"),
+    ('+', ".......#....#..#####..#....#......."),
+    ('=', "..........#####.....#####.........."),
+    ('*', ".......#..#.#.#.###.#.#.#..#......."),
+    ('#', ".#.#..#.#.#####.#.#.#####.#.#..#.#."),
+    ('$', "..#...#####.#...###...#.#####...#.."),
+    ('@', ".###.#...##.####.#.##.####.....###."),
+    ('<', "........#...#...#.....#.....#......"),
+    ('>', "......#.....#.....#...#...#........"),
+    ('\\', "#....#.....#.....#.....#.....#....#"),
+    ('|', "..#....#....#....#....#....#....#.."),
+    ('{', "...#...#....#...#.....#....#.....#."),
+    ('}', ".#.....#....#.....#...#....#...#..."),
+    ('~', "...........#..##.#.##..#..........."),
+    ('^', "..#...#.#.#...#...................."),
+    ('`', ".#.....#..........................."),
 ];
 
 const GW: usize = 5;
 const GH: usize = 7;
 
 fn glyph(c: char) -> Option<&'static str> {
-    let c = c.to_ascii_uppercase();
-    GLYPHS.iter().find(|(g, _)| *g == c).map(|(_, s)| *s)
+    // The character as written first, and only then folded. Folding first
+    // would draw every lower case letter as a capital now that there are
+    // shapes for both -- which is what this did before there were.
+    GLYPHS
+        .iter()
+        .find(|(g, _)| *g == c)
+        .or_else(|| {
+            let up = c.to_ascii_uppercase();
+            GLYPHS.iter().find(|(g, _)| *g == up)
+        })
+        .map(|(_, s)| *s)
 }
 
 /// Draws a string at `scale`, returning how wide it was.
@@ -101,6 +177,10 @@ pub enum Page {
     Save,
     Load,
     Settings,
+    /// The list of documents the disc carries.
+    Docs,
+    /// One of them, open at `Menu::scroll`.
+    Reading(usize),
 }
 
 /// What the loop has to act on. Everything else the menu handles itself.
@@ -140,6 +220,7 @@ enum Row {
     Go(Page),
     Quit,
     Slot(usize),
+    Doc(usize),
     Volume,
     Filter,
     Pad,
@@ -155,6 +236,49 @@ pub struct Menu {
     /// What each slot holds, read when the menu opens. `None` is empty.
     pub slots: [Option<String>; SLOTS],
     pub settings: Settings,
+    /// The documents that shipped on the disc, already wrapped to
+    /// [`READ_COLUMNS`]. Empty if the disc has none, and then the menu does
+    /// not offer them.
+    pub docs: Vec<crate::docs::Doc>,
+    /// The first line showing on the reading page.
+    pub scroll: usize,
+}
+
+/// The reading page: how wide the column is, and how it is set.
+///
+/// The documents are wrapped to `READ_COLUMNS` when they are loaded, so this
+/// is the one number the wrap and the drawing have to agree on. Everything
+/// else here is derived from it.
+pub const READ_COLUMNS: usize = 49;
+const READ_SCALE: i32 = 2;
+const READ_MARGIN: i32 = 26;
+const READ_TOP: i32 = 58;
+/// Baseline to baseline, which is the glyph plus a little air. Set solid it
+/// reads as a wall.
+const READ_LINE: i32 = GH as i32 * READ_SCALE + 5;
+const READ_FOOT: i32 = 46;
+
+/// How many lines fit on screen at once.
+fn read_rows(h: usize) -> usize {
+    (((h as i32 - READ_TOP - READ_FOOT - 6) / READ_LINE).max(1)) as usize
+}
+
+/// The three buttons along the foot of the reading page.
+///
+/// Back, and a page each way. Buttons rather than a drag because every other
+/// thing in this menu is a tap, and a reader that alone wanted a gesture is a
+/// reader people will not find their way out of.
+const READ_KEYS: [&str; 3] = ["BACK", "UP", "DOWN"];
+
+fn read_key_rect(i: usize, w: usize, h: usize) -> (i32, i32, i32, i32) {
+    let span = w as i32 - READ_MARGIN * 2;
+    let each = span / READ_KEYS.len() as i32;
+    (
+        READ_MARGIN + i as i32 * each + 4,
+        h as i32 - READ_FOOT + 4,
+        each - 8,
+        READ_FOOT - 12,
+    )
 }
 
 /// Panel geometry, derived once and used by both the drawing and the hit test
@@ -202,7 +326,17 @@ impl Default for Menu {
 
 impl Menu {
     pub fn new(settings: Settings, slots: [Option<String>; SLOTS]) -> Menu {
-        Menu { page: Page::Root, note: None, slots, settings }
+        Menu { page: Page::Root, note: None, slots, settings, docs: Vec::new(), scroll: 0 }
+    }
+
+    /// Hands the menu the disc's documents.
+    ///
+    /// Separate from `new` because the menu is built every time it is opened
+    /// and the documents are read once: the caller keeps them and passes a
+    /// copy in.
+    pub fn with_docs(mut self, docs: Vec<crate::docs::Doc>) -> Menu {
+        self.docs = docs;
+        self
     }
 
     /// The rows on the page showing now, with what each says.
@@ -219,10 +353,28 @@ impl Menu {
                 if self.slots.iter().any(Option::is_some) {
                     rows.push((Row::Go(Page::Load), "LOAD GAME".to_string()));
                 }
+                // Only when the disc carried them. A pressing without the
+                // documents should not offer a page that opens onto nothing.
+                if !self.docs.is_empty() {
+                    rows.push((Row::Go(Page::Docs), "HINTS AND MANUAL".to_string()));
+                }
                 rows.push((Row::Go(Page::Settings), "SETTINGS".to_string()));
                 rows.push((Row::Quit, "QUIT".to_string()));
                 rows
             }
+            Page::Docs => {
+                let mut rows: Vec<(Row, String)> = self
+                    .docs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, d)| (Row::Doc(i), d.title.clone()))
+                    .collect();
+                rows.push((Row::Go(Page::Root), "BACK".to_string()));
+                rows
+            }
+            // Not a list of rows. `row_at` never asks, and `draw` takes its
+            // own branch well before this.
+            Page::Reading(_) => Vec::new(),
             Page::Save | Page::Load => {
                 let mut rows: Vec<(Row, String)> = (0..SLOTS)
                     .map(|i| {
@@ -242,12 +394,18 @@ impl Menu {
         }
     }
 
-    fn title(&self) -> &'static str {
+    fn title(&self) -> &str {
         match self.page {
             Page::Root => "AMBER",
             Page::Save => "SAVE",
             Page::Load => "LOAD",
             Page::Settings => "SETTINGS",
+            Page::Docs => "READING",
+            Page::Reading(i) => {
+                // Borrowed from the document itself, so the page says what is
+                // open rather than "READING" again.
+                return self.docs.get(i).map(|d| d.title.as_str()).unwrap_or("READING");
+            }
         }
     }
 
@@ -259,9 +417,29 @@ impl Menu {
         })
     }
 
+    /// Steps back one page, and says whether there was nowhere left to go.
+    ///
+    /// What the phone's back key and the desktop's Escape both mean. Without
+    /// it, backing out of the manual closed the menu entirely and dropped the
+    /// player into the room -- which is a long way to fall from page forty of
+    /// a document they were reading.
+    pub fn back(&mut self) -> bool {
+        self.note = None;
+        self.page = match self.page {
+            Page::Root => return true,
+            Page::Reading(_) => Page::Docs,
+            _ => Page::Root,
+        };
+        self.scroll = 0;
+        false
+    }
+
     /// Takes a click. Navigation and settings are handled here; only what the
     /// loop must do comes back.
     pub fn click(&mut self, x: i32, y: i32, w: usize, h: usize) -> Action {
+        if let Page::Reading(_) = self.page {
+            return self.read_click(x, y, w, h);
+        }
         let Some(row) = self.row_at(x, y, w, h) else { return Action::None };
         self.note = None;
         match row {
@@ -269,6 +447,11 @@ impl Menu {
             Row::Quit => Action::Quit,
             Row::Go(page) => {
                 self.page = page;
+                Action::None
+            }
+            Row::Doc(i) => {
+                self.page = Page::Reading(i);
+                self.scroll = 0;
                 Action::None
             }
             Row::Slot(i) => match self.page {
@@ -301,6 +484,106 @@ impl Menu {
         }
     }
 
+    /// A tap while a document is open.
+    ///
+    /// The three buttons, and the body of the page as a fourth: tapping the
+    /// text turns forward, which is what every reader does and what a player
+    /// will try before they look for a button.
+    fn read_click(&mut self, x: i32, y: i32, w: usize, h: usize) -> Action {
+        let step = read_rows(h).saturating_sub(2).max(1);
+        let last = self.reading().map_or(0, |lines| {
+            lines.len().saturating_sub(read_rows(h))
+        });
+
+        for (i, _) in READ_KEYS.iter().enumerate() {
+            let (bx, by, bw, bh) = read_key_rect(i, w, h);
+            if x < bx || x >= bx + bw || y < by || y >= by + bh {
+                continue;
+            }
+            match i {
+                0 => {
+                    self.page = Page::Docs;
+                    self.scroll = 0;
+                }
+                1 => self.scroll = self.scroll.saturating_sub(step),
+                _ => self.scroll = (self.scroll + step).min(last),
+            }
+            return Action::None;
+        }
+
+        // The page itself, above the buttons.
+        if y < h as i32 - READ_FOOT {
+            self.scroll = (self.scroll + step).min(last);
+        }
+        Action::None
+    }
+
+    /// The lines of the document that is open, if one is.
+    fn reading(&self) -> Option<&[String]> {
+        match self.page {
+            Page::Reading(i) => self.docs.get(i).map(|d| d.lines.as_slice()),
+            _ => None,
+        }
+    }
+
+    /// A document, filling the stage.
+    ///
+    /// Not the panel the other pages use: a manual set inside a 460 pixel box
+    /// is eight words a line, and the whole point of this page is that it can
+    /// be read.
+    fn draw_reading(&self, out: &mut [u32], w: usize, h: usize, pointer: Option<(i32, i32)>) {
+        fill(out, w, h, 0, 0, w as i32, h as i32, 0x000d_0b08);
+        fill(out, w, h, 0, 0, w as i32, 2, 0x00c8_a55a);
+
+        let title = self.title();
+        text(out, w, h, READ_MARGIN, 18, title, 3, 0x00c8_a55a);
+
+        let lines = self.reading().unwrap_or(&[]);
+        let rows = read_rows(h);
+        let shown = lines.iter().skip(self.scroll).take(rows);
+        for (i, line) in shown.enumerate() {
+            text(
+                out,
+                w,
+                h,
+                READ_MARGIN,
+                READ_TOP + i as i32 * READ_LINE,
+                line,
+                READ_SCALE,
+                0x00b5_a88a,
+            );
+        }
+
+        // How far through, as a bar down the right hand edge rather than a
+        // number: it is the thing a reader glances at, not something they
+        // want to read.
+        let last = lines.len().saturating_sub(rows).max(1);
+        let track = h as i32 - READ_TOP - READ_FOOT;
+        let thumb = (track * rows as i32 / lines.len().max(rows) as i32).max(12);
+        let at = READ_TOP + (track - thumb) * self.scroll.min(last) as i32 / last as i32;
+        fill(out, w, h, w as i32 - 12, READ_TOP, w as i32 - 9, READ_TOP + track, 0x0022_1c13);
+        fill(out, w, h, w as i32 - 12, at, w as i32 - 9, at + thumb, 0x0087_7a5e);
+
+        fill(out, w, h, 0, h as i32 - READ_FOOT, w as i32, h as i32 - READ_FOOT + 1, 0x0044_3a28);
+        for (i, key) in READ_KEYS.iter().enumerate() {
+            let (bx, by, bw, bh) = read_key_rect(i, w, h);
+            let over = pointer
+                .is_some_and(|(px, py)| px >= bx && px < bx + bw && py >= by && py < by + bh);
+            // A button that would do nothing is drawn as one that would not.
+            let dead = (i == 1 && self.scroll == 0)
+                || (i == 2 && self.scroll >= lines.len().saturating_sub(rows));
+            if over && !dead {
+                fill(out, w, h, bx, by, bx + bw, by + bh, 0x0026_1f14);
+            }
+            let ink = match (over, dead) {
+                (_, true) => 0x0045_3f34,
+                (true, _) => 0x00ff_e9b0,
+                _ => 0x0099_8f78,
+            };
+            text(out, w, h, bx + (bw - width(key, 2)) / 2, by + (bh - GH as i32 * 2) / 2, key, 2, ink);
+        }
+    }
+
     pub fn draw(&self, out: &mut [u32], w: usize, h: usize, pointer: Option<(i32, i32)>) {
         // The scene is dimmed rather than covered -- the game is paused, not
         // gone -- but far enough down that a bright film behind it cannot be
@@ -308,6 +591,11 @@ impl Menu {
         for pixel in out.iter_mut() {
             let (r, g, b) = (*pixel >> 16 & 0xff, *pixel >> 8 & 0xff, *pixel & 0xff);
             *pixel = (r / 8) << 16 | (g / 8) << 8 | (b / 8);
+        }
+
+        if matches!(self.page, Page::Reading(_)) {
+            self.draw_reading(out, w, h, pointer);
+            return;
         }
 
         let rows = self.rows();
@@ -375,6 +663,35 @@ mod tests {
                 shape.bytes().all(|b| b == b'#' || b == b'.'),
                 "glyph {c} has something other than # and ."
             );
+        }
+        // No character twice: `glyph` takes the first match, so a duplicate is
+        // a shape that can never be drawn and will not be noticed.
+        let mut seen: Vec<char> = GLYPHS.iter().map(|(c, _)| *c).collect();
+        seen.sort_unstable();
+        let before = seen.len();
+        seen.dedup();
+        assert_eq!(before, seen.len(), "the font declares a character twice");
+    }
+
+    /// Lower case draws as lower case, and every character the documents use
+    /// has a shape.
+    ///
+    /// The reader shows the disc's own prose, which is mixed case and full of
+    /// punctuation. Before it existed `glyph` folded to upper case on the way
+    /// in, so adding the shapes without changing that would have drawn a
+    /// manual in capitals anyway and looked like the shapes were missing.
+    #[test]
+    fn the_documents_are_drawable_in_the_case_they_were_written() {
+        assert_ne!(
+            glyph('a'),
+            glyph('A'),
+            "lower case is still being folded to upper"
+        );
+        // What the three files actually contain, near enough: prose, the
+        // punctuation a word processor emits, and the odd number.
+        let sample = "AMBER: Journeys Beyond -- \"patience is a virtue.\"                       (The values are 6, 5, and 8.) 100% of it? Yes; see MANUAL.WRI.";
+        for c in sample.chars() {
+            assert!(glyph(c).is_some(), "no glyph for {c:?}");
         }
     }
 
@@ -794,5 +1111,188 @@ mod pad_tests {
         assert_eq!(pad_hit(bx - 30, by, &only, 640), None);
         // A direction the room does not offer has no button at all.
         assert_eq!(pad_hit(8, 208, &only, 640), None, "drew a button for a dead direction");
+    }
+}
+
+#[cfg(test)]
+mod reader_tests {
+    use super::*;
+
+    fn paged(lines: usize) -> Menu {
+        let doc = crate::docs::Doc {
+            title: "HINTS".into(),
+            lines: (0..lines).map(|i| format!("line {i}")).collect(),
+        };
+        let mut menu = Menu::default().with_docs(vec![doc]);
+        menu.page = Page::Reading(0);
+        menu
+    }
+
+    const W: usize = 640;
+    const H: usize = 480;
+
+    /// The documents are only offered when the disc had them.
+    #[test]
+    fn a_disc_without_documents_offers_no_reading() {
+        let bare = Menu::default();
+        assert!(
+            !bare.rows().iter().any(|(r, _)| matches!(r, Row::Go(Page::Docs))),
+            "offered a reading page with nothing to read"
+        );
+        let stocked = paged(10);
+        let mut root = Menu::default().with_docs(stocked.docs);
+        root.page = Page::Root;
+        assert!(root.rows().iter().any(|(r, _)| matches!(r, Row::Go(Page::Docs))));
+    }
+
+    /// Scrolling stops at both ends rather than running off.
+    ///
+    /// The bottom stop is the one that matters: past it the page is blank and
+    /// the reader looks broken, with no way to tell that the document ended
+    /// twenty taps ago.
+    #[test]
+    fn the_page_turns_and_stops() {
+        let mut menu = paged(200);
+        let body = (W as i32 / 2, 100);
+
+        assert_eq!(menu.scroll, 0);
+        menu.click(body.0, body.1, W, H);
+        let first = menu.scroll;
+        assert!(first > 0, "tapping the page did not turn it");
+
+        // Far past the end.
+        for _ in 0..500 {
+            menu.click(body.0, body.1, W, H);
+        }
+        let rows = read_rows(H);
+        assert_eq!(menu.scroll, 200 - rows, "ran past the last line");
+
+        // And back to the top.
+        let (ux, uy, uw, uh) = read_key_rect(1, W, H);
+        for _ in 0..500 {
+            menu.click(ux + uw / 2, uy + uh / 2, W, H);
+        }
+        assert_eq!(menu.scroll, 0, "ran past the first line");
+    }
+
+    /// A document shorter than the page does not scroll at all.
+    #[test]
+    fn a_short_document_does_not_move() {
+        let mut menu = paged(4);
+        menu.click(W as i32 / 2, 100, W, H);
+        assert_eq!(menu.scroll, 0);
+    }
+
+    /// BACK leaves the document, and back-out is one page at a time.
+    #[test]
+    fn backing_out_goes_one_page_at_a_time() {
+        let mut menu = paged(200);
+        menu.scroll = 40;
+        let (bx, by, bw, bh) = read_key_rect(0, W, H);
+        menu.click(bx + bw / 2, by + bh / 2, W, H);
+        assert_eq!(menu.page, Page::Docs, "BACK did not leave the document");
+        assert_eq!(menu.scroll, 0, "the place was kept after leaving");
+
+        let mut menu = paged(200);
+        menu.scroll = 40;
+        assert!(!menu.back(), "the back key closed the menu from inside a document");
+        assert_eq!(menu.page, Page::Docs);
+        assert!(!menu.back());
+        assert_eq!(menu.page, Page::Root);
+        assert!(menu.back(), "the back key did not close the menu at the root");
+    }
+
+    /// Every line of every document on the disc is drawable, and fits.
+    ///
+    /// The wrap and the drawing agree on `READ_COLUMNS` or the text runs off
+    /// the edge, and a character with no shape comes out as a hole rather
+    /// than as any kind of error -- so both are checked against the real
+    /// prose rather than against a sample.
+    #[test]
+    fn the_discs_own_prose_fits_and_draws() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        let Ok(content) = crate::iso::open(&root) else { return };
+        let docs = crate::docs::load(content.as_ref(), READ_COLUMNS);
+        assert!(!docs.is_empty(), "the disc carries no documents");
+
+        // From the left margin to the near side of the scroll bar. The right
+        // margin is where the text stops, not a second inset.
+        let room = W as i32 - READ_MARGIN - 16;
+        for doc in &docs {
+            for line in &doc.lines {
+                assert!(
+                    width(line, READ_SCALE) <= room,
+                    "{} runs off the page: {line:?}",
+                    doc.title
+                );
+                for c in line.chars() {
+                    assert!(glyph(c).is_some(), "no glyph for {c:?} in {}: {line:?}", doc.title);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod reader_eyeball {
+    use super::*;
+
+    fn shot(menu: &Menu, name: &str) {
+        const W: usize = 640;
+        const H: usize = 480;
+        let mut frame = vec![0x0018_1410u32; W * H];
+        menu.draw(&mut frame, W, H, None);
+        let rgba: Vec<u8> = frame
+            .iter()
+            .flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 0xff])
+            .collect();
+        let out = std::path::Path::new(
+            &std::env::var("AMBER_SHOTS").unwrap_or_else(|_| "/tmp".into()),
+        )
+        .join(name);
+        crate::write_png(&out, W as u32, H as u32, &rgba).expect("write");
+        println!("wrote {}", out.display());
+    }
+
+    /// Renders the menu pages so they can be looked at.
+    ///
+    /// `AMBER_SHOTS=/somewhere cargo test -p amber --release -- --ignored
+    /// --nocapture reader_eyeball`. There is no assertion worth writing about
+    /// whether a page looks right.
+    /// Prints a line of text as characters, to check a glyph without a PNG.
+    #[test]
+    #[ignore]
+    fn letters() {
+        const W: usize = 200;
+        const H: usize = 20;
+        let mut frame = vec![0u32; W * H];
+        text(&mut frame, W, H, 2, 2, "agpqyj Ag.", 2, 0x00ff_ffff);
+        for y in 0..H {
+            let row: String = (0..W)
+                .map(|x| if frame[y * W + x] != 0 { '#' } else { '.' })
+                .collect();
+            println!("{row}");
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn pages() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        let Ok(content) = crate::iso::open(&root) else { return };
+        let docs = crate::docs::load(content.as_ref(), READ_COLUMNS);
+
+        let mut menu = Menu::new(Settings::default(), [Some("ROXY HALL".into()), None, None])
+            .with_docs(docs);
+        shot(&menu, "menu-root.png");
+        menu.page = Page::Docs;
+        shot(&menu, "menu-docs.png");
+        menu.page = Page::Reading(0);
+        shot(&menu, "menu-hints.png");
+        menu.scroll = 40;
+        shot(&menu, "menu-hints-40.png");
+        menu.page = Page::Reading(1);
+        menu.scroll = 0;
+        shot(&menu, "menu-manual.png");
     }
 }
