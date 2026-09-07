@@ -3962,6 +3962,183 @@ fn blit(
 }
 
 #[cfg(test)]
+mod second_act_tests {
+    use lingo::Value;
+
+    fn game() -> Option<crate::game::Game> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        root.is_dir().then(|| crate::game::Game::new(&root).expect("extract/ is not a game"))
+    }
+
+    /// Walks into a room the way arriving in it does.
+    ///
+    /// Setting `room` alone is not arriving: `jump_to` is what sets the zone,
+    /// the current location and the rest of what a room's own scripts read.
+    fn go(game: &mut crate::game::Game, room: &str) {
+        let at = game.world.resolve(room, Some("ROXY")).unwrap_or_else(|| panic!("no {room}"));
+        game.jump_to(at);
+    }
+
+    /// The whole gate on the second act, link by link.
+    ///
+    /// Nothing in this game is further from where it is caused than the
+    /// telephone. Roxy's call is what hands over the AMBER headgear, and the
+    /// headgear is what opens all three chapters -- and the call is behind the
+    /// psionic BAR being switched on, which is behind six security camera
+    /// recordings being watched back, which is behind walking far enough for
+    /// each to be offered. Every link has been broken at some point in this
+    /// port and each time the symptom was the same: a house that could be
+    /// explored for ever and never finished.
+    ///
+    /// So the whole chain is asserted here rather than its parts in three
+    /// places, because what matters is that it joins up.
+    #[test]
+    fn the_house_can_be_finished() {
+        let Some(mut game) = game() else { return };
+
+        // 1. The psionic BAR: power on, level six, gain five, FM eight, run.
+        //    Those three numbers are the hint book's, and the manual's, and
+        //    the videotape's.
+        go(&mut game, "LivingRmBarPanel");
+        let press = |game: &mut crate::game::Game, x, y| {
+            game.click(x, y);
+        };
+        press(&mut game, 500, 280);
+        assert!(game.state.get("BarMode").is_symbol("setON"), "the panel would not switch on");
+        for _ in 0..2 {
+            press(&mut game, 496, 200);
+        }
+        press(&mut game, 493, 170);
+        for _ in 0..3 {
+            press(&mut game, 496, 200);
+        }
+        press(&mut game, 493, 170);
+        for _ in 0..8 {
+            press(&mut game, 496, 200);
+        }
+        assert_eq!(
+            (
+                game.state.get("BarLevel").as_int(),
+                game.state.get("BarGain").as_int(),
+                game.state.get("BarFM").as_int(),
+            ),
+            (Some(6), Some(5), Some(8)),
+            "the dials would not reach 6, 5 and 8"
+        );
+        press(&mut game, 493, 130);
+        assert_eq!(
+            game.state.get("BarOnline").as_int(),
+            Some(1),
+            "the right numbers did not bring the BAR online"
+        );
+
+        // 2. Each of the six recordings is offered somewhere, and watching it
+        //    takes it off the list. The rooms differ because a recording is
+        //    held back from the place it was made -- the point of it is that
+        //    it happened where nobody was looking.
+        game.state.set("playerHasPeekUnit", Value::Symbol("carrying".into()));
+        game.state.add_inventory("PeekUnit");
+        let mut seen = Vec::new();
+        for _ in 0..12 {
+            if game.state.get_all("cameraFeedbackRemaining").is_empty() {
+                break;
+            }
+            // Somewhere that is not the study, the kitchen, or either of the
+            // two bedrooms, so that whatever is left is eligible from at
+            // least one of them.
+            let mut offered = None;
+            for room in ["StudyWwall", "MBRnwall", "HallStairsTopArt", "MargNwall"] {
+                go(&mut game, room);
+                game.state.set("PeekDisplay", Value::Symbol("None".into()));
+                if game.spawn_ghostly_event() {
+                    offered = game
+                        .state
+                        .get("PeekDisplay")
+                        .as_str()
+                        .map(|s| s.trim_start_matches('#').to_string());
+                    break;
+                }
+            }
+            let Some(offered) = offered else {
+                panic!(
+                    "nothing was offered anywhere, with {:?} still to see",
+                    game.state.get_all("cameraFeedbackRemaining")
+                );
+            };
+
+            // Watching it on the unit is what retires it.
+            let mut out = crate::script::Outcome::default();
+            crate::natives::call("usepeekunit", &[], &mut game.state, &mut out);
+            game.apply(&out);
+            // The unit holds for a click on each clip -- fade in, the
+            // recording, fade out -- so the queue has to be run out the way a
+            // player runs it out, by clicking through.
+            for _ in 0..12 {
+                let _ = game.settle();
+                if !game.waiting_for_click() && !game.effects_busy() {
+                    break;
+                }
+                game.click(320, 210);
+            }
+            assert!(
+                !game
+                    .state
+                    .get_all("cameraFeedbackRemaining")
+                    .iter()
+                    .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(&offered))),
+                "{offered} was watched and stayed on the list"
+            );
+            seen.push(offered);
+        }
+        seen.sort();
+        assert_eq!(
+            seen.len(),
+            6,
+            "only {} of the six recordings could be reached: {seen:?}",
+            seen.len()
+        );
+        assert!(game.state.get_all("cameraFeedbackRemaining").is_empty());
+
+        // 3. The oscillator is in the AMBER device and one door has been
+        //    listened to, which are the other two counts.
+        game.state.set("oscillatorInPlace", Value::Int(1));
+        game.state.trim_item(
+            "tonalResidueRemaining",
+            &Value::Symbol("PkPatioScan".into()),
+        );
+
+        // 4. And putting the unit away is what asks the question.
+        let mut out = crate::script::Outcome::default();
+        crate::script::run(&["stowInventory( #PeekUnit )".to_string()], &mut game.state);
+        crate::natives::call("testforpsionicwaves", &[], &mut game.state, &mut out);
+        game.apply(&out);
+        let _ = game.settle();
+        assert!(
+            game.state.get("ghostlyPhoneCall").is_symbol("ringingNow"),
+            "the telephone did not ring: {:?}",
+            game.state.get("ghostlyPhoneCall")
+        );
+
+        // 5. Answering it is what hands over the headgear.
+        go(&mut game, "LivingRmPhoneCU");
+        game.click(320, 220);
+        // Roxy's message plays out before the headgear is offered.
+        for _ in 0..12 {
+            let _ = game.settle();
+            if !game.waiting_for_click() && !game.effects_busy() {
+                break;
+            }
+            game.click(320, 210);
+        }
+        assert!(
+            game.state.get("AMBERVISION").is_symbol("waitingForPlayer"),
+            "answering the phone did not offer the headgear: {:?}",
+            game.state.get("AMBERVISION")
+        );
+    }
+}
+
+#[cfg(test)]
 mod ringing_tests {
     use lingo::Value;
 
