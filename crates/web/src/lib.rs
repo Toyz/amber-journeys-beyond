@@ -519,9 +519,12 @@ impl Amber {
                 if let Some((pcm, rate, ch)) = self.game.sound(&name) {
                     audio.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true, true);
                 }
+                // So the next room does not retire it; see `Game::note_loop`.
+                self.game.note_loop(&name, gain);
             }
             Effect::StopLoop { name, .. } => {
                 audio.stop(&name);
+                self.game.note_loop_stopped(&name);
                 self.game.stop_program(&name);
             }
             // Fades are not modelled yet; the duck itself is what the scripts

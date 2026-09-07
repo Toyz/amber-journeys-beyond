@@ -91,6 +91,20 @@ pub struct Game {
     /// Sprite channels a script has taken over, keyed by channel so they
     /// composite in the same back-to-front order as the room's own sprites.
     puppets: BTreeMap<u8, Puppet>,
+    /// Loops a script started that no room declares.
+    ///
+    /// In the original, `setLoop` and `endLoop` maintain one table and a
+    /// room's sound sprites adjust entries in it; a room does not get to wipe
+    /// a loop it has never heard of. Here the room's own bed was the whole of
+    /// what the mixer was told to keep, so anything a script started was
+    /// retired the next time the player walked through a door.
+    ///
+    /// The telephone is what that cost. `testForPsionicWaves` starts
+    /// `#phoneRinging` from wherever the player put the PeeK unit down, and
+    /// the phone is in the living room -- so the ring was silenced by the
+    /// first doorway they walked through, every time. Nobody heard it, nobody
+    /// answered it, and answering it is what hands over the AMBER headgear.
+    script_loops: BTreeMap<String, f32>,
     /// An inventory item drawn with one of its other icons, while it lasts.
     icon_override: Option<(String, usize)>,
     /// A film playing on a script-driven channel, over the room's own.
@@ -264,6 +278,7 @@ impl Game {
             ghost_call_at: HashMap::new(),
             transition: None,
             puppets: BTreeMap::new(),
+            script_loops: BTreeMap::new(),
             icon_override: None,
             overlay: None,
             repeating: None,
@@ -2787,6 +2802,44 @@ impl Game {
     ///
     /// A room declares its mix as `#earShot: [#houseHum: 224, ...]`, levels out
     /// of 255, and separately places named loops on the `#sound` channel.
+    /// Remembers a loop a script started, so a room change does not retire it.
+    ///
+    /// A loop the current room declares itself is not recorded: the room is
+    /// already responsible for it, and recording it would keep it alive into
+    /// the next room, which is the opposite mistake.
+    pub fn note_loop(&mut self, name: &str, gain: f32) {
+        let the_rooms_own = self
+            .ambience()
+            .iter()
+            .any(|(n, _)| n.eq_ignore_ascii_case(name));
+        if !the_rooms_own {
+            self.script_loops.insert(name.to_string(), gain);
+        }
+    }
+
+    /// Forgets one, for `endLoop`.
+    pub fn note_loop_stopped(&mut self, name: &str) {
+        self.script_loops.retain(|n, _| !n.eq_ignore_ascii_case(name));
+    }
+
+    /// The loops a room explicitly asks to stop.
+    ///
+    /// A sound sprite with a negative `#earShot` is an instruction to silence
+    /// that loop here rather than a level to play it at -- fifty-six sprites
+    /// use it that way. Those have to keep working now that a loop the room
+    /// does not mention is otherwise left alone, because they are how the game
+    /// says "not in this room".
+    pub fn silenced(&self) -> Vec<String> {
+        self.node()
+            .sprites
+            .iter()
+            .filter(|s| matches!(s.channel, Channel::Sound))
+            .filter(|s| self.state.test(&s.condition))
+            .filter(|s| s.volume.is_some_and(|v| v < 0))
+            .filter_map(|s| Some(s.cast_name.as_ref()?.trim_start_matches('#').to_string()))
+            .collect()
+    }
+
     pub fn ambience(&self) -> Vec<(String, f32)> {
         let node = self.node();
         let mut out: Vec<(String, f32)> = node
@@ -3909,6 +3962,97 @@ fn blit(
 }
 
 #[cfg(test)]
+mod ringing_tests {
+    use lingo::Value;
+
+    fn game() -> Option<crate::game::Game> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extract");
+        root.is_dir().then(|| crate::game::Game::new(&root).expect("extract/ is not a game"))
+    }
+
+    /// The telephone keeps ringing while the player walks to it.
+    ///
+    /// `testForPsionicWaves` starts `#phoneRinging` from wherever the player
+    /// was standing when they put the PeeK unit away, and the telephone is in
+    /// the living room -- so the ring has to survive at least one doorway or
+    /// nobody ever hears it. Nobody did: the room's own bed was the whole of
+    /// what the mixer was told to keep, and the first room change retired it.
+    ///
+    /// Answering that call is what sets `#AMBERVISION` to `#waitingForPlayer`,
+    /// which is what puts the headgear on the AMBER device, which is the whole
+    /// second half of the game.
+    #[test]
+    fn the_phone_goes_on_ringing_through_a_doorway() {
+        let Some(mut game) = game() else { return };
+        let audio = crate::audio::Audio::silent();
+
+        let Some(study) = game.world.resolve("StudyWwall", Some("ROXY")) else { return };
+        game.room = study;
+        crate::game::update_ambience(&mut game, Some(&audio));
+
+        // What the script does when the last camera feedback is seen.
+        let gain = game.sounds.gain("phoneRinging");
+        game.note_loop("phoneRinging", gain);
+        audio.play(Some("phoneRinging"), Some("phoneRinging".into()), std::sync::Arc::new(vec![0i16; 64]), 22050, 1, gain, true, true);
+        assert!(
+            audio.playing_loops().iter().any(|n| n == "phoneRinging"),
+            "the phone never started ringing"
+        );
+
+        // And now the walk to the living room.
+        for room in ["HallLivingRmEntry", "LivingRmPhoneCU"] {
+            let Some(next) = game.world.resolve(room, Some("ROXY")) else { continue };
+            game.room = next;
+            crate::game::update_ambience(&mut game, Some(&audio));
+            assert!(
+                audio.playing_loops().iter().any(|n| n == "phoneRinging"),
+                "the ring was retired on the way into {room}"
+            );
+        }
+
+        // Picking it up stops it, and it stays stopped.
+        audio.stop("phoneRinging");
+        game.note_loop_stopped("phoneRinging");
+        crate::game::update_ambience(&mut game, Some(&audio));
+        assert!(
+            !audio.playing_loops().iter().any(|n| n == "phoneRinging"),
+            "the ring came back after it was answered"
+        );
+    }
+
+    /// A room that explicitly silences a loop still silences it.
+    ///
+    /// Fifty-six sound sprites carry a negative `#earShot`, which means "not
+    /// in this room" rather than a level. They are the only thing that stops a
+    /// script's loop now that a room no longer retires everything it has not
+    /// heard of, so they have to keep working.
+    #[test]
+    fn a_room_that_asks_for_silence_still_gets_it() {
+        let Some(mut game) = game() else { return };
+        let audio = crate::audio::Audio::silent();
+
+        // `UHallMargDoorknobCU` declares `#scanLoop` at -1 when the scanner is
+        // not on its door, which is the shape this is about.
+        let Some(room) = game.world.resolve("UHallMargDoorknobCU", Some("ROXY")) else { return };
+        game.room = room;
+        game.state.set("doorWithScanUnit", Value::Symbol("None".into()));
+        let hushed = game.silenced();
+        assert!(
+            hushed.iter().any(|n| n.eq_ignore_ascii_case("scanLoop")),
+            "this room no longer asks for silence; the test needs a new one: {hushed:?}"
+        );
+
+        game.note_loop("scanLoop", 1.0);
+        audio.play(Some("scanLoop"), Some("scanLoop".into()), std::sync::Arc::new(vec![0i16; 64]), 22050, 1, 1.0, true, true);
+        crate::game::update_ambience(&mut game, Some(&audio));
+        assert!(
+            !audio.playing_loops().iter().any(|n| n == "scanLoop"),
+            "a room that asked for silence did not get it"
+        );
+    }
+}
+
+#[cfg(test)]
 mod overlay_visibility_tests {
     use crate::script::Effect;
 
@@ -4703,7 +4847,7 @@ pub fn update_ambience(game: &mut Game, audio: Option<&crate::audio::Audio>) {
         // it does, before starting anything new. Without this the
         // house hum follows the player out onto the grounds, where
         // the room's own mix asks for silence.
-        let wanted: Vec<(String, f32)> = game
+        let mut wanted: Vec<(String, f32)> = game
             .ambience()
             .into_iter()
             .map(|(name, level)| {
@@ -4711,6 +4855,17 @@ pub fn update_ambience(game: &mut Game, audio: Option<&crate::audio::Audio>) {
                 (name, gain)
             })
             .collect();
+        // Plus whatever a script started, unless this room silences it or
+        // declares it itself. A script's loop belongs to the story rather than
+        // to the room, and outlives the doorway.
+        let hushed = game.silenced();
+        game.script_loops
+            .retain(|name, _| !hushed.iter().any(|h| h.eq_ignore_ascii_case(name)));
+        for (name, gain) in &game.script_loops {
+            if !wanted.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+                wanted.push((name.clone(), *gain));
+            }
+        }
         a.set_loops(&wanted);
         let already = a.playing_loops();
 

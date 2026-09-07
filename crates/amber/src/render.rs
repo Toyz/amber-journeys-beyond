@@ -979,6 +979,10 @@ fn apply_effect(
             if let Some((pcm, rate, ch)) = game.sound(&name) {
                 a.play(Some(&name), Some(name.clone()), pcm, rate, ch, gain, true, true);
             }
+            // So the next room does not retire it. The telephone rings from
+            // wherever the player was standing when they put the PeeK unit
+            // away, and is answered in the living room.
+            game.note_loop(&name, gain);
         }
         // `pushVideo` was reaching here and being
         // discarded, so every montage that plays through it
@@ -992,6 +996,7 @@ fn apply_effect(
         }
         Effect::StopLoop { name, .. } => {
             a.stop(&name);
+            game.note_loop_stopped(&name);
             game.stop_program(&name);
         }
         // Fades are not modelled yet; the duck itself is
