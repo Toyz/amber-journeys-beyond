@@ -3056,7 +3056,25 @@ impl Game {
             .item_in_use()
             .is_some_and(|c| c.eq_ignore_ascii_case(&item));
         if already {
-            self.state.stow();
+            // Through `stowInventory`, not a bare `stow`. Putting the PeeK
+            // unit away is the moment the game asks whether the house has
+            // finished showing what it has -- `testForPsionicWaves` hangs off
+            // that handler and nothing else calls it -- and the telephone
+            // rings on the answer.
+            //
+            // Only the room's own `ItemInUse` hotspot went through it, which
+            // means the check ran when the player clicked the scenery while
+            // holding the unit and not when they tapped its icon to put it
+            // back. Tapping the icon is what everyone does, and on a phone,
+            // where the unit is dismissed with a button rather than by
+            // clicking the room behind it, it is very nearly the only thing
+            // anyone does. So the second act was reachable and almost nobody
+            // would reach it.
+            let out = crate::script::run(
+                &[format!("stowInventory( #{item} )")],
+                &mut self.state,
+            );
+            self.apply(&out);
         } else {
             self.state.stow();
             // Through `useInventory`, so the PeeK unit opens when it is
@@ -4107,11 +4125,23 @@ mod second_act_tests {
             &Value::Symbol("PkPatioScan".into()),
         );
 
-        // 4. And putting the unit away is what asks the question.
-        let mut out = crate::script::Outcome::default();
-        crate::script::run(&["stowInventory( #PeekUnit )".to_string()], &mut game.state);
-        crate::natives::call("testforpsionicwaves", &[], &mut game.state, &mut out);
-        game.apply(&out);
+        // 4. And putting the unit away is what asks the question -- done the
+        //    way a player does it, by tapping its icon on the bar rather than
+        //    by calling the handler. Those were two different code paths and
+        //    only one of them asked, so the act was reachable only by clicking
+        //    the scenery while holding the unit.
+        game.state.set("itemInUse", Value::Symbol("PeekUnit".into()));
+        let slot = game
+            .state
+            .slots()
+            .find(|(_, item)| item.eq_ignore_ascii_case("PeekUnit"))
+            .map(|(n, _)| n)
+            .expect("the unit is not on the bar");
+        let (icon_x, icon_y) = (110 + (slot as i32 - 1) * 70, 410);
+        assert!(
+            game.click_inventory(icon_x, icon_y, 640, 480),
+            "the unit's icon was not where the bar draws it"
+        );
         let _ = game.settle();
         assert!(
             game.state.get("ghostlyPhoneCall").is_symbol("ringingNow"),
